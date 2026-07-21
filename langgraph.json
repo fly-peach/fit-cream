@@ -1,0 +1,8 @@
+{
+  "dependencies": ["./rogers"],
+  "graphs": {
+    "fitcream_agent": "./rogers/agents/agent_graph.py:graph"
+  },
+  "env": ".env",
+  "python_version": "3.12"
+}
