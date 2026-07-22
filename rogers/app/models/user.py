@@ -22,9 +22,10 @@ class User(Base):
     id: Mapped[PyUUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid4
     )
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, nullable=False, index=True
+    phone: Mapped[str] = mapped_column(
+        String(20), unique=True, nullable=False, index=True
     )
+    email: Mapped[Optional[str]] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(100))
 

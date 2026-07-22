@@ -34,25 +34,28 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # ---------- LLM / Agent (OpenAI 兼容) ----------
-    OPENAI_API_KEY: str = ""
-    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
-    AGENT_MODEL: str = "gpt-4o-mini"
-    AGENT_TEMPERATURE: float = 0.7
-    AGENT_MAX_TOKENS: int = 2000
+    # ---------- 种子管理员（首次启动自动创建） ----------
+    SEED_ADMIN_PHONE: str = ""
+    SEED_ADMIN_PASSWORD: str = ""
 
     # ---------- DashScope (通义千问) ----------
     DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_MODEL: str = "qwen3.5-flash"
+    DASHSCOPE_TEMPERATURE: float = 1.2
+    DASHSCOPE_ENABLE_THINKING: bool = True
 
     # ---------- CORS ----------
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
 
     # ---------- 限流 ----------
-    AGENT_RATE_LIMIT: int = 10  # requests per minute
+    AGENT_RATE_LIMIT: int = 10
 
     # ---------- 日志 ----------
     LOG_LEVEL: str = "INFO"
-    LOG_FORMAT: str = "json"  # json or text
+    LOG_FORMAT: str = "text"
+    LOG_DIR: str = "logs"
+    ACCESS_LOG_ENABLED: bool = True
+    LOG_RETENTION_DAYS: int = 30
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

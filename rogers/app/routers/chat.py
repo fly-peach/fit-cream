@@ -1,15 +1,17 @@
 """对话路由 /api/chat/* - 流式对话 + Thread CRUD"""
+import asyncio
 import json
 import logging
-from typing import Optional
+from typing import Dict, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.database import async_session_factory, get_db
 from app.dependencies import get_current_user
 from app.models.conversation import Conversation
 from app.models.user import User
@@ -19,6 +21,10 @@ from app.schemas.common import ResponseModel
 logger = logging.getLogger("fitcream.chat")
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+# 存储活跃的流式任务，用于停止生成
+# key: thread_id, value: asyncio.Event
+_active_streams: Dict[str, asyncio.Event] = {}
 
 
 def _get_agent():
@@ -51,7 +57,12 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-@router.post("/send")
+class StopRequest(BaseModel):
+    """停止生成请求"""
+    thread_id: str
+
+
+@router.post("/message")
 async def send_message(
     req: ChatRequest,
     user: User = Depends(get_current_user),
@@ -61,11 +72,13 @@ async def send_message(
     发送消息并以 SSE 流式返回 Agent 回复。
 
     SSE 事件类型：
+    - start: 流式开始，返回 thread_id
     - thinking: 模型思考内容（reasoning_content）
     - token: 正式回复 token
     - tool_start: Tool 调用开始
     - tool_result: Tool 调用结果
     - done: 对话结束
+    - stopped: 用户手动停止
     - error: 错误
     """
     thread_id = req.thread_id or str(uuid4())
@@ -77,48 +90,66 @@ async def send_message(
     config = {"configurable": {"thread_id": thread_id, "user_id": user_id_str}}
     input_msg = {"messages": [{"role": "user", "content": req.message}]}
 
+    # 创建停止事件
+    stop_event = asyncio.Event()
+    _active_streams[thread_id] = stop_event
+
     async def event_stream():
         yield _sse_event("start", {"thread_id": thread_id})
 
         full_content = ""
         tool_calls = []
 
-        try:
-            async for event in agent.astream_events(input_msg, config=config, version="v2"):
-                kind = event["event"]
+        # 使用独立 session，避免请求级 session 在流式响应期间被关闭
+        async with async_session_factory() as stream_db:
+            try:
+                async for event in agent.astream_events(input_msg, config=config, version="v2"):
+                    # 检查是否需要停止
+                    if stop_event.is_set():
+                        if full_content:
+                            await _save_message(
+                                stream_db, user.id, thread_id, "assistant", full_content,
+                                metadata={"tool_calls": tool_calls, "stopped": True},
+                            )
+                        yield _sse_event("stopped", {"thread_id": thread_id, "partial_content": full_content})
+                        return
 
-                if kind == "on_chat_model_stream":
-                    chunk = event["data"]["chunk"]
-                    reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-                    if reasoning:
-                        yield _sse_event("thinking", {"content": reasoning})
-                    if chunk.content:
-                        full_content += chunk.content
-                        yield _sse_event("token", {"content": chunk.content})
+                    kind = event["event"]
 
-                elif kind == "on_tool_start":
-                    tool_name = event["name"]
-                    tool_calls.append(tool_name)
-                    yield _sse_event("tool_start", {"tool": tool_name})
+                    if kind == "on_chat_model_stream":
+                        chunk = event["data"]["chunk"]
+                        reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                        if reasoning:
+                            yield _sse_event("thinking", {"content": reasoning})
+                        if chunk.content:
+                            full_content += chunk.content
+                            yield _sse_event("token", {"content": chunk.content})
 
-                elif kind == "on_tool_end":
-                    output = str(event["data"].get("output", ""))
-                    yield _sse_event("tool_result", {
-                        "tool": event["name"],
-                        "data": output[:500],
-                    })
+                    elif kind == "on_tool_start":
+                        tool_name = event["name"]
+                        tool_calls.append(tool_name)
+                        yield _sse_event("tool_start", {"tool": tool_name})
 
-            if full_content:
-                await _save_message(
-                    db, user.id, thread_id, "assistant", full_content,
-                    metadata={"tool_calls": tool_calls},
-                )
+                    elif kind == "on_tool_end":
+                        output = str(event["data"].get("output", ""))
+                        yield _sse_event("tool_result", {
+                            "tool": event["name"],
+                            "data": output[:500],
+                        })
 
-            yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
+                if full_content:
+                    await _save_message(
+                        stream_db, user.id, thread_id, "assistant", full_content,
+                        metadata={"tool_calls": tool_calls},
+                    )
 
-        except Exception as e:
-            logger.error(f"[Chat] SSE error: {e}", exc_info=True)
-            yield _sse_event("error", {"message": str(e)})
+                yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
+
+            except Exception as e:
+                logger.error(f"[Chat] SSE error: {e}", exc_info=True)
+                yield _sse_event("error", {"message": str(e)})
+            finally:
+                _active_streams.pop(thread_id, None)
 
     return StreamingResponse(
         event_stream(),
@@ -129,6 +160,23 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/stop", response_model=ResponseModel[None])
+async def stop_generation(
+    req: StopRequest,
+    user: User = Depends(get_current_user),
+):
+    """
+    停止指定线程的 AI 生成。
+
+    前端在用户点击"停止生成"按钮时调用此接口。
+    """
+    stop_event = _active_streams.get(req.thread_id)
+    if stop_event:
+        stop_event.set()
+        return ResponseModel(message="已发送停止信号")
+    return ResponseModel(code=404, message="未找到活跃的生成任务")
 
 
 @router.get("/threads", response_model=ResponseModel[list[ThreadOut]])
@@ -237,3 +285,16 @@ async def delete_thread(
         return ResponseModel(code=404, message="线程不存在")
 
     return ResponseModel(message=f"已删除 {result.rowcount} 条消息")
+
+
+@router.delete("/history", response_model=ResponseModel[None])
+async def clear_history(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """清空当前用户的所有对话历史"""
+    stmt = delete(Conversation).where(Conversation.user_id == user.id)
+    result = await db.execute(stmt)
+    await db.commit()
+
+    return ResponseModel(message=f"已清空 {result.rowcount} 条消息")

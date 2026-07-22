@@ -26,19 +26,24 @@ reasoning_content 被正确捕获（langchain-openai >= 1.3 会丢弃 delta 中�
 """
 
 import os
-from pathlib import Path
 from typing import Any, Optional, Iterator, AsyncIterator
 
-from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
-_env_path = Path(__file__).resolve().parent.parent.parent.parent / ".env"
-load_dotenv(_env_path)
-
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen3.5-flash"
+
+
+def _get_setting(key: str, default: str = "") -> str:
+    try:
+        from app.config import settings
+        return str(getattr(settings, key, default))
+    except Exception:
+        return os.getenv(key, default)
+
+
+DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.5-flash")
 
 
 class ChatDashScope(ChatOpenAI):
@@ -67,7 +72,7 @@ class ChatDashScope(ChatOpenAI):
 
         kwargs.setdefault("base_url", DASHSCOPE_BASE_URL)
         kwargs.setdefault("model", DEFAULT_MODEL)
-        kwargs.setdefault("api_key", os.getenv("DASHSCOPE_API_KEY"))
+        kwargs.setdefault("api_key", _get_setting("DASHSCOPE_API_KEY"))
 
         super().__init__(**kwargs)
 
@@ -210,19 +215,21 @@ class ChatDashScope(ChatOpenAI):
 
 
 def create_chat_dashscope(
-    model: str = DEFAULT_MODEL,
-    temperature: float = 1.2,
-    enable_thinking: bool = True,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
+    enable_thinking: Optional[bool] = None,
     streaming: bool = False,
     **kwargs: Any,
 ) -> ChatDashScope:
     """
     工厂函数：创建配置好的 ChatDashScope 实例。
 
+    默认值从 .env 配置读取（DASHSCOPE_MODEL / DASHSCOPE_TEMPERATURE / DASHSCOPE_ENABLE_THINKING）。
+
     Args:
-        model: 模型名称，默认 qwen3.5-flash
-        temperature: 温度参数，默认 1.2（思考模式建议较高温度）
-        enable_thinking: 是否启用思考模式，默认 True
+        model: 模型名称，默认从 DASHSCOPE_MODEL 读取
+        temperature: 温度参数，默认从 DASHSCOPE_TEMPERATURE 读取
+        enable_thinking: 是否启用思考模式，默认从 DASHSCOPE_ENABLE_THINKING 读取
         streaming: 是否默认流式，默认 False
         **kwargs: 传递给 ChatOpenAI 的其他参数
 
@@ -230,9 +237,9 @@ def create_chat_dashscope(
         ChatDashScope 实例
     """
     return ChatDashScope(
-        model=model,
-        temperature=temperature,
-        enable_thinking=enable_thinking,
+        model=model or DEFAULT_MODEL,
+        temperature=temperature if temperature is not None else float(_get_setting("DASHSCOPE_TEMPERATURE", "1.2")),
+        enable_thinking=enable_thinking if enable_thinking is not None else _get_setting("DASHSCOPE_ENABLE_THINKING", "true").lower() == "true",
         streaming=streaming,
         **kwargs,
     )

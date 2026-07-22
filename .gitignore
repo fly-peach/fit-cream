@@ -74,6 +74,7 @@ dmypy.json
 # ========================
 *.log
 logs/
+rogers/logs/
 
 # ========================
 # Database
@@ -92,16 +93,29 @@ logs/
 # uv.lock is committed intentionally
 
 # ========================
-# Frontend (Node.js)
+# Frontend (Node.js / Vite)
 # ========================
 node_modules/
 frontend/dist/
+frontend/dist-ssr/
 frontend/.next/
 frontend/.nuxt/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+*.local
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ========================
+# Frontend build output in backend
+# ========================
+rogers/static/
 
 # ========================
 # LangGraph
