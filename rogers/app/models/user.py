@@ -5,7 +5,7 @@
 身体数据（身高/体重/年龄/性别）用于 Agent 生成个性化训练计划。
 """
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID as PyUUID
 from uuid import uuid4
 
@@ -46,7 +46,7 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    # 关系（后续 model 创建后补充）
+    # 关系
     # plans: Mapped[List["Plan"]] = relationship(back_populates="user", lazy="selectin")
     # checkins: Mapped[List["Checkin"]] = relationship(back_populates="user", lazy="selectin")
-    # achievements: Mapped[List["Achievement"]] = relationship(back_populates="user")
+    achievements: Mapped[List["Achievement"]] = relationship(back_populates="user")  # type: ignore[name-defined]
