@@ -18,6 +18,21 @@ import { AppLayout } from "@/components/app-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dumbbell,
   Loader2,
@@ -28,12 +43,19 @@ import {
   ChevronLeft,
   Sparkles,
   Flame,
+  UtensilsCrossed,
+  Pencil,
+  Plus,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+// ============ Types ============
+
 interface PlanExercise {
   id: string;
+  exercise_id: string;
   exercise_name: string | null;
   sets: number;
   reps: number;
@@ -74,6 +96,36 @@ interface CheckinItem {
   duration_min: number;
 }
 
+interface DietMeal {
+  id: string;
+  meal_type: string;
+  food_name: string;
+  calories: number | null;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+  portion: string | null;
+  sort_order: number;
+}
+
+interface DietDay {
+  id: string;
+  day_of_week: number;
+  focus: string | null;
+  meals: DietMeal[];
+}
+
+interface DietPlanDetail {
+  id: string;
+  name: string;
+  target_calories: number | null;
+  goal: string | null;
+  status: string;
+  days: DietDay[];
+}
+
+// ============ Constants ============
+
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const goalLabels: Record<string, string> = {
@@ -93,6 +145,20 @@ const statusLabels: Record<string, string> = {
   active: "进行中",
   archived: "已归档",
   completed: "已完成",
+};
+
+const mealTypeLabels: Record<string, string> = {
+  breakfast: "早餐",
+  lunch: "午餐",
+  dinner: "晚餐",
+  snack: "加餐",
+};
+
+const mealTypeColors: Record<string, string> = {
+  breakfast: "bg-amber-100 text-amber-700",
+  lunch: "bg-emerald-100 text-emerald-700",
+  dinner: "bg-sky-100 text-sky-700",
+  snack: "bg-purple-100 text-purple-700",
 };
 
 // ============ 打卡日历组件 ============
@@ -223,6 +289,186 @@ function CheckinCalendar({
   );
 }
 
+// ============ 训练日详情弹窗 ============
+
+function DayDetailDialog({
+  day,
+  open,
+  onClose,
+}: {
+  day: PlanDay | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!day) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-emerald-950">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
+              {dayNames[day.day_of_week - 1]}
+            </span>
+            {day.focus || "综合训练"}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm text-emerald-600/70">
+            <Clock className="size-4" />
+            组间休息 {day.rest_seconds} 秒
+          </div>
+          {day.exercises.length === 0 ? (
+            <p className="py-4 text-center text-sm text-emerald-600/50">休息日，无训练安排</p>
+          ) : (
+            <div className="space-y-2">
+              {[...day.exercises]
+                .sort((a, b) => a.sort_order - b.sort_order)
+                .map((ex, idx) => (
+                  <div
+                    key={ex.id}
+                    className="flex items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3"
+                  >
+                    <span className="flex size-6 items-center justify-center rounded-full bg-emerald-200 text-xs font-bold text-emerald-700">
+                      {idx + 1}
+                    </span>
+                    <div className="flex-1">
+                      <p className="font-medium text-emerald-900">{ex.exercise_name ?? "未知动作"}</p>
+                      <p className="text-xs text-emerald-600/60">
+                        {ex.sets} 组 × {ex.reps} 次
+                        {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            关闭
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ============ 饮食计划组件 ============
+
+function DietPlanCard({ dietPlan }: { dietPlan: DietPlanDetail | null }) {
+  const [selectedDay, setSelectedDay] = useState<number>(1);
+
+  if (!dietPlan) {
+    return (
+      <Card className="flex h-full min-h-64 items-center justify-center border-dashed border-orange-200">
+        <CardContent className="flex flex-col items-center gap-3 text-center">
+          <UtensilsCrossed className="size-8 text-orange-300" />
+          <p className="text-sm text-orange-600/60">
+            暂无饮食计划，让 AI 教练为你定制营养方案
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const currentDay = dietPlan.days.find((d) => d.day_of_week === selectedDay);
+  const totalCalories = currentDay?.meals.reduce((sum, m) => sum + (m.calories ?? 0), 0) ?? 0;
+
+  return (
+    <Card className="border-orange-100 bg-white/80 shadow-sm backdrop-blur">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-orange-950">
+            <UtensilsCrossed className="size-4 text-orange-500" />
+            {dietPlan.name}
+          </CardTitle>
+          {dietPlan.target_calories && (
+            <Badge className="border-orange-200 bg-orange-50 text-orange-700">
+              {dietPlan.target_calories} kcal/天
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 星期选择器 */}
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {dayNames.map((name, idx) => {
+            const dayNum = idx + 1;
+            const hasMeals = dietPlan.days.some((d) => d.day_of_week === dayNum && d.meals.length > 0);
+            return (
+              <button
+                key={dayNum}
+                onClick={() => setSelectedDay(dayNum)}
+                className={cn(
+                  "flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                  selectedDay === dayNum
+                    ? "bg-orange-500 text-white shadow-sm"
+                    : hasMeals
+                      ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
+                      : "bg-gray-100 text-gray-400"
+                )}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 当日餐食 */}
+        {currentDay && currentDay.meals.length > 0 ? (
+          <div className="space-y-3">
+            {currentDay.focus && (
+              <p className="text-xs font-medium text-orange-600/70">📋 {currentDay.focus}</p>
+            )}
+            <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+              <span className="text-xs text-orange-600">当日总热量</span>
+              <span className="text-sm font-bold text-orange-600">{totalCalories} kcal</span>
+            </div>
+            {[...currentDay.meals]
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((meal) => (
+                <div
+                  key={meal.id}
+                  className="rounded-xl border border-orange-100 bg-orange-50/30 p-3"
+                >
+                  <div className="mb-2 flex items-center justify-between">
+                    <span
+                      className={cn(
+                        "rounded-md px-2 py-0.5 text-xs font-medium",
+                        mealTypeColors[meal.meal_type] ?? "bg-gray-100 text-gray-600"
+                      )}
+                    >
+                      {mealTypeLabels[meal.meal_type] ?? meal.meal_type}
+                    </span>
+                    {meal.calories && (
+                      <span className="text-xs font-medium text-orange-600">{meal.calories} kcal</span>
+                    )}
+                  </div>
+                  <p className="font-medium text-orange-950">{meal.food_name}</p>
+                  {meal.portion && (
+                    <p className="mt-0.5 text-xs text-orange-600/60">份量：{meal.portion}</p>
+                  )}
+                  {(meal.protein_g || meal.carbs_g || meal.fat_g) && (
+                    <div className="mt-2 flex gap-3 text-xs text-orange-600/70">
+                      {meal.protein_g != null && <span>蛋白质 {meal.protein_g}g</span>}
+                      {meal.carbs_g != null && <span>碳水 {meal.carbs_g}g</span>}
+                      {meal.fat_g != null && <span>脂肪 {meal.fat_g}g</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-orange-600/50">
+            当天暂无餐食安排
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ============ 主页面 ============
 
 export default function PlansPage() {
@@ -232,8 +478,11 @@ export default function PlansPage() {
   const [selectedPlan, setSelectedPlan] = useState<PlanDetail | null>(null);
   const [checkins, setCheckins] = useState<CheckinItem[]>([]);
   const [streak, setStreak] = useState(0);
+  const [dietPlan, setDietPlan] = useState<DietPlanDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [dayDialogOpen, setDayDialogOpen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
 
   const loadPlans = async () => {
     try {
@@ -250,11 +499,13 @@ export default function PlansPage() {
       loadPlans(),
       api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
       api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
+      api.get<DietPlanDetail | null>("/diet-plans/active").catch(() => null),
     ])
-      .then(([active, , checkinRes, streakRes]) => {
+      .then(([active, , checkinRes, streakRes, diet]) => {
         setActivePlan(active);
         if (checkinRes?.items) setCheckins(checkinRes.items);
         if (streakRes) setStreak(streakRes.current_streak);
+        setDietPlan(diet);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -286,19 +537,24 @@ export default function PlansPage() {
     }
   };
 
+  const openDayDetail = (day: PlanDay) => {
+    setSelectedDay(day);
+    setDayDialogOpen(true);
+  };
+
   const displayPlan = selectedPlan ?? activePlan;
 
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-6xl space-y-6 p-6">
+        <div className="mx-auto max-w-7xl space-y-6 p-6">
           <header className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
               <Dumbbell className="size-5 text-emerald-600" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-emerald-950">训练计划</h1>
-              <p className="text-sm text-emerald-600/60">查看与管理你的专属训练计划</p>
+              <h1 className="text-xl font-bold text-emerald-950">训练与饮食计划</h1>
+              <p className="text-sm text-emerald-600/60">查看与管理你的专属训练和饮食计划</p>
             </div>
           </header>
 
@@ -313,9 +569,9 @@ export default function PlansPage() {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-6 xl:grid-cols-4">
               {/* 左栏：打卡日历 + 计划列表 */}
-              <div className="space-y-6 lg:col-span-1">
+              <div className="space-y-6 xl:col-span-1">
                 <CheckinCalendar checkinDates={checkinDates} streak={streak} />
 
                 <div className="space-y-3">
@@ -366,8 +622,8 @@ export default function PlansPage() {
                 </div>
               </div>
 
-              {/* 计划详情 */}
-              <div className="lg:col-span-2">
+              {/* 中栏：训练计划详情 */}
+              <div className="xl:col-span-2">
                 {displayPlan ? (
                   <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                     <CardHeader>
@@ -419,7 +675,8 @@ export default function PlansPage() {
                         .map((day) => (
                           <div
                             key={day.id}
-                            className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4"
+                            onClick={() => openDayDetail(day)}
+                            className="cursor-pointer rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 transition-all hover:border-emerald-300 hover:shadow-sm"
                           >
                             <div className="mb-3 flex items-center justify-between">
                               <div className="flex items-center gap-2">
@@ -430,10 +687,13 @@ export default function PlansPage() {
                                   {day.focus || "综合训练"}
                                 </span>
                               </div>
-                              <span className="flex items-center gap-1 text-xs text-emerald-600/60">
-                                <Clock className="size-3" />
-                                休息 {day.rest_seconds}s
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="flex items-center gap-1 text-xs text-emerald-600/60">
+                                  <Clock className="size-3" />
+                                  休息 {day.rest_seconds}s
+                                </span>
+                                <Pencil className="size-3.5 text-emerald-400" />
+                              </div>
                             </div>
                             {day.exercises.length === 0 ? (
                               <p className="text-xs text-emerald-600/50">休息日</p>
@@ -441,6 +701,7 @@ export default function PlansPage() {
                               <div className="space-y-1.5">
                                 {[...day.exercises]
                                   .sort((a, b) => a.sort_order - b.sort_order)
+                                  .slice(0, 3)
                                   .map((ex) => (
                                     <div
                                       key={ex.id}
@@ -455,6 +716,11 @@ export default function PlansPage() {
                                       </span>
                                     </div>
                                   ))}
+                                {day.exercises.length > 3 && (
+                                  <p className="text-center text-xs text-emerald-500">
+                                    +{day.exercises.length - 3} 个动作，点击查看详情
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>
@@ -472,10 +738,22 @@ export default function PlansPage() {
                   </Card>
                 )}
               </div>
+
+              {/* 右栏：饮食计划 */}
+              <div className="xl:col-span-1">
+                <DietPlanCard dietPlan={dietPlan} />
+              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* 训练日详情弹窗 */}
+      <DayDetailDialog
+        day={selectedDay}
+        open={dayDialogOpen}
+        onClose={() => setDayDialogOpen(false)}
+      />
     </AppLayout>
   );
 }

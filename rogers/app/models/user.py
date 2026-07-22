@@ -48,5 +48,6 @@ class User(Base):
 
     # 关系
     plans: Mapped[List["Plan"]] = relationship(back_populates="user", lazy="selectin")  # type: ignore[name-defined]
+    diet_plans: Mapped[List["DietPlan"]] = relationship(back_populates="user", lazy="selectin")  # type: ignore[name-defined]
     checkins: Mapped[List["Checkin"]] = relationship(back_populates="user", lazy="selectin")  # type: ignore[name-defined]
     achievements: Mapped[List["Achievement"]] = relationship(back_populates="user")  # type: ignore[name-defined]

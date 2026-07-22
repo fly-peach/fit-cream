@@ -7,6 +7,7 @@ SQLAlchemy ORM Models 包
 from app.models.achievement import Achievement
 from app.models.checkin import Checkin, CheckinExercise
 from app.models.conversation import Conversation
+from app.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from app.models.exercise import Exercise
 from app.models.plan import Plan, PlanDay, PlanDayExercise
 from app.models.user import User
@@ -16,6 +17,9 @@ __all__ = [
     "Plan",
     "PlanDay",
     "PlanDayExercise",
+    "DietPlan",
+    "DietPlanDay",
+    "DietPlanMeal",
     "Checkin",
     "CheckinExercise",
     "Exercise",
