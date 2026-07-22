@@ -11,22 +11,24 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
-
 
 def hash_password(password: str) -> str:
-    """密码哈希"""
-    return pwd_context.hash(password)
+    """密码哈希（bcrypt 12 轮）"""
+    # bcrypt 限制密码最长 72 字节
+    pwd_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码"""
-    return pwd_context.verify(plain_password, hashed_password)
+    pwd_bytes = plain_password.encode("utf-8")[:72]
+    return bcrypt.checkpw(pwd_bytes, hashed_password.encode("utf-8"))
 
 
 def create_access_token(user_id: UUID, expires_delta: Optional[timedelta] = None) -> str:
