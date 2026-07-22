@@ -1,22 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
-import {
-  format,
-  startOfMonth,
-  endOfMonth,
-  eachDayOfInterval,
-  isSameMonth,
-  isSameDay,
-  addMonths,
-  subMonths,
-  startOfWeek,
-  endOfWeek,
-  isToday,
-  isBefore,
-} from "date-fns";
+import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import {
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -28,18 +13,13 @@ import {
   RadialBar,
   PolarAngleAxis,
 } from "recharts";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { AppLayout } from "@/components/app-layout";
 import {
-  ChevronLeft,
-  ChevronRight,
   Flame,
   Dumbbell,
   Target,
   TrendingUp,
-  CalendarDays,
   Zap,
   Loader2,
   Clock,
@@ -98,102 +78,6 @@ interface CheckinItem {
 
 const dayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 const moodEmojis = ["😫", "😕", "😐", "🙂", "🤩"];
-
-// ============ 日历组件 ============
-
-function CheckinCalendar({ checkinDates }: { checkinDates: Set<string> }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const today = new Date();
-
-  const calendarDays = useMemo(() => {
-    const monthStart = startOfMonth(currentMonth);
-    const monthEnd = endOfMonth(currentMonth);
-    const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-    const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
-    return eachDayOfInterval({ start: calStart, end: calEnd });
-  }, [currentMonth]);
-
-  const monthCheckins = useMemo(() => {
-    return calendarDays.filter(
-      (d) => isSameMonth(d, currentMonth) && checkinDates.has(format(d, "yyyy-MM-dd"))
-    ).length;
-  }, [calendarDays, currentMonth, checkinDates]);
-
-  const selectedChecked = checkinDates.has(format(selectedDate, "yyyy-MM-dd"));
-
-  return (
-    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
-            <CalendarDays className="size-4 text-emerald-500" />
-            打卡日历
-          </CardTitle>
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="size-7 text-emerald-700 hover:bg-emerald-100" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
-              {format(currentMonth, "yyyy年M月", { locale: zhCN })}
-            </span>
-            <Button variant="ghost" size="icon" className="size-7 text-emerald-700 hover:bg-emerald-100" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-emerald-600/60">
-          {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
-            <div key={d} className="py-1">{d}</div>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {calendarDays.map((day) => {
-            const dateStr = format(day, "yyyy-MM-dd");
-            const checked = checkinDates.has(dateStr);
-            const inMonth = isSameMonth(day, currentMonth);
-            const isSelected = isSameDay(day, selectedDate);
-            const isFuture = isBefore(today, day) && !isSameDay(day, today);
-
-            return (
-              <button
-                key={dateStr}
-                onClick={() => setSelectedDate(day)}
-                className={cn(
-                  "relative flex size-9 items-center justify-center rounded-lg text-sm transition-all duration-150",
-                  !inMonth && "text-emerald-200",
-                  inMonth && !checked && !isSelected && "text-emerald-800 hover:bg-emerald-50",
-                  checked && "bg-emerald-100 text-emerald-700 font-medium hover:bg-emerald-200",
-                  isSelected && "ring-2 ring-emerald-400",
-                  isToday(day) && "font-bold text-emerald-950",
-                  isFuture && "opacity-40"
-                )}
-              >
-                {format(day, "d")}
-                {checked && <span className="absolute bottom-1 size-1 rounded-full bg-emerald-500" />}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
-          <span className="text-xs text-emerald-700">
-            {format(selectedDate, "M月d日", { locale: zhCN })}
-            {selectedChecked ? (
-              <span className="ml-2 font-medium text-emerald-600">✓ 已打卡</span>
-            ) : (
-              <span className="ml-2 text-emerald-400">未打卡</span>
-            )}
-          </span>
-          <span className="text-xs text-emerald-700">
-            本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
-          </span>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 // ============ 今日训练卡片 ============
 
@@ -336,7 +220,7 @@ export default function DashboardPage() {
       api.get<OverviewStats>("/stats/overview").catch(() => null),
       api.get<WeeklyStats>("/stats/weekly").catch(() => null),
       api.get<BodyStats>("/stats/body").catch(() => null),
-      api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
+      api.get<{ items: CheckinItem[] }>("/checkins?limit=50").catch(() => null),
     ]).then(([ov, wk, bd, checkinRes]) => {
       setOverview(ov);
       setWeekly(wk);
@@ -348,9 +232,11 @@ export default function DashboardPage() {
     });
   }, []);
 
-  const checkinDates = useMemo(() => new Set(checkins.map((c) => c.date)), [checkins]);
   const todayStr = format(new Date(), "yyyy-MM-dd");
-  const todayCheckin = checkins.find((c) => c.date === todayStr) || null;
+  const todayCheckin = useMemo(
+    () => checkins.find((c) => c.date === todayStr) || null,
+    [checkins, todayStr]
+  );
 
   const weeklyTotal = weekly?.total_duration_min ?? 0;
   const weeklyGoal = 300;
@@ -446,19 +332,10 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* 三栏布局：日历 + 今日训练 + 饮食 */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="lg:col-span-1">
-                  <CheckinCalendar checkinDates={checkinDates} />
-                </div>
-
-                <div className="lg:col-span-1">
-                  <TodayTraining checkin={todayCheckin} />
-                </div>
-
-                <div className="lg:col-span-1">
-                  <NutritionCard />
-                </div>
+              {/* 两栏布局：今日训练 + 饮食 */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                <TodayTraining checkin={todayCheckin} />
+                <NutritionCard />
               </div>
 
               {/* 本周目标 + 身体数据 */}
@@ -534,40 +411,37 @@ export default function DashboardPage() {
               </div>
 
               {/* 图表区域 */}
-              <div className="grid gap-6 lg:grid-cols-1">
-                {/* 训练量统计 */}
-                <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-base font-semibold text-emerald-950">本周训练量</CardTitle>
-                      <span className="text-xs text-emerald-600/60">总计 {weeklyTotal} 分钟</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="h-56">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={trainingData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
-                          <XAxis dataKey="day" tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: "#ffffff",
-                              border: "1px solid #d1fae5",
-                              borderRadius: "12px",
-                              fontSize: "12px",
-                              boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
-                            }}
-                            labelStyle={{ color: "#065f46" }}
-                            cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
-                          />
-                          <Bar dataKey="minutes" name="时长 (分钟)" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+              <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base font-semibold text-emerald-950">本周训练量</CardTitle>
+                    <span className="text-xs text-emerald-600/60">总计 {weeklyTotal} 分钟</span>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-56">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={trainingData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
+                        <XAxis dataKey="day" tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: "#ffffff",
+                            border: "1px solid #d1fae5",
+                            borderRadius: "12px",
+                            fontSize: "12px",
+                            boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
+                          }}
+                          labelStyle={{ color: "#065f46" }}
+                          cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
+                        />
+                        <Bar dataKey="minutes" name="时长 (分钟)" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>

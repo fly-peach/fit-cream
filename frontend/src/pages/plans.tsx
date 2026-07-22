@@ -1,4 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  eachDayOfInterval,
+  isSameMonth,
+  isSameDay,
+  addMonths,
+  subMonths,
+  startOfWeek,
+  endOfWeek,
+  isToday,
+  isBefore,
+} from "date-fns";
+import { zhCN } from "date-fns/locale";
 import { AppLayout } from "@/components/app-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +25,9 @@ import {
   CalendarDays,
   Clock,
   ChevronRight,
+  ChevronLeft,
   Sparkles,
+  Flame,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -51,6 +68,12 @@ interface PlanListItem {
   status: string;
 }
 
+interface CheckinItem {
+  id: string;
+  date: string;
+  duration_min: number;
+}
+
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
 const goalLabels: Record<string, string> = {
@@ -72,11 +95,143 @@ const statusLabels: Record<string, string> = {
   completed: "已完成",
 };
 
+// ============ 打卡日历组件 ============
+
+function CheckinCalendar({
+  checkinDates,
+  streak,
+}: {
+  checkinDates: Set<string>;
+  streak: number;
+}) {
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const today = new Date();
+
+  const calendarDays = useMemo(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthEnd = endOfMonth(currentMonth);
+    const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    return eachDayOfInterval({ start: calStart, end: calEnd });
+  }, [currentMonth]);
+
+  const monthCheckins = useMemo(() => {
+    return calendarDays.filter(
+      (d) => isSameMonth(d, currentMonth) && checkinDates.has(format(d, "yyyy-MM-dd"))
+    ).length;
+  }, [calendarDays, currentMonth, checkinDates]);
+
+  const selectedChecked = checkinDates.has(format(selectedDate, "yyyy-MM-dd"));
+
+  return (
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+            <CalendarDays className="size-4 text-emerald-500" />
+            打卡日历
+          </CardTitle>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-emerald-700 hover:bg-emerald-100"
+              onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
+              {format(currentMonth, "yyyy年M月", { locale: zhCN })}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-emerald-700 hover:bg-emerald-100"
+              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-emerald-600/60">
+          {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
+            <div key={d} className="py-1">
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {calendarDays.map((day) => {
+            const dateStr = format(day, "yyyy-MM-dd");
+            const checked = checkinDates.has(dateStr);
+            const inMonth = isSameMonth(day, currentMonth);
+            const isSelected = isSameDay(day, selectedDate);
+            const isFuture = isBefore(today, day) && !isSameDay(day, today);
+
+            return (
+              <button
+                key={dateStr}
+                onClick={() => setSelectedDate(day)}
+                className={cn(
+                  "relative flex size-9 items-center justify-center rounded-lg text-sm transition-all duration-150",
+                  !inMonth && "text-emerald-200",
+                  inMonth && !checked && !isSelected && "text-emerald-800 hover:bg-emerald-50",
+                  checked && "bg-emerald-100 font-medium text-emerald-700 hover:bg-emerald-200",
+                  isSelected && "ring-2 ring-emerald-400",
+                  isToday(day) && "font-bold text-emerald-950",
+                  isFuture && "opacity-40"
+                )}
+              >
+                {format(day, "d")}
+                {checked && (
+                  <span className="absolute bottom-1 size-1 rounded-full bg-emerald-500" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+            <span className="text-xs text-emerald-700">
+              {format(selectedDate, "M月d日", { locale: zhCN })}
+              {selectedChecked ? (
+                <span className="ml-2 font-medium text-emerald-600">✓ 已打卡</span>
+              ) : (
+                <span className="ml-2 text-emerald-400">未打卡</span>
+              )}
+            </span>
+            <span className="text-xs text-emerald-700">
+              本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
+            </span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+            <span className="flex items-center gap-1.5 text-xs text-orange-600">
+              <Flame className="size-3.5 text-orange-500" />
+              当前连续打卡
+            </span>
+            <span className="text-sm font-bold text-orange-600">
+              {streak}
+              <span className="ml-0.5 text-xs font-normal">天</span>
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============ 主页面 ============
+
 export default function PlansPage() {
   const [plans, setPlans] = useState<PlanListItem[]>([]);
   const [activePlan, setActivePlan] = useState<PlanDetail | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PlanDetail | null>(null);
+  const [checkins, setCheckins] = useState<CheckinItem[]>([]);
+  const [streak, setStreak] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -93,10 +248,18 @@ export default function PlansPage() {
     Promise.all([
       api.get<PlanDetail | null>("/plans/active").catch(() => null),
       loadPlans(),
+      api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
+      api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
     ])
-      .then(([active]) => setActivePlan(active))
+      .then(([active, , checkinRes, streakRes]) => {
+        setActivePlan(active);
+        if (checkinRes?.items) setCheckins(checkinRes.items);
+        if (streakRes) setStreak(streakRes.current_streak);
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  const checkinDates = useMemo(() => new Set(checkins.map((c) => c.date)), [checkins]);
 
   const openPlan = async (id: string) => {
     setSelectedId(id);
@@ -151,52 +314,56 @@ export default function PlansPage() {
             </div>
           ) : (
             <div className="grid gap-6 lg:grid-cols-3">
-              {/* 计划列表 */}
-              <div className="space-y-3 lg:col-span-1">
-                <h2 className="text-sm font-semibold text-emerald-800">全部计划</h2>
-                {plans.length === 0 && (
-                  <Card className="border-dashed border-emerald-200">
-                    <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-                      <Sparkles className="size-6 text-emerald-300" />
-                      <p className="text-sm text-emerald-600/60">
-                        暂无计划，去 AI 教练处生成一个吧
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-                {plans.map((plan) => (
-                  <Card
-                    key={plan.id}
-                    onClick={() => openPlan(plan.id)}
-                    className={cn(
-                      "cursor-pointer border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-sm",
-                      (selectedId === plan.id ||
-                        (!selectedId && activePlan?.id === plan.id)) &&
-                        "border-emerald-400 ring-1 ring-emerald-300"
-                    )}
-                  >
-                    <CardContent className="flex items-center justify-between p-4">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate font-medium text-emerald-950">{plan.name}</p>
-                          {activePlan?.id === plan.id && (
-                            <Badge className="border-emerald-200 bg-emerald-100 text-emerald-700">
-                              进行中
-                            </Badge>
-                          )}
+              {/* 左栏：打卡日历 + 计划列表 */}
+              <div className="space-y-6 lg:col-span-1">
+                <CheckinCalendar checkinDates={checkinDates} streak={streak} />
+
+                <div className="space-y-3">
+                  <h2 className="text-sm font-semibold text-emerald-800">全部计划</h2>
+                  {plans.length === 0 && (
+                    <Card className="border-dashed border-emerald-200">
+                      <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
+                        <Sparkles className="size-6 text-emerald-300" />
+                        <p className="text-sm text-emerald-600/60">
+                          暂无计划，去 AI 教练处生成一个吧
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {plans.map((plan) => (
+                    <Card
+                      key={plan.id}
+                      onClick={() => openPlan(plan.id)}
+                      className={cn(
+                        "cursor-pointer border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-sm",
+                        (selectedId === plan.id ||
+                          (!selectedId && activePlan?.id === plan.id)) &&
+                          "border-emerald-400 ring-1 ring-emerald-300"
+                      )}
+                    >
+                      <CardContent className="flex items-center justify-between p-4">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate font-medium text-emerald-950">{plan.name}</p>
+                            {activePlan?.id === plan.id && (
+                              <Badge className="border-emerald-200 bg-emerald-100 text-emerald-700">
+                                进行中
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-emerald-600/60">
+                            {plan.goal && <span>{goalLabels[plan.goal] ?? plan.goal}</span>}
+                            {plan.difficulty && (
+                              <span>· {difficultyLabels[plan.difficulty] ?? plan.difficulty}</span>
+                            )}
+                            {plan.weeks && <span>· {plan.weeks} 周</span>}
+                          </div>
                         </div>
-                        <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-emerald-600/60">
-                          {plan.goal && <span>{goalLabels[plan.goal] ?? plan.goal}</span>}
-                          {plan.difficulty && (
-                            <span>· {difficultyLabels[plan.difficulty] ?? plan.difficulty}</span>
-                          )}
-                          {plan.weeks && <span>· {plan.weeks} 周</span>}
-                        </div>
-                      </div>
-                      <ChevronRight className="size-4 shrink-0 text-emerald-300" />
-                    </CardContent>
-                  </Card>
-                ))}
+                        <ChevronRight className="size-4 shrink-0 text-emerald-300" />
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
 
               {/* 计划详情 */}
@@ -211,12 +378,18 @@ export default function PlansPage() {
                           </CardTitle>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {displayPlan.goal && (
-                              <Badge variant="secondary" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                              <Badge
+                                variant="secondary"
+                                className="border-emerald-200 bg-emerald-50 text-emerald-700"
+                              >
                                 {goalLabels[displayPlan.goal] ?? displayPlan.goal}
                               </Badge>
                             )}
                             {displayPlan.difficulty && (
-                              <Badge variant="secondary" className="border-amber-200 bg-amber-50 text-amber-700">
+                              <Badge
+                                variant="secondary"
+                                className="border-amber-200 bg-amber-50 text-amber-700"
+                              >
                                 {difficultyLabels[displayPlan.difficulty] ?? displayPlan.difficulty}
                               </Badge>
                             )}
