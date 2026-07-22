@@ -45,39 +45,25 @@ async def lifespan(app: FastAPI):
     Shutdown:
         4. 释放数据库连接池
     """
-    # 1. 日志
     setup_logging()
-    logger.info("=" * 50)
-    logger.info(f"  {settings.APP_NAME} v1.0.0 启动中...")
-    logger.info(f"  DEBUG={settings.DEBUG} | LOG_FORMAT={settings.LOG_FORMAT}")
-    logger.info(f"  DATABASE={settings.DATABASE_URL[:30]}...")
-    logger.info("=" * 50)
-
-    # 2. 数据库
     await init_db()
-    logger.info("数据库初始化完成")
 
-    # 2.5 种子管理员
     from app.database import async_session_factory
     from app.services.seed_service import seed_admin
     async with async_session_factory() as session:
         await seed_admin(session)
 
-    # 3. Agent（带 checkpointer，支持多轮对话记忆）
     try:
         from agents.agent_graph import init_agent
         await init_agent()
-        logger.info("Agent 初始化完成（含 checkpointer）")
-    except Exception as e:
-        logger.warning(f"Agent 初始化跳过: {e}（使用无状态模式）")
+    except Exception:
+        pass
 
-    logger.info(f"服务就绪: http://0.0.0.0:{settings.API_PREFIX}")
+    logger.info(f"FitCream ready: http://localhost:8000")
 
     yield
 
-    # 4. 关闭
     await engine.dispose()
-    logger.info("数据库连接池已释放，服务关闭")
 
 
 app = FastAPI(

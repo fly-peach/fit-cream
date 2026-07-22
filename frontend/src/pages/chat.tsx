@@ -29,6 +29,7 @@ import {
   PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
 import { Sidebar } from "@/components/sidebar";
+import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { SquareIcon } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
@@ -119,16 +120,18 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/60">
-      <Sidebar
-        threads={threads}
-        currentThreadId={currentThreadId}
-        onNewChat={handleNewChat}
-        onSelectThread={handleSelectThread}
-        onDeleteThread={deleteThread}
-      />
-
-      <div className="flex flex-1 flex-col">
+    <AppLayout
+      sidebarExtra={
+        <Sidebar
+          threads={threads}
+          currentThreadId={currentThreadId}
+          onNewChat={handleNewChat}
+          onSelectThread={handleSelectThread}
+          onDeleteThread={deleteThread}
+        />
+      }
+    >
+      <div className="flex h-full flex-col">
         <Conversation className="flex-1">
           <ConversationContent>
             {messages.length === 0 && (
@@ -183,6 +186,6 @@ export default function ChatPage() {
           </PromptInput>
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 }
