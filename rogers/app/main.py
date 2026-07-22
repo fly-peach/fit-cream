@@ -57,6 +57,12 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("数据库初始化完成")
 
+    # 2.5 种子管理员
+    from app.database import async_session_factory
+    from app.services.seed_service import seed_admin
+    async with async_session_factory() as session:
+        await seed_admin(session)
+
     # 3. Agent（带 checkpointer，支持多轮对话记忆）
     try:
         from agents.agent_graph import init_agent
