@@ -16,7 +16,8 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    email: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
     name: Optional[str] = None
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
