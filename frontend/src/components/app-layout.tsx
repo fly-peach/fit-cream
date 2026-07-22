@@ -4,24 +4,32 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DumbbellIcon,
-  LayoutDashboardIcon,
+  SunIcon,
   MessageSquareIcon,
   ClipboardListIcon,
-  CalendarCheckIcon,
   UserIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   LogOutIcon,
+  MenuIcon,
+  XIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 
+/**
+ * 全局导航项
+ *
+ * 桌面端：左侧侧边栏
+ * 移动端：底部 Tab 栏
+ *
+ * 注意：根据需求，已移除"打卡记录"独立入口，相关功能整合到"今日"页面。
+ */
 const navItems = [
-  { to: "/dashboard", label: "工作台", icon: LayoutDashboardIcon },
+  { to: "/dashboard", label: "今日", icon: SunIcon },
   { to: "/chat", label: "AI 教练", icon: MessageSquareIcon },
   { to: "/plans", label: "训练计划", icon: ClipboardListIcon },
-  { to: "/checkins", label: "打卡记录", icon: CalendarCheckIcon },
-  { to: "/profile", label: "个人中心", icon: UserIcon },
+  { to: "/profile", label: "我的", icon: UserIcon },
 ];
 
 interface AppLayoutProps {
@@ -32,15 +40,19 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout } = useAuthStore();
 
+  // 当路由变化时关闭移动端抽屉
+  const closeMobileMenu = () => setMobileMenuOpen(false);
+
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/60">
-      {/* 侧边栏 */}
+      {/* ============ 桌面端侧边栏 ============ */}
       <aside
         className={cn(
-          "flex flex-col border-r border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white/90 backdrop-blur transition-all duration-200",
+          "hidden flex-col border-r border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white/90 backdrop-blur transition-all duration-200 md:flex",
           collapsed ? "w-16" : "w-60"
         )}
       >
@@ -89,7 +101,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
         {!sidebarExtra && <div className="flex-1" />}
 
         {/* 底部操作 */}
-        <div className="border-t border-emerald-100 p-2 space-y-1">
+        <div className="space-y-1 border-t border-emerald-100 p-2">
           <Button
             variant="ghost"
             size="sm"
@@ -123,8 +135,142 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
         </div>
       </aside>
 
-      {/* 主内容区 */}
-      <main className="flex-1 overflow-hidden">{children}</main>
+      {/* ============ 移动端：抽屉侧栏（用于 chat 历史等 sidebarExtra） ============ */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
+          onClick={closeMobileMenu}
+        />
+      )}
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-emerald-100 bg-white shadow-2xl transition-transform duration-200 md:hidden",
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        <div className="flex items-center justify-between border-b border-emerald-100 px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
+              <DumbbellIcon className="size-4 text-white" />
+            </div>
+            <span className="text-base font-bold tracking-tight text-emerald-950">
+              Fit<span className="text-emerald-600">Cream</span>
+            </span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-emerald-700"
+            onClick={closeMobileMenu}
+          >
+            <XIcon className="size-4" />
+          </Button>
+        </div>
+
+        {/* 移动端抽屉内导航 */}
+        <nav className="space-y-1 px-2 pt-3">
+          {navItems.map((item) => {
+            const isActive = location.pathname.startsWith(item.to);
+            return (
+              <Link
+                key={item.to}
+                to={item.to}
+                onClick={closeMobileMenu}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-emerald-100/80 text-emerald-800"
+                    : "text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800"
+                )}
+              >
+                <item.icon
+                  className={cn("size-4 shrink-0", isActive && "text-emerald-500")}
+                />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+
+        {/* 抽屉内额外内容（如对话历史） */}
+        {sidebarExtra && (
+          <div className="flex-1 overflow-hidden">
+            <ScrollArea className="h-full">{sidebarExtra}</ScrollArea>
+          </div>
+        )}
+        {!sidebarExtra && <div className="flex-1" />}
+
+        {/* 退出登录 */}
+        <div className="border-t border-emerald-100 p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-emerald-700/70 hover:bg-red-50 hover:text-red-600"
+            onClick={() => {
+              closeMobileMenu();
+              logout();
+            }}
+          >
+            <LogOutIcon className="size-4" />
+            <span className="ml-2 text-xs">退出登录</span>
+          </Button>
+        </div>
+      </aside>
+
+      {/* ============ 主内容区 ============ */}
+      <main className="flex flex-1 flex-col overflow-hidden pb-16 md:pb-0">
+        {/* 移动端顶栏：菜单按钮 */}
+        <div className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-3 py-2 backdrop-blur md:hidden">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-9 text-emerald-700"
+            onClick={() => setMobileMenuOpen(true)}
+          >
+            <MenuIcon className="size-5" />
+          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600">
+              <DumbbellIcon className="size-3.5 text-white" />
+            </div>
+            <span className="text-sm font-bold tracking-tight text-emerald-950">
+              Fit<span className="text-emerald-600">Cream</span>
+            </span>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-hidden">{children}</div>
+      </main>
+
+      {/* ============ 移动端底部 Tab 栏 ============ */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-emerald-100 bg-white/95 backdrop-blur md:hidden">
+        {navItems.map((item) => {
+          const isActive = location.pathname.startsWith(item.to);
+          return (
+            <Link
+              key={item.to}
+              to={item.to}
+              className={cn(
+                "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                isActive
+                  ? "text-emerald-600"
+                  : "text-emerald-700/50 hover:text-emerald-700"
+              )}
+            >
+              <item.icon
+                className={cn(
+                  "size-5 transition-transform",
+                  isActive && "scale-110"
+                )}
+              />
+              <span>{item.label}</span>
+              {isActive && (
+                <span className="absolute top-0 h-0.5 w-8 rounded-b-full bg-emerald-500" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { useAuthStore } from "@/stores/auth-store";
 import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
 import LoginPage from "@/pages/login";
-import CheckinsPage from "@/pages/checkins";
 import PlansPage from "@/pages/plans";
 import ProfilePage from "@/pages/profile";
 
@@ -35,14 +34,6 @@ export function App() {
           element={
             <ProtectedRoute>
               <ChatPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/checkins"
-          element={
-            <ProtectedRoute>
-              <CheckinsPage />
             </ProtectedRoute>
           }
         />

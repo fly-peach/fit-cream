@@ -128,13 +128,32 @@ async def send_message(
                     elif kind == "on_tool_start":
                         tool_name = event["name"]
                         tool_calls.append(tool_name)
-                        yield _sse_event("tool_start", {"tool": tool_name})
+                        # 透传工具入参，便于前端展示真实参数
+                        raw_input = event.get("data", {}).get("input")
+                        try:
+                            # 确保可 JSON 序列化
+                            json.dumps(raw_input, ensure_ascii=False)
+                            tool_input = raw_input
+                        except (TypeError, ValueError):
+                            tool_input = {"raw": str(raw_input)} if raw_input else {}
+                        yield _sse_event("tool_start", {
+                            "tool": tool_name,
+                            "input": tool_input or {},
+                        })
 
                     elif kind == "on_tool_end":
-                        output = str(event["data"].get("output", ""))
+                        raw_output = event["data"].get("output", "")
+                        # 优先尝试结构化输出（ToolMessage.content 可能是 str 或 list）
+                        if isinstance(raw_output, str):
+                            output_str = raw_output
+                        else:
+                            try:
+                                output_str = json.dumps(raw_output, ensure_ascii=False)
+                            except (TypeError, ValueError):
+                                output_str = str(raw_output)
                         yield _sse_event("tool_result", {
                             "tool": event["name"],
-                            "data": output[:500],
+                            "data": output_str[:2000],
                         })
 
                 if full_content:

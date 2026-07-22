@@ -84,7 +84,7 @@ export function useChatSSE(threadId: string | null) {
               const toolCall: ToolCall = {
                 id: nanoid(),
                 name: (event.data.tool as string) || "unknown",
-                input: {},
+                input: (event.data.input as Record<string, unknown>) || {},
                 status: "running",
               };
               setMessages((prev) =>

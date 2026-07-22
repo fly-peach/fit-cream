@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DumbbellIcon, FlameIcon, HeartPulseIcon, TrophyIcon } from "lucide-react";
+import { DumbbellIcon, FlameIcon, HeartPulseIcon, TrophyIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
 
@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,15 +144,25 @@ export default function LoginPage() {
               <label className="text-sm font-semibold text-emerald-900">
                 密码
               </label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="至少 6 位密码"
-                required
-                minLength={6}
-                className="h-11 rounded-xl border-emerald-200 bg-emerald-50/50 text-emerald-950 transition-all placeholder:text-emerald-400 focus-visible:border-emerald-400 focus-visible:bg-white focus-visible:ring-emerald-500/20"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="至少 6 位密码"
+                  required
+                  minLength={6}
+                  className="h-11 rounded-xl border-emerald-200 bg-emerald-50/50 pr-10 text-emerald-950 transition-all placeholder:text-emerald-400 focus-visible:border-emerald-400 focus-visible:bg-white focus-visible:ring-emerald-500/20"
+                />
+                <button
+                  type="button"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 transition-colors hover:text-emerald-600"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (

@@ -42,6 +42,11 @@ import {
   CalendarDays,
   Zap,
   Loader2,
+  Clock,
+  Smile,
+  StickyNote,
+  Apple,
+  Utensils,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -74,13 +79,25 @@ interface BodyStats {
   goal: string | null;
 }
 
+interface CheckinExercise {
+  id: string;
+  exercise_name: string | null;
+  sets_done: number | null;
+  reps_done: number | null;
+  weight_kg: number | null;
+}
+
 interface CheckinItem {
   id: string;
   date: string;
   duration_min: number;
+  mood: number | null;
+  note: string | null;
+  exercises: CheckinExercise[];
 }
 
 const dayLabels = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+const moodEmojis = ["😫", "😕", "😐", "🙂", "🤩"];
 
 // ============ 日历组件 ============
 
@@ -178,13 +195,140 @@ function CheckinCalendar({ checkinDates }: { checkinDates: Set<string> }) {
   );
 }
 
+// ============ 今日训练卡片 ============
+
+function TodayTraining({ checkin }: { checkin: CheckinItem | null }) {
+  return (
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+          <Dumbbell className="size-4 text-emerald-500" />
+          今日训练
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {checkin ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+              <span className="text-sm text-emerald-700">训练时长</span>
+              <span className="flex items-center gap-1.5 text-lg font-bold text-emerald-950">
+                <Clock className="size-4 text-emerald-500" />
+                {checkin.duration_min} 分钟
+              </span>
+            </div>
+            {checkin.mood && (
+              <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+                <span className="text-sm text-emerald-700">心情评分</span>
+                <span className="flex items-center gap-1.5 text-lg font-bold text-emerald-950">
+                  <Smile className="size-4 text-emerald-500" />
+                  {moodEmojis[checkin.mood - 1]}
+                </span>
+              </div>
+            )}
+            {checkin.exercises.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-emerald-600/60">训练动作</p>
+                {checkin.exercises.map((ex) => (
+                  <div
+                    key={ex.id}
+                    className="flex items-center justify-between rounded-lg bg-emerald-50/40 px-3 py-2 text-sm"
+                  >
+                    <span className="font-medium text-emerald-900">
+                      {ex.exercise_name ?? "未知动作"}
+                    </span>
+                    <span className="tabular-nums text-emerald-600/70">
+                      {ex.sets_done ?? "-"} 组 × {ex.reps_done ?? "-"} 次
+                      {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {checkin.note && (
+              <div className="flex items-start gap-2 rounded-lg bg-emerald-50/40 px-3 py-2 text-sm text-emerald-700">
+                <StickyNote className="mt-0.5 size-3.5 shrink-0 text-emerald-400" />
+                <span>{checkin.note}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <Dumbbell className="size-8 text-emerald-200" />
+            <p className="text-sm text-emerald-600/60">今天还没有训练记录</p>
+            <p className="text-xs text-emerald-500/50">去 AI 教练那里获取今日训练建议吧</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============ 饮食卡路里卡片 ============
+
+function NutritionCard() {
+  // 由于后端暂无饮食记录接口，这里展示目标卡路里和简单提示
+  const targetCalories = 2000;
+  const consumedCalories = 0; // 暂无数据
+  const percent = Math.min(100, Math.round((consumedCalories / targetCalories) * 100));
+
+  return (
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+          <Apple className="size-4 text-emerald-500" />
+          饮食记录
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="relative mx-auto size-32">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadialBarChart
+              innerRadius="75%"
+              outerRadius="100%"
+              data={[{ name: "calories", value: percent, fill: "#f59e0b" }]}
+              startAngle={90}
+              endAngle={-270}
+            >
+              <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+              <RadialBar background={{ fill: "#fef3c7" }} cornerRadius={10} dataKey="value" />
+            </RadialBarChart>
+          </ResponsiveContainer>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-2xl font-bold tabular-nums text-emerald-950">{consumedCalories}</span>
+            <span className="text-xs text-emerald-600/60">/ {targetCalories} kcal</span>
+          </div>
+        </div>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center justify-between rounded-lg bg-amber-50/60 px-4 py-3">
+            <span className="flex items-center gap-2 text-sm text-amber-700">
+              <Utensils className="size-4 text-amber-500" />
+              目标摄入
+            </span>
+            <span className="text-lg font-bold text-amber-950">{targetCalories} kcal</span>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+            <span className="flex items-center gap-2 text-sm text-emerald-700">
+              <Flame className="size-4 text-emerald-500" />
+              已摄入
+            </span>
+            <span className="text-lg font-bold text-emerald-950">{consumedCalories} kcal</span>
+          </div>
+        </div>
+        <p className="mt-3 text-center text-xs text-emerald-500/50">
+          饮食记录功能开发中，可通过 AI 教练获取饮食建议
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ============ 主页面 ============
 
 export default function DashboardPage() {
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [weekly, setWeekly] = useState<WeeklyStats | null>(null);
   const [body, setBody] = useState<BodyStats | null>(null);
-  const [checkinDates, setCheckinDates] = useState<Set<string>>(new Set());
+  const [checkins, setCheckins] = useState<CheckinItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -193,16 +337,20 @@ export default function DashboardPage() {
       api.get<WeeklyStats>("/stats/weekly").catch(() => null),
       api.get<BodyStats>("/stats/body").catch(() => null),
       api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
-    ]).then(([ov, wk, bd, checkins]) => {
+    ]).then(([ov, wk, bd, checkinRes]) => {
       setOverview(ov);
       setWeekly(wk);
       setBody(bd);
-      if (checkins?.items) {
-        setCheckinDates(new Set(checkins.items.map((c) => c.date)));
+      if (checkinRes?.items) {
+        setCheckins(checkinRes.items);
       }
       setLoading(false);
     });
   }, []);
+
+  const checkinDates = useMemo(() => new Set(checkins.map((c) => c.date)), [checkins]);
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const todayCheckin = checkins.find((c) => c.date === todayStr) || null;
 
   const weeklyTotal = weekly?.total_duration_min ?? 0;
   const weeklyGoal = 300;
@@ -298,84 +446,91 @@ export default function DashboardPage() {
                 ))}
               </div>
 
-              {/* 三栏布局 */}
+              {/* 三栏布局：日历 + 今日训练 + 饮食 */}
               <div className="grid gap-6 lg:grid-cols-3">
                 <div className="lg:col-span-1">
                   <CheckinCalendar checkinDates={checkinDates} />
                 </div>
 
                 <div className="lg:col-span-1">
-                  <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
-                        <Target className="size-4 text-emerald-500" />
-                        本周目标
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="relative mx-auto size-40">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadialBarChart
-                            innerRadius="75%"
-                            outerRadius="100%"
-                            data={[{ name: "goal", value: goalPercent, fill: "#10b981" }]}
-                            startAngle={90}
-                            endAngle={-270}
-                          >
-                            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                            <RadialBar background={{ fill: "#d1fae5" }} cornerRadius={10} dataKey="value" />
-                          </RadialBarChart>
-                        </ResponsiveContainer>
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-3xl font-bold tabular-nums text-emerald-950">{goalPercent}%</span>
-                          <span className="text-xs text-emerald-600/60">{weeklyTotal}/{weeklyGoal} 分钟</span>
-                        </div>
-                      </div>
-                      <div className="mt-4 space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-emerald-600/60">训练次数</span>
-                          <span className="font-medium text-emerald-950">{weekly?.total_workouts ?? 0} 次</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-emerald-600/60">完成组数</span>
-                          <span className="font-medium text-emerald-950">{weekly?.total_sets ?? 0} 组</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-emerald-600/60">平均时长</span>
-                          <span className="font-medium text-emerald-950">{avgDuration} 分钟/次</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <TodayTraining checkin={todayCheckin} />
                 </div>
 
                 <div className="lg:col-span-1">
-                  <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-base font-semibold text-emerald-950">身体数据</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
-                        <span className="text-sm text-emerald-700">当前体重</span>
-                        <span className="text-lg font-bold text-emerald-950">
-                          {body?.current_weight_kg ? `${body.current_weight_kg} kg` : "未记录"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
-                        <span className="text-sm text-emerald-700">身高</span>
-                        <span className="text-lg font-bold text-emerald-950">
-                          {body?.height_cm ? `${body.height_cm} cm` : "未记录"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
-                        <span className="text-sm text-emerald-700">最长连续</span>
-                        <span className="text-lg font-bold text-emerald-950">
-                          {overview?.longest_streak ?? 0} 天
-                        </span>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <NutritionCard />
                 </div>
+              </div>
+
+              {/* 本周目标 + 身体数据 */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+                      <Target className="size-4 text-emerald-500" />
+                      本周目标
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="relative mx-auto size-40">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadialBarChart
+                          innerRadius="75%"
+                          outerRadius="100%"
+                          data={[{ name: "goal", value: goalPercent, fill: "#10b981" }]}
+                          startAngle={90}
+                          endAngle={-270}
+                        >
+                          <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                          <RadialBar background={{ fill: "#d1fae5" }} cornerRadius={10} dataKey="value" />
+                        </RadialBarChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className="text-3xl font-bold tabular-nums text-emerald-950">{goalPercent}%</span>
+                        <span className="text-xs text-emerald-600/60">{weeklyTotal}/{weeklyGoal} 分钟</span>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-emerald-600/60">训练次数</span>
+                        <span className="font-medium text-emerald-950">{weekly?.total_workouts ?? 0} 次</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-emerald-600/60">完成组数</span>
+                        <span className="font-medium text-emerald-950">{weekly?.total_sets ?? 0} 组</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-emerald-600/60">平均时长</span>
+                        <span className="font-medium text-emerald-950">{avgDuration} 分钟/次</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold text-emerald-950">身体数据</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+                      <span className="text-sm text-emerald-700">当前体重</span>
+                      <span className="text-lg font-bold text-emerald-950">
+                        {body?.current_weight_kg ? `${body.current_weight_kg} kg` : "未记录"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+                      <span className="text-sm text-emerald-700">身高</span>
+                      <span className="text-lg font-bold text-emerald-950">
+                        {body?.height_cm ? `${body.height_cm} cm` : "未记录"}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
+                      <span className="text-sm text-emerald-700">最长连续</span>
+                      <span className="text-lg font-bold text-emerald-950">
+                        {overview?.longest_streak ?? 0} 天
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
               {/* 图表区域 */}

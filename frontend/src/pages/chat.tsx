@@ -31,8 +31,35 @@ import {
 import { Sidebar } from "@/components/sidebar";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
-import { SquareIcon } from "lucide-react";
+import { SquareIcon, PlusIcon, BotMessageSquareIcon } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
+
+/** 工具名 -> 中文展示名映射，让工具调用块更易读 */
+const toolNameMap: Record<string, string> = {
+  query_stats_tool: "查询训练统计",
+  query_checkins_tool: "查询打卡记录",
+  query_plan_tool: "查询训练计划",
+  query_body_tool: "查询身体数据",
+  create_checkin_tool: "创建打卡记录",
+  update_plan_tool: "更新训练计划",
+  get_user_profile_tool: "读取用户档案",
+  update_user_profile_tool: "更新用户档案",
+};
+
+/**
+ * 清理模型回复中误以纯文本形式输出的工具调用标记。
+ *
+ * 部分模型会把工具调用以 `[调用 xxx(...)]` / `【调用 xxx】` 的文本写进 content，
+ * 而真正的工具调用已由 Tool 组件单独渲染，这里需要把这类文本剔除，避免重复且难看。
+ */
+function cleanContent(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/[\[【]\s*调用\s*[^\]】]*[\]】]/g, "")
+    .replace(/\[?调用\s+\w+_tool\s*\([^)]*\)\]?/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 function MessageItem({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
@@ -42,6 +69,9 @@ function MessageItem({ message }: { message: ChatMessage }) {
       </Message>
     );
   }
+
+  // 过滤模型误输出的工具调用文本
+  const cleaned = cleanContent(message.content);
 
   return (
     <Message from="assistant">
@@ -56,7 +86,7 @@ function MessageItem({ message }: { message: ChatMessage }) {
         {message.toolCalls?.map((tc) => (
           <Tool key={tc.id} defaultOpen={tc.status === "running"}>
             <ToolHeader
-              title={tc.name}
+              title={toolNameMap[tc.name] ?? tc.name}
               type="tool-call"
               state={
                 tc.status === "running"
@@ -73,7 +103,7 @@ function MessageItem({ message }: { message: ChatMessage }) {
           </Tool>
         ))}
 
-        {message.content && <MessageResponse>{message.content}</MessageResponse>}
+        {cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
         {message.isStreaming && !message.content && !message.thinking && (
           <span className="animate-pulse text-muted-foreground">▊</span>
@@ -132,6 +162,30 @@ export default function ChatPage() {
       }
     >
       <div className="flex h-full flex-col">
+        {/* 页面顶部 header：AI 教练标题 + 新对话按钮（置于最上方） */}
+        <header className="flex shrink-0 items-center justify-between border-b border-emerald-100 bg-white/70 px-4 py-2.5 backdrop-blur">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
+              <BotMessageSquareIcon className="size-4 text-white" />
+            </div>
+            <div className="leading-tight">
+              <h1 className="text-base font-bold text-emerald-950">AI 教练</h1>
+              <p className="hidden text-xs text-emerald-600/60 sm:block">
+                你的私人健身顾问
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleNewChat}
+            size="sm"
+            variant="outline"
+            className="gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+          >
+            <PlusIcon className="size-4" />
+            新对话
+          </Button>
+        </header>
+
         <Conversation className="flex-1">
           <ConversationContent>
             {messages.length === 0 && (
@@ -148,14 +202,18 @@ export default function ChatPage() {
                   </p>
                 </div>
                 <div className="mt-2 flex flex-wrap justify-center gap-2">
-                  {["帮我制定减脂计划", "今天练什么好？", "饮食建议"].map((hint) => (
-                    <span
-                      key={hint}
-                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700"
-                    >
-                      {hint}
-                    </span>
-                  ))}
+                  {["帮我制定减脂计划", "今天练什么好？", "饮食建议", "查看我的训练数据"].map(
+                    (hint) => (
+                      <button
+                        key={hint}
+                        type="button"
+                        onClick={() => sendMessage(hint)}
+                        className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-all hover:border-emerald-300 hover:bg-emerald-100 active:scale-95"
+                      >
+                        {hint}
+                      </button>
+                    )
+                  )}
                 </div>
               </div>
             )}
