@@ -3,13 +3,13 @@
 
 定义注册、登录、刷新 Token 的请求/响应模型。
 """
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 
 class RegisterRequest(BaseModel):
     """用户注册请求"""
 
-    email: EmailStr
+    phone: str = Field(min_length=11, max_length=20, description="手机号码")
     password: str = Field(min_length=6, max_length=128)
     name: str | None = Field(default=None, max_length=100)
 
@@ -17,7 +17,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     """用户登录请求"""
 
-    email: EmailStr
+    phone: str = Field(min_length=11, max_length=20, description="手机号码")
     password: str
 
 

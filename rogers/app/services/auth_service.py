@@ -27,18 +27,18 @@ class AuthService:
     @staticmethod
     async def register(
         db: AsyncSession,
-        email: str,
+        phone: str,
         password: str,
         name: str | None = None,
     ) -> tuple[User, TokenPair]:
         """注册新用户，返回 (user, tokens)"""
-        # 检查邮箱是否已注册
-        result = await db.execute(select(User).where(User.email == email))
+        # 检查手机号是否已注册
+        result = await db.execute(select(User).where(User.phone == phone))
         if result.scalar_one_or_none():
-            raise BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS, "邮箱已注册")
+            raise BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS, "手机号已注册")
 
         user = User(
-            email=email,
+            phone=phone,
             password_hash=hash_password(password),
             name=name,
         )
@@ -52,15 +52,15 @@ class AuthService:
     @staticmethod
     async def login(
         db: AsyncSession,
-        email: str,
+        phone: str,
         password: str,
     ) -> tuple[User, TokenPair]:
         """登录，返回 (user, tokens)"""
-        result = await db.execute(select(User).where(User.email == email))
+        result = await db.execute(select(User).where(User.phone == phone))
         user = result.scalar_one_or_none()
 
         if not user or not verify_password(password, user.password_hash):
-            raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "邮箱或密码错误")
+            raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "手机号或密码错误")
 
         tokens = AuthService._generate_tokens(user.id)
         return user, tokens

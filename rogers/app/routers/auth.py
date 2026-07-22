@@ -34,7 +34,7 @@ async def register(
 ):
     """注册新用户"""
     user, tokens = await AuthService.register(
-        db, data.email, data.password, data.name
+        db, data.phone, data.password, data.name
     )
     return ResponseModel(
         data=AuthResponseData(
@@ -50,7 +50,7 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     """用户登录"""
-    user, tokens = await AuthService.login(db, data.email, data.password)
+    user, tokens = await AuthService.login(db, data.phone, data.password)
     return ResponseModel(
         data=AuthResponseData(
             user=UserOut.model_validate(user),
