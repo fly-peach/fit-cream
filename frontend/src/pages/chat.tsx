@@ -119,7 +119,7 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/60">
       <Sidebar
         threads={threads}
         currentThreadId={currentThreadId}
@@ -132,10 +132,28 @@ export default function ChatPage() {
         <Conversation className="flex-1">
           <ConversationContent>
             {messages.length === 0 && (
-              <div className="flex h-full flex-col items-center justify-center gap-4 text-muted-foreground">
-                <div className="text-4xl">🏋️</div>
-                <p className="text-lg font-medium">FitCream AI 健身教练</p>
-                <p className="text-sm">开始对话，获取个性化健身建议</p>
+              <div className="flex h-full flex-col items-center justify-center gap-5">
+                <div className="flex size-20 items-center justify-center rounded-3xl bg-gradient-to-br from-emerald-100 to-teal-100 shadow-inner">
+                  <span className="text-4xl">🏋️</span>
+                </div>
+                <div className="text-center">
+                  <p className="text-xl font-bold text-emerald-950">
+                    Fit<span className="text-emerald-600">Cream</span> AI 健身教练
+                  </p>
+                  <p className="mt-2 text-sm text-emerald-700/60">
+                    开始对话，获取个性化健身建议
+                  </p>
+                </div>
+                <div className="mt-2 flex flex-wrap justify-center gap-2">
+                  {["帮我制定减脂计划", "今天练什么好？", "饮食建议"].map((hint) => (
+                    <span
+                      key={hint}
+                      className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700"
+                    >
+                      {hint}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((msg) => (
@@ -145,7 +163,7 @@ export default function ChatPage() {
           </ConversationContent>
         </Conversation>
 
-        <div className="border-t p-4">
+        <div className="border-t border-emerald-100 bg-white/70 p-4 backdrop-blur-sm">
           <PromptInput
             onSubmit={({ text }) => {
               if (text.trim()) sendMessage(text);

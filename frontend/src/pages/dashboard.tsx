@@ -71,7 +71,6 @@ const today = new Date();
 for (let i = 0; i < 90; i++) {
   const d = new Date(today);
   d.setDate(d.getDate() - i);
-  // 模拟 70% 打卡率
   if (Math.random() < 0.7) {
     checkinDates.add(format(d, "yyyy-MM-dd"));
   }
@@ -101,9 +100,9 @@ const trainingData = [
 ];
 
 const typeConfig = {
-  training: { label: "训练", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-  meal: { label: "饮食", color: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  checkin: { label: "打卡", color: "bg-sky-500/15 text-sky-400 border-sky-500/20" },
+  training: { label: "训练", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  meal: { label: "饮食", color: "bg-amber-100 text-amber-700 border-amber-200" },
+  checkin: { label: "打卡", color: "bg-sky-100 text-sky-700 border-sky-200" },
 };
 
 // ============ 日历组件 ============
@@ -129,34 +128,32 @@ function CheckinCalendar() {
   const selectedChecked = checkinDates.has(format(selectedDate, "yyyy-MM-dd"));
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <CalendarDays className="size-4 text-emerald-400" />
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+            <CalendarDays className="size-4 text-emerald-500" />
             打卡日历
           </CardTitle>
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+            <Button variant="ghost" size="icon" className="size-7 text-emerald-700 hover:bg-emerald-100" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
               <ChevronLeft className="size-4" />
             </Button>
-            <span className="min-w-20 text-center text-sm font-medium">
+            <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
               {format(currentMonth, "yyyy年M月", { locale: zhCN })}
             </span>
-            <Button variant="ghost" size="icon" className="size-7" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+            <Button variant="ghost" size="icon" className="size-7 text-emerald-700 hover:bg-emerald-100" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
               <ChevronRight className="size-4" />
             </Button>
           </div>
         </div>
       </CardHeader>
       <CardContent>
-        {/* 星期标题 */}
-        <div className="mb-2 grid grid-cols-7 text-center text-xs text-zinc-500">
+        <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-emerald-600/60">
           {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
             <div key={d} className="py-1">{d}</div>
           ))}
         </div>
-        {/* 日期格子 */}
         <div className="grid grid-cols-7 gap-1">
           {calendarDays.map((day) => {
             const dateStr = format(day, "yyyy-MM-dd");
@@ -171,32 +168,31 @@ function CheckinCalendar() {
                 onClick={() => setSelectedDate(day)}
                 className={cn(
                   "relative flex size-9 items-center justify-center rounded-lg text-sm transition-all duration-150",
-                  !inMonth && "text-zinc-700",
-                  inMonth && !checked && !isSelected && "text-zinc-400 hover:bg-zinc-800",
-                  checked && "bg-emerald-500/20 text-emerald-300 font-medium hover:bg-emerald-500/30",
+                  !inMonth && "text-emerald-200",
+                  inMonth && !checked && !isSelected && "text-emerald-800 hover:bg-emerald-50",
+                  checked && "bg-emerald-100 text-emerald-700 font-medium hover:bg-emerald-200",
                   isSelected && "ring-2 ring-emerald-400",
-                  isToday(day) && "font-bold text-white",
+                  isToday(day) && "font-bold text-emerald-950",
                   isFuture && "opacity-40"
                 )}
               >
                 {format(day, "d")}
-                {checked && <span className="absolute bottom-1 size-1 rounded-full bg-emerald-400" />}
+                {checked && <span className="absolute bottom-1 size-1 rounded-full bg-emerald-500" />}
               </button>
             );
           })}
         </div>
-        {/* 统计 */}
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2">
-          <span className="text-xs text-zinc-400">
+        <div className="mt-4 flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+          <span className="text-xs text-emerald-700">
             {format(selectedDate, "M月d日", { locale: zhCN })}
             {selectedChecked ? (
-              <span className="ml-2 text-emerald-400">✓ 已打卡</span>
+              <span className="ml-2 font-medium text-emerald-600">✓ 已打卡</span>
             ) : (
-              <span className="ml-2 text-zinc-500">未打卡</span>
+              <span className="ml-2 text-emerald-400">未打卡</span>
             )}
           </span>
-          <span className="text-xs text-zinc-400">
-            本月 <span className="font-semibold text-emerald-400">{monthCheckins}</span> 天
+          <span className="text-xs text-emerald-700">
+            本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
           </span>
         </div>
       </CardContent>
@@ -216,18 +212,18 @@ function TodoList() {
   };
 
   return (
-    <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <CheckCircle2 className="size-4 text-emerald-400" />
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+            <CheckCircle2 className="size-4 text-emerald-500" />
             今日待办
           </CardTitle>
-          <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">
+          <Badge variant="secondary" className="border-emerald-200 bg-emerald-100 text-emerald-700">
             {completedCount}/{todos.length}
           </Badge>
         </div>
-        <Progress value={progressPercent} className="mt-2 h-1.5 bg-zinc-800" />
+        <Progress value={progressPercent} className="mt-2 h-1.5 bg-emerald-100" />
       </CardHeader>
       <CardContent className="space-y-1">
         {todos.map((todo) => (
@@ -236,31 +232,31 @@ function TodoList() {
             onClick={() => toggleTodo(todo.id)}
             className={cn(
               "group flex cursor-pointer items-start gap-3 rounded-xl px-3 py-2.5 transition-all duration-150",
-              "hover:bg-zinc-800/60",
+              "hover:bg-emerald-50/80",
               todo.completed && "opacity-60"
             )}
           >
             <button className="mt-0.5 shrink-0">
               {todo.completed ? (
-                <CheckCircle2 className="size-5 text-emerald-400 transition-transform group-hover:scale-110" />
+                <CheckCircle2 className="size-5 text-emerald-500 transition-transform group-hover:scale-110" />
               ) : (
-                <Circle className="size-5 text-zinc-600 transition-colors group-hover:text-zinc-400" />
+                <Circle className="size-5 text-emerald-300 transition-colors group-hover:text-emerald-400" />
               )}
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className={cn("text-sm font-medium", todo.completed && "line-through text-zinc-500")}>
+                <span className={cn("text-sm font-medium text-emerald-950", todo.completed && "line-through text-emerald-400")}>
                   {todo.title}
                 </span>
                 <Badge className={cn("text-[10px] px-1.5 py-0 border", typeConfig[todo.type].color)}>
                   {typeConfig[todo.type].label}
                 </Badge>
               </div>
-              <p className={cn("mt-0.5 text-xs text-zinc-500", todo.completed && "line-through")}>
+              <p className={cn("mt-0.5 text-xs text-emerald-600/60", todo.completed && "line-through")}>
                 {todo.detail}
               </p>
             </div>
-            <span className="shrink-0 text-xs tabular-nums text-zinc-600">{todo.time}</span>
+            <span className="shrink-0 text-xs tabular-nums text-emerald-400">{todo.time}</span>
           </div>
         ))}
       </CardContent>
@@ -272,30 +268,30 @@ function TodoList() {
 
 export default function DashboardPage() {
   const stats = [
-    { label: "连续打卡", value: "12 天", icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10" },
-    { label: "本周训练", value: "5 次", icon: Dumbbell, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-    { label: "当前体重", value: "74.2 kg", icon: Target, color: "text-sky-400", bg: "bg-sky-500/10" },
-    { label: "距目标", value: "-2.2 kg", icon: TrendingUp, color: "text-violet-400", bg: "bg-violet-500/10" },
+    { label: "连续打卡", value: "12 天", icon: Flame, color: "text-orange-500", bg: "bg-orange-100" },
+    { label: "本周训练", value: "5 次", icon: Dumbbell, color: "text-emerald-500", bg: "bg-emerald-100" },
+    { label: "当前体重", value: "74.2 kg", icon: Target, color: "text-sky-500", bg: "bg-sky-100" },
+    { label: "距目标", value: "-2.2 kg", icon: TrendingUp, color: "text-violet-500", bg: "bg-violet-100" },
   ];
 
   const weeklyTotal = trainingData.reduce((sum, d) => sum + d.minutes, 0);
-  const weeklyGoal = 300; // 每周 300 分钟目标
+  const weeklyGoal = 300;
   const goalPercent = Math.min(100, Math.round((weeklyTotal / weeklyGoal) * 100));
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-zinc-950">
+    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-br from-emerald-50 via-white to-teal-50">
       {/* 顶部区域 */}
-      <header className="border-b border-zinc-800/80 bg-zinc-900/40 px-6 py-4 backdrop-blur">
+      <header className="border-b border-emerald-100 bg-white/70 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold tracking-tight">
+            <h1 className="text-xl font-bold tracking-tight text-emerald-950">
               {format(new Date(), "M月d日 EEEE", { locale: zhCN })}
             </h1>
-            <p className="mt-0.5 text-sm text-zinc-500">坚持就是胜利，今天也要加油 💪</p>
+            <p className="mt-0.5 text-sm text-emerald-600/60">坚持就是胜利，今天也要加油 💪</p>
           </div>
-          <div className="flex items-center gap-2 rounded-full bg-emerald-500/10 px-4 py-2 border border-emerald-500/20">
-            <Zap className="size-4 text-emerald-400" />
-            <span className="text-sm font-medium text-emerald-300">今日已消耗 320 kcal</span>
+          <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2">
+            <Zap className="size-4 text-emerald-500" />
+            <span className="text-sm font-medium text-emerald-700">今日已消耗 320 kcal</span>
           </div>
         </div>
       </header>
@@ -308,15 +304,15 @@ export default function DashboardPage() {
             {stats.map((stat) => (
               <Card
                 key={stat.label}
-                className="group border-zinc-800 bg-zinc-900/60 backdrop-blur transition-all duration-200 hover:border-zinc-700 hover:bg-zinc-900"
+                className="group border-emerald-100 bg-white/80 shadow-sm backdrop-blur transition-all duration-200 hover:border-emerald-200 hover:shadow-md"
               >
                 <CardContent className="flex items-center gap-3 p-4">
                   <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110", stat.bg)}>
                     <stat.icon className={cn("size-5", stat.color)} />
                   </div>
                   <div>
-                    <p className="text-xs text-zinc-500">{stat.label}</p>
-                    <p className="text-lg font-bold tabular-nums">{stat.value}</p>
+                    <p className="text-xs text-emerald-600/60">{stat.label}</p>
+                    <p className="text-lg font-bold tabular-nums text-emerald-950">{stat.value}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -325,22 +321,19 @@ export default function DashboardPage() {
 
           {/* 三栏布局 */}
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* 左栏：待办列表 */}
             <div className="lg:col-span-1">
               <TodoList />
             </div>
 
-            {/* 中栏：日历 */}
             <div className="lg:col-span-1">
               <CheckinCalendar />
             </div>
 
-            {/* 右栏：周目标完成度 */}
             <div className="lg:col-span-1">
-              <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
+              <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader className="pb-2">
-                  <CardTitle className="flex items-center gap-2 text-base font-semibold">
-                    <Target className="size-4 text-emerald-400" />
+                  <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+                    <Target className="size-4 text-emerald-500" />
                     本周目标
                   </CardTitle>
                 </CardHeader>
@@ -355,26 +348,26 @@ export default function DashboardPage() {
                         endAngle={-270}
                       >
                         <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                        <RadialBar background={{ fill: "#27272a" }} cornerRadius={10} dataKey="value" />
+                        <RadialBar background={{ fill: "#d1fae5" }} cornerRadius={10} dataKey="value" />
                       </RadialBarChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-3xl font-bold tabular-nums">{goalPercent}%</span>
-                      <span className="text-xs text-zinc-500">{weeklyTotal}/{weeklyGoal} 分钟</span>
+                      <span className="text-3xl font-bold tabular-nums text-emerald-950">{goalPercent}%</span>
+                      <span className="text-xs text-emerald-600/60">{weeklyTotal}/{weeklyGoal} 分钟</span>
                     </div>
                   </div>
                   <div className="mt-4 space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">训练次数</span>
-                      <span className="font-medium">5/6 次</span>
+                      <span className="text-emerald-600/60">训练次数</span>
+                      <span className="font-medium text-emerald-950">5/6 次</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">消耗热量</span>
-                      <span className="font-medium">2,300 kcal</span>
+                      <span className="text-emerald-600/60">消耗热量</span>
+                      <span className="font-medium text-emerald-950">2,300 kcal</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-zinc-500">平均时长</span>
-                      <span className="font-medium">58 分钟/次</span>
+                      <span className="text-emerald-600/60">平均时长</span>
+                      <span className="font-medium text-emerald-950">58 分钟/次</span>
                     </div>
                   </div>
                 </CardContent>
@@ -385,11 +378,11 @@ export default function DashboardPage() {
           {/* 图表区域 */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* 体重趋势 */}
-            <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
+            <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold">体重趋势</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">
+                  <CardTitle className="text-base font-semibold text-emerald-950">体重趋势</CardTitle>
+                  <Badge variant="secondary" className="border-emerald-200 bg-emerald-100 text-emerald-700">
                     12 周 -3.8kg
                   </Badge>
                 </div>
@@ -400,21 +393,22 @@ export default function DashboardPage() {
                     <AreaChart data={weightData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                       <defs>
                         <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.3} />
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.2} />
                           <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis dataKey="week" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis domain={[70, 80]} tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
+                      <XAxis dataKey="week" tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[70, 80]} tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#18181b",
-                          border: "1px solid #3f3f46",
+                          backgroundColor: "#ffffff",
+                          border: "1px solid #d1fae5",
                           borderRadius: "12px",
                           fontSize: "12px",
+                          boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
                         }}
-                        labelStyle={{ color: "#a1a1aa" }}
+                        labelStyle={{ color: "#065f46" }}
                       />
                       <Area
                         type="monotone"
@@ -430,7 +424,7 @@ export default function DashboardPage() {
                         type="monotone"
                         dataKey="target"
                         name="目标"
-                        stroke="#71717a"
+                        stroke="#a7f3d0"
                         strokeWidth={1}
                         strokeDasharray="5 5"
                         fill="none"
@@ -443,29 +437,30 @@ export default function DashboardPage() {
             </Card>
 
             {/* 训练量统计 */}
-            <Card className="border-zinc-800 bg-zinc-900/60 backdrop-blur">
+            <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-semibold">本周训练量</CardTitle>
-                  <span className="text-xs text-zinc-500">总计 {weeklyTotal} 分钟</span>
+                  <CardTitle className="text-base font-semibold text-emerald-950">本周训练量</CardTitle>
+                  <span className="text-xs text-emerald-600/60">总计 {weeklyTotal} 分钟</span>
                 </div>
               </CardHeader>
               <CardContent>
                 <div className="h-56">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={trainingData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                      <XAxis dataKey="day" tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: "#71717a", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
+                      <XAxis dataKey="day" tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: "#6ee7b7", fontSize: 11 }} axisLine={false} tickLine={false} />
                       <Tooltip
                         contentStyle={{
-                          backgroundColor: "#18181b",
-                          border: "1px solid #3f3f46",
+                          backgroundColor: "#ffffff",
+                          border: "1px solid #d1fae5",
                           borderRadius: "12px",
                           fontSize: "12px",
+                          boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
                         }}
-                        labelStyle={{ color: "#a1a1aa" }}
-                        cursor={{ fill: "#27272a", opacity: 0.5 }}
+                        labelStyle={{ color: "#065f46" }}
+                        cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
                       />
                       <Bar dataKey="minutes" name="时长 (分钟)" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
                       <Bar dataKey="calories" name="热量 (kcal)" fill="#f59e0b" radius={[6, 6, 0, 0]} maxBarSize={32} opacity={0.7} />
