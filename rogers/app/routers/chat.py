@@ -61,7 +61,6 @@ class StopRequest(BaseModel):
     """停止生成请求"""
     thread_id: str
 
-
 @router.post("/message")
 async def send_message(
     req: ChatRequest,
@@ -98,7 +97,9 @@ async def send_message(
         yield _sse_event("start", {"thread_id": thread_id})
 
         full_content = ""
-        tool_calls = []
+        full_thinking = ""
+        tool_calls = []  # 完整工具调用记录 [{id, name, input, output, status}]
+        _current_tool: Optional[dict] = None
 
         # 使用独立 session，避免请求级 session 在流式响应期间被关闭
         async with async_session_factory() as stream_db:
@@ -120,6 +121,7 @@ async def send_message(
                         chunk = event["data"]["chunk"]
                         reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                         if reasoning:
+                            full_thinking += reasoning
                             yield _sse_event("thinking", {"content": reasoning})
                         if chunk.content:
                             full_content += chunk.content
@@ -127,23 +129,30 @@ async def send_message(
 
                     elif kind == "on_tool_start":
                         tool_name = event["name"]
-                        tool_calls.append(tool_name)
+                        run_id = event.get("run_id", str(len(tool_calls)))
                         # 透传工具入参，便于前端展示真实参数
                         raw_input = event.get("data", {}).get("input")
                         try:
-                            # 确保可 JSON 序列化
                             json.dumps(raw_input, ensure_ascii=False)
                             tool_input = raw_input
                         except (TypeError, ValueError):
                             tool_input = {"raw": str(raw_input)} if raw_input else {}
+                        _current_tool = {
+                            "id": run_id,
+                            "name": tool_name,
+                            "input": tool_input or {},
+                            "output": None,
+                            "status": "running",
+                        }
+                        tool_calls.append(_current_tool)
                         yield _sse_event("tool_start", {
+                            "id": run_id,
                             "tool": tool_name,
                             "input": tool_input or {},
                         })
 
                     elif kind == "on_tool_end":
                         raw_output = event["data"].get("output", "")
-                        # 优先尝试结构化输出（ToolMessage.content 可能是 str 或 list）
                         if isinstance(raw_output, str):
                             output_str = raw_output
                         else:
@@ -151,15 +160,23 @@ async def send_message(
                                 output_str = json.dumps(raw_output, ensure_ascii=False)
                             except (TypeError, ValueError):
                                 output_str = str(raw_output)
+                        # 更新当前工具调用状态
+                        if _current_tool is not None:
+                            _current_tool["output"] = output_str[:2000]
+                            _current_tool["status"] = "completed"
+                            _current_tool = None
                         yield _sse_event("tool_result", {
                             "tool": event["name"],
                             "data": output_str[:2000],
                         })
 
-                if full_content:
+                if full_content or full_thinking:
                     await _save_message(
                         stream_db, user.id, thread_id, "assistant", full_content,
-                        metadata={"tool_calls": tool_calls},
+                        metadata={
+                            "thinking": full_thinking or None,
+                            "tool_calls": tool_calls or None,
+                        },
                     )
 
                 yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
@@ -179,7 +196,6 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
-
 
 @router.post("/stop", response_model=ResponseModel[None])
 async def stop_generation(
@@ -285,7 +301,6 @@ async def get_thread_messages(
         total=total,
     ))
 
-
 @router.delete("/threads/{thread_id}", response_model=ResponseModel[None])
 async def delete_thread(
     thread_id: str,
@@ -304,7 +319,6 @@ async def delete_thread(
         return ResponseModel(code=404, message="线程不存在")
 
     return ResponseModel(message=f"已删除 {result.rowcount} 条消息")
-
 
 @router.delete("/history", response_model=ResponseModel[None])
 async def clear_history(

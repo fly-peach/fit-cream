@@ -142,7 +142,39 @@ export default function ChatPage() {
         const json = await res.json();
         // 后端 ResponseModel: { code, message, data: { messages, thread_id, total } }
         const data = json.data || {};
-        setMessages(data.messages || []);
+        // 从后端消息格式转换为前端 ChatMessage 格式，恢复 thinking 和 toolCalls
+        const restored: ChatMessage[] = (data.messages || []).map(
+          (m: {
+            id: string;
+            role: string;
+            content: string | null;
+            metadata_json?: {
+              thinking?: string;
+              tool_calls?: Array<{
+                id: string;
+                name: string;
+                input: Record<string, unknown>;
+                output?: unknown;
+                status: string;
+              }>;
+            } | null;
+            created_at: string;
+          }) => ({
+            id: m.id,
+            role: m.role as "user" | "assistant",
+            content: m.content || "",
+            thinking: m.metadata_json?.thinking || undefined,
+            toolCalls: m.metadata_json?.tool_calls?.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              input: tc.input,
+              output: tc.output,
+              status: (tc.status === "running" ? "running" : tc.status === "error" ? "error" : "completed") as "running" | "completed" | "error",
+            })) || undefined,
+            createdAt: new Date(m.created_at).getTime(),
+          }),
+        );
+        setMessages(restored);
       }
     } catch {
       // ignore

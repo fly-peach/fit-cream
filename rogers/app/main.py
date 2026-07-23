@@ -13,9 +13,17 @@ FastAPI 应用入口
     # 或
     cd rogers && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 """
+import asyncio
 import logging
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Windows 上 psycopg 需要 SelectorEventLoop（ProactorEventLoop 不兼容）
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(
+        asyncio.WindowsSelectorEventLoopPolicy()
+    )
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +70,13 @@ async def lifespan(app: FastAPI):
     logger.info(f"FitCream ready: http://localhost:8000")
 
     yield
+
+    # Shutdown: 释放 Agent checkpointer 连接
+    try:
+        from agents.agent_graph import shutdown_agent
+        await shutdown_agent()
+    except Exception:
+        pass
 
     await engine.dispose()
 

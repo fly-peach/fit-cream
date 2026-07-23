@@ -31,7 +31,7 @@ LangGraph Agent 的顶层入口模块。
     await init_agent()  # 在 lifespan 中调用
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from agents.agent.agent_factory import create_fitcream_agent
 from agents.harness.prompts.system import SYSTEM_PROMPT
@@ -48,6 +48,22 @@ graph = create_fitcream_agent(
 
 # 带 checkpointer 的 Agent（生产环境，在 init_agent 中初始化）
 _graph_with_checkpointer = None
+
+
+def _to_psycopg_dsn(url: str) -> str:
+    """
+    将 SQLAlchemy 异步连接串转换为 psycopg 格式。
+
+    postgresql+asyncpg://user:pass@host:port/db -> postgresql://user:pass@host:port/db
+    """
+    if "+asyncpg" in url:
+        return url.replace("+asyncpg", "")
+    return url
+
+
+# 全局 checkpointer 引用（用于 lifespan shutdown 时关闭连接）
+_checkpointer: Any = None
+_checkpointer_cm: Any = None  # context manager 引用
 
 
 async def init_agent(database_url: Optional[str] = None):
@@ -68,7 +84,10 @@ async def init_agent(database_url: Optional[str] = None):
             await init_agent()
             yield
     """
-    global _graph_with_checkpointer, graph
+    global _graph_with_checkpointer, graph, _checkpointer, _checkpointer_cm
+
+    import logging
+    logger = logging.getLogger("fitcream")
 
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -84,8 +103,18 @@ async def init_agent(database_url: Optional[str] = None):
                     "postgresql+asyncpg://fitcream:fitcream@localhost:5432/fitcream",
                 )
 
-        checkpointer = AsyncPostgresSaver.from_conn_string(database_url)
+        # 转换为 psycopg 格式连接串
+        psycopg_dsn = _to_psycopg_dsn(database_url)
+
+        # AsyncPostgresSaver.from_conn_string 返回 async context manager
+        # 需要进入上下文获取 checkpointer 实例
+        cm = AsyncPostgresSaver.from_conn_string(psycopg_dsn)
+        checkpointer = await cm.__aenter__()
         await checkpointer.setup()
+
+        # 保存引用以便 shutdown 时关闭
+        _checkpointer = checkpointer
+        _checkpointer_cm = cm  # 保存 context manager 用于退出
 
         _graph_with_checkpointer = create_fitcream_agent(
             system_prompt=SYSTEM_PROMPT,
@@ -94,17 +123,29 @@ async def init_agent(database_url: Optional[str] = None):
         )
 
         graph = _graph_with_checkpointer
+        logger.info("Agent 初始化完成（对话持久化已启用）")
 
     except ImportError as e:
-        import logging
-        logging.getLogger(__name__).warning(
-            f"Checkpointer 不可用（{e}），Agent 将不支持对话持久化"
-        )
+        logger.warning(f"Checkpointer 不可用（{e}），Agent 将不支持对话持久化")
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(
-            f"Agent 初始化失败: {e}，使用无状态模式"
-        )
+        logger.error(f"Agent 初始化失败: {e}，使用无状态模式")
+
+
+async def shutdown_agent():
+    """
+    关闭 Agent（在 FastAPI lifespan shutdown 中调用）。
+
+    释放 checkpointer 的数据库连接。
+    """
+    global _checkpointer, _checkpointer_cm
+
+    if _checkpointer_cm is not None:
+        try:
+            await _checkpointer_cm.__aexit__(None, None, None)
+        except Exception:
+            pass
+        _checkpointer_cm = None
+        _checkpointer = None
 
 
 def get_agent():

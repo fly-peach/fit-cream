@@ -171,9 +171,13 @@ createdb fitcream
 ### 4. 启动后端
 
 ```bash
-cd rogers
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+
+# Windows（推荐，解决 psycopg EventLoop 兼容性问题）
+uv run python rogers/run.py
+
+# Linux / macOS
+cd rogers && uv run uvicorn app.main:app --reload --port 8000
 ```
 
 启动后：

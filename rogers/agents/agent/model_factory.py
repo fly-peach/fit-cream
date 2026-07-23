@@ -29,7 +29,7 @@ import os
 from typing import Any, Optional, Iterator, AsyncIterator
 
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, AIMessageChunk
+from langchain_core.messages import BaseMessage, AIMessageChunk, ToolCallChunk
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -166,6 +166,14 @@ class ChatDashScope(ChatOpenAI):
         if self.stream_usage:
             params["stream_options"] = {"include_usage": True}
 
+        # 传递 tools 参数（bind_tools 注入的 function calling 定义）
+        tools = kwargs.get("tools")
+        if tools:
+            params["tools"] = tools
+        tool_choice = kwargs.get("tool_choice")
+        if tool_choice:
+            params["tool_choice"] = tool_choice
+
         return params
 
     def _convert_messages_to_dicts(self, messages: list[BaseMessage]) -> list[dict]:
@@ -187,10 +195,18 @@ class ChatDashScope(ChatOpenAI):
         if reasoning_content:
             additional_kwargs["reasoning_content"] = reasoning_content
 
+        # 构建 tool_call_chunks（LangGraph ReAct agent 需要此字段来解析工具调用）
+        tool_call_chunks: list[ToolCallChunk] = []
         if delta.tool_calls:
-            additional_kwargs["tool_calls"] = [
-                tc.model_dump() for tc in delta.tool_calls
-            ]
+            for tc in delta.tool_calls:
+                tool_call_chunks.append(
+                    ToolCallChunk(
+                        name=tc.function.name if tc.function else None,
+                        args=tc.function.arguments if tc.function else "",
+                        id=tc.id,
+                        index=tc.index,
+                    )
+                )
 
         if not content and not reasoning_content and not delta.tool_calls:
             if delta.role:
@@ -198,6 +214,7 @@ class ChatDashScope(ChatOpenAI):
                     message=AIMessageChunk(
                         content="",
                         additional_kwargs=additional_kwargs,
+                        tool_call_chunks=tool_call_chunks,
                         response_metadata={"role": delta.role},
                     ),
                     text="",
@@ -208,6 +225,7 @@ class ChatDashScope(ChatOpenAI):
             message=AIMessageChunk(
                 content=content,
                 additional_kwargs=additional_kwargs,
+                tool_call_chunks=tool_call_chunks,
             ),
             text=content,
         )
