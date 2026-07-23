@@ -8,7 +8,7 @@ Agent 限流中间件
 """
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Awaitable
 
 from langchain.agents.middleware import (
     AgentMiddleware,
@@ -20,6 +20,8 @@ from langchain.messages import ToolMessage
 from langchain.tools.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+
+AsyncToolHandler = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -66,6 +68,32 @@ class SameToolLimitMiddleware(AgentMiddleware):
             )
 
         return handler(request)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolHandler,
+    ) -> ToolMessage | Command:
+        tool_name = request.tool_call["name"]
+        self._tool_history[tool_name] = self._tool_history.get(tool_name, 0) + 1
+
+        if self._tool_history[tool_name] > self.max_same_tool_calls:
+            logger.warning(
+                f"[RateLimit] Same tool limit exceeded: "
+                f"{tool_name} called {self._tool_history[tool_name]} times "
+                f"(max {self.max_same_tool_calls})"
+            )
+            return ToolMessage(
+                content=(
+                    f"Error: Tool '{tool_name}' has been called "
+                    f"{self.max_same_tool_calls} times already. "
+                    f"Please try a different approach."
+                ),
+                tool_call_id=request.tool_call["id"],
+                status="error",
+            )
+
+        return await handler(request)
 
 
 def create_rate_limit_middleware(

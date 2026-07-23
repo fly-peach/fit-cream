@@ -19,6 +19,9 @@ from langchain.tools.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+# 异步 handler 类型
+AsyncToolHandler = Callable[[ToolCallRequest], Any]  # Awaitable[ToolMessage | Command]
+
 logger = logging.getLogger("fitcream.agent")
 
 
@@ -102,6 +105,39 @@ class AgentLoggingMiddleware(AgentMiddleware):
         start = time.time()
         try:
             result = handler(request)
+            duration = (time.time() - start) * 1000
+            output_preview = str(getattr(result, "content", result))[:200]
+            logger.info(
+                f"{self._log_prefix()} Tool ended ✓ | "
+                f"tool={tool_name} | duration={duration:.1f}ms | "
+                f"output='{output_preview}...'"
+            )
+            return result
+        except Exception as e:
+            duration = (time.time() - start) * 1000
+            logger.error(
+                f"{self._log_prefix()} Tool error ✗ | "
+                f"tool={tool_name} | duration={duration:.1f}ms | "
+                f"error={type(e).__name__}: {str(e)[:200]}"
+            )
+            raise
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolHandler,
+    ) -> ToolMessage | Command:
+        self._tool_calls += 1
+        tool_name = request.tool_call["name"]
+        args_preview = str(request.tool_call.get("args", {}))[:200]
+
+        logger.info(
+            f"{self._log_prefix()} Tool started | tool={tool_name} | args='{args_preview}'"
+        )
+
+        start = time.time()
+        try:
+            result = await handler(request)
             duration = (time.time() - start) * 1000
             output_preview = str(getattr(result, "content", result))[:200]
             logger.info(

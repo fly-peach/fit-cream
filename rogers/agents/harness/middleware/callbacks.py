@@ -7,7 +7,7 @@ Agent 回调中间件
 """
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Awaitable
 from uuid import uuid4
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
@@ -16,6 +16,8 @@ from langchain.messages import ToolMessage
 from langchain.tools.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+
+AsyncToolHandler = Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]]
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -126,6 +128,15 @@ class ConversationPersistenceMiddleware(AgentMiddleware):
         if self.save_tool_calls:
             self._tool_calls.append(request.tool_call["name"])
         return handler(request)
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: AsyncToolHandler,
+    ) -> ToolMessage | Command:
+        if self.save_tool_calls:
+            self._tool_calls.append(request.tool_call["name"])
+        return await handler(request)
 
     def after_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state.get("messages", [])
