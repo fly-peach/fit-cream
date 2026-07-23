@@ -5,9 +5,11 @@
 直接调用 PlanService（同进程融合）。
 """
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from uuid import UUID
 
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -44,7 +46,7 @@ async def create_plan_tool(
     days_per_week: int,
     difficulty: str = "beginner",
     preferences: Optional[str] = None,
-    user_id: Optional[str] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
     根据用户的健身目标创建个性化训练计划。
@@ -59,6 +61,10 @@ async def create_plan_tool(
     Returns:
         包含计划详情、训练日安排的结构化数据
     """
+    user_id = None
+    if config and "configurable" in config:
+        user_id = config["configurable"].get("user_id")
+
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
@@ -157,7 +163,7 @@ async def adjust_plan_tool(
     action: str,
     details: str,
     plan_id: Optional[str] = None,
-    user_id: Optional[str] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
     调整现有训练计划。
@@ -170,6 +176,10 @@ async def adjust_plan_tool(
     Returns:
         调整后的计划变更说明
     """
+    user_id = None
+    if config and "configurable" in config:
+        user_id = config["configurable"].get("user_id")
+
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 

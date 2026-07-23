@@ -1,7 +1,9 @@
 """统计相关 Tools"""
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -26,7 +28,7 @@ class QueryStatsInput(BaseModel):
 async def query_stats_tool(
     period: str = "weekly",
     metric: Optional[str] = None,
-    config: Optional[dict] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
     查询训练统计数据。

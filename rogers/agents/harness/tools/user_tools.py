@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from app.database import async_session_factory
@@ -17,7 +18,7 @@ def _calculate_bmi(height_cm: Optional[float], weight_kg: Optional[float]) -> Op
 
 
 @tool
-async def get_user_profile_tool(config: Optional[dict] = None) -> dict:
+async def get_user_profile_tool(config: RunnableConfig) -> dict:
     """
     获取当前用户的个人资料和身体数据。
 
@@ -26,12 +27,11 @@ async def get_user_profile_tool(config: Optional[dict] = None) -> dict:
     Returns:
         用户基本信息、身体数据、健身目标
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
+    configurable = config.get("configurable", {}) if config else {}
+    user_id = configurable.get("user_id")
 
     if not user_id:
-        return {"success": False, "error": "无法获取用户信息"}
+        return {"success": False, "error": "无法获取用户信息（未登录或会话无效）"}
 
     async with async_session_factory() as db:
         user = await UserService.get_by_id(db, user_id)

@@ -1,8 +1,10 @@
 """打卡相关 Tools"""
 
 from datetime import date as date_type
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
@@ -40,7 +42,7 @@ async def checkin_tool(
     mood: Optional[int] = None,
     note: Optional[str] = None,
     checkin_date: Optional[str] = None,
-    config: Optional[dict] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
     记录今日训练打卡。
@@ -118,7 +120,7 @@ async def checkin_tool(
 
 
 @tool
-async def get_streak_tool(config: Optional[dict] = None) -> dict:
+async def get_streak_tool(config: "RunnableConfig" = None) -> dict:  # type: ignore[assignment]
     """
     获取当前用户的连续打卡天数统计。
 

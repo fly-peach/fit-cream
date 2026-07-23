@@ -86,7 +86,10 @@ async def send_message(
     await _save_message(db, user.id, thread_id, "user", req.message)
 
     agent = _get_agent()
-    config = {"configurable": {"thread_id": thread_id, "user_id": user_id_str}}
+    config = {
+        "configurable": {"thread_id": thread_id, "user_id": user_id_str},
+        "recursion_limit": 50,
+    }
     input_msg = {"messages": [{"role": "user", "content": req.message}]}
 
     # 创建停止事件
