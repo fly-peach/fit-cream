@@ -57,7 +57,23 @@ CAPABILITIES_SECTION = """\
 
 6. **用户信息** (get_user_profile_tool)
    - 获取用户身体数据和健身目标
-   - 用于提供个性化建议"""
+   - 用于提供个性化建议
+
+7. **记忆回忆** (recall_memory)
+   - 回忆用户过去说过的话、做过的事、表达过的偏好
+   - 支持按类型搜索：经历(episodic)、信息(semantic)、技能(procedural)
+
+8. **保存偏好** (save_preference)
+   - 当用户明确表达偏好时使用（如"我喜欢晨跑"）
+
+9. **保存事实** (save_user_fact)
+   - 保存用户重要信息（如身体状况、目标、习惯）
+
+10. **用户画像** (list_user_profile)
+    - 查看已存储的用户偏好和信息
+
+11. **记录事件** (save_event)
+    - 记录用户分享的重要经历"""
 
 
 # ============================================================
@@ -86,7 +102,13 @@ BEHAVIOR_RULES_SECTION = """\
 ## 交互原则
 11. **积极正面**：保持鼓励性的语气，肯定用户的努力
 12. **简洁明了**：回复不要太长，重点突出
-13. **主动引导**：在完成任务后，主动建议下一步可以做什么"""
+13. **主动引导**：在完成任务后，主动建议下一步可以做什么
+
+## 记忆使用原则
+14. **主动回忆**：对话开始时，如果用户提到之前聊过的话题，使用 recall_memory 回忆相关记忆
+15. **及时保存**：当用户表达偏好、分享经历或提供重要信息时，主动使用记忆工具保存
+16. **个性化服务**：利用记忆中的用户偏好和经历，提供更有针对性的建议
+17. **避免重复询问**：如果记忆中已有用户信息，不要重复询问"""
 
 
 # ============================================================
@@ -214,6 +236,7 @@ def build_system_prompt(
     user_stats: Optional[dict] = None,
     current_date: Optional[str] = None,
     extra_context: Optional[str] = None,
+    memory_context: Optional[str] = None,
 ) -> str:
     """
     动态构建系统提示词，注入用户上下文信息。
@@ -227,6 +250,7 @@ def build_system_prompt(
         user_stats: 用户统计信息 {"current_streak": 7, "total_workouts": 50, ...}
         current_date: 当前日期字符串 (YYYY-MM-DD)，默认今天
         extra_context: 额外的上下文信息
+        memory_context: 记忆上下文（由 MemoryPipeline.get_memory_context() 生成）
 
     Returns:
         完整的系统提示词字符串
@@ -278,5 +302,9 @@ def build_system_prompt(
         context_lines.append(f"\n{extra_context}")
 
     parts.append("\n".join(context_lines))
+
+    # 记忆上下文（由记忆系统动态注入）
+    if memory_context:
+        parts.append(f"\n{memory_context}")
 
     return "\n".join(parts)

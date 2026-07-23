@@ -203,6 +203,9 @@ def _get_default_tools() -> list:
     Returns:
         工具列表
     """
+    tools = []
+
+    # 1. 业务工具
     try:
         from agents.harness.tools import (
             create_plan_tool,
@@ -213,13 +216,24 @@ def _get_default_tools() -> list:
             get_user_profile_tool,
         )
 
-        return [
+        tools.extend([
             create_plan_tool,
             adjust_plan_tool,
             checkin_tool,
             query_stats_tool,
             get_exercises_tool,
             get_user_profile_tool,
-        ]
+        ])
     except ImportError:
-        return []
+        pass
+
+    # 2. 记忆工具（分层认知记忆架构）
+    try:
+        from agents.memory.tools import create_memory_tools
+
+        memory_tools = create_memory_tools()
+        tools.extend(memory_tools)
+    except ImportError:
+        pass
+
+    return tools
