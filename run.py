@@ -5,16 +5,16 @@ Windows 上 psycopg (langgraph-checkpoint-postgres) 需要 SelectorEventLoop，
 必须在 uvicorn 创建事件循环之前设置策略。
 
 用法:
-    uv run python rogers/run.py
-    uv run python rogers/run.py --reload
-    uv run python rogers/run.py --port 8000
+    uv run python run.py
+    uv run python run.py --reload
+    uv run python run.py --port 8000
 """
 import asyncio
 import sys
 from pathlib import Path
 
 # 将 rogers 目录加入 sys.path（使 app 包可导入）
-rogers_dir = str(Path(__file__).resolve().parent)
+rogers_dir = str(Path(__file__).resolve().parent / "rogers")
 if rogers_dir not in sys.path:
     sys.path.insert(0, rogers_dir)
 

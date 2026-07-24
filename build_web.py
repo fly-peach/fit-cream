@@ -1,7 +1,7 @@
 """构建前端并复制到后端静态目录
 
 用法（项目根目录下）:
-    python build_console.py
+    python build_web.py
 
 流程:
     [0/3] 检查/安装 node_modules
@@ -74,7 +74,7 @@ def main():
 
     print("\n" + "=" * 50)
     print("  ✅ 构建完成！启动后端:")
-    print("     cd rogers && uv run uvicorn app.main:app --reload --port 8000")
+    print("     uv run python run.py --reload")
     print("  访问: http://localhost:8000")
     print("=" * 50)
 
