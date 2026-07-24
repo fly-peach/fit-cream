@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -28,10 +28,27 @@ import {
   PromptInputTextarea,
   PromptInputSubmit,
 } from "@/components/ai-elements/prompt-input";
-import { Sidebar } from "@/components/sidebar";
+import {
+  Context,
+  ContextContent,
+  ContextContentBody,
+  ContextContentFooter,
+  ContextContentHeader,
+  ContextInputUsage,
+  ContextOutputUsage,
+  ContextTrigger,
+} from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
-import { SquareIcon, PlusIcon, BotMessageSquareIcon } from "lucide-react";
+import {
+  SquareIcon,
+  PlusIcon,
+  BotMessageSquareIcon,
+  HistoryIcon,
+  XIcon,
+  Trash2Icon,
+  ZapIcon,
+} from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
 
 /** 工具名 -> 中文展示名映射，让工具调用块更易读 */
@@ -72,40 +89,54 @@ function MessageItem({ message }: { message: ChatMessage }) {
 
   // 过滤模型误输出的工具调用文本
   const cleaned = cleanContent(message.content);
+  const hasThinking = !!message.thinking;
+  const hasToolCalls = !!message.toolCalls?.length;
+  // 只要有 thinking 或 toolCalls，就展示 Reasoning 折叠块（chain-of-thought 模式）
+  const showReasoning = hasThinking || hasToolCalls;
+  const isThinking = message.isStreaming && !message.content;
 
   return (
     <Message from="assistant">
       <MessageContent>
-        {message.thinking && (
-          <Reasoning isStreaming={message.isStreaming && !message.content}>
+        {showReasoning && (
+          <Reasoning isStreaming={isThinking}>
             <ReasoningTrigger />
-            <ReasoningContent>{message.thinking}</ReasoningContent>
+            <ReasoningContent>
+              {/* 思考文本 */}
+              {message.thinking && (
+                <div className="whitespace-pre-wrap">{message.thinking}</div>
+              )}
+              {/* 工具调用嵌套在思考过程内部（chain-of-thought 模式） */}
+              {hasToolCalls && (
+                <div className={message.thinking ? "mt-3 space-y-2 border-t border-border/50 pt-3" : "space-y-2"}>
+                  {message.toolCalls!.map((tc) => (
+                    <Tool key={tc.id} defaultOpen={tc.status === "running"}>
+                      <ToolHeader
+                        title={toolNameMap[tc.name] ?? tc.name}
+                        type="tool-call"
+                        state={
+                          tc.status === "running"
+                            ? "input-available"
+                            : tc.status === "error"
+                              ? "output-error"
+                              : "output-available"
+                        }
+                      />
+                      <ToolContent>
+                        <ToolInput input={tc.input} />
+                        <ToolOutput output={tc.output} errorText={tc.error} />
+                      </ToolContent>
+                    </Tool>
+                  ))}
+                </div>
+              )}
+            </ReasoningContent>
           </Reasoning>
         )}
 
-        {message.toolCalls?.map((tc) => (
-          <Tool key={tc.id} defaultOpen={tc.status === "running"}>
-            <ToolHeader
-              title={toolNameMap[tc.name] ?? tc.name}
-              type="tool-call"
-              state={
-                tc.status === "running"
-                  ? "input-available"
-                  : tc.status === "error"
-                    ? "output-error"
-                    : "output-available"
-              }
-            />
-            <ToolContent>
-              <ToolInput input={tc.input} />
-              <ToolOutput output={tc.output} errorText={tc.error} />
-            </ToolContent>
-          </Tool>
-        ))}
-
         {cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
-        {message.isStreaming && !message.content && !message.thinking && (
+        {message.isStreaming && !message.content && !showReasoning && (
           <span className="animate-pulse text-muted-foreground">▊</span>
         )}
       </MessageContent>
@@ -113,11 +144,14 @@ function MessageItem({ message }: { message: ChatMessage }) {
   );
 }
 
+/** 上下文窗口最大 Token 数（与后端 Summarization 触发阈值一致） */
+const MAX_CONTEXT_TOKENS = 100_000;
+
 export default function ChatPage() {
-  const { currentThreadId, setThreadId } = useChatStore();
-  const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages } =
+  const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
+  const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, setUsage } =
     useChatSSE(currentThreadId);
-  const { threads, deleteThread } = useThreads();
+  const { threads, deleteThread, loadThreads } = useThreads();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -129,10 +163,10 @@ export default function ChatPage() {
     clearMessages();
   };
 
-  const handleSelectThread = async (id: string) => {
-    setThreadId(id);
-    // Load messages for thread
-    const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+  // 加载指定线程的历史消息（恢复 thinking / toolCalls）
+  const loadThreadMessages = useCallback(async (id: string) => {
+    // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
+    const API_URL = "/api";
     const token = localStorage.getItem("fitcream_token");
     try {
       const res = await fetch(`${API_URL}/chat/threads/${id}/messages`, {
@@ -140,9 +174,7 @@ export default function ChatPage() {
       });
       if (res.ok) {
         const json = await res.json();
-        // 后端 ResponseModel: { code, message, data: { messages, thread_id, total } }
         const data = json.data || {};
-        // 从后端消息格式转换为前端 ChatMessage 格式，恢复 thinking 和 toolCalls
         const restored: ChatMessage[] = (data.messages || []).map(
           (m: {
             id: string;
@@ -164,13 +196,18 @@ export default function ChatPage() {
             role: m.role as "user" | "assistant",
             content: m.content || "",
             thinking: m.metadata_json?.thinking || undefined,
-            toolCalls: m.metadata_json?.tool_calls?.map((tc) => ({
-              id: tc.id,
-              name: tc.name,
-              input: tc.input,
-              output: tc.output,
-              status: (tc.status === "running" ? "running" : tc.status === "error" ? "error" : "completed") as "running" | "completed" | "error",
-            })) || undefined,
+            toolCalls:
+              m.metadata_json?.tool_calls?.map((tc) => ({
+                id: tc.id,
+                name: tc.name,
+                input: tc.input,
+                output: tc.output,
+                status: (tc.status === "running"
+                  ? "running"
+                  : tc.status === "error"
+                    ? "error"
+                    : "completed") as "running" | "completed" | "error",
+              })) || undefined,
             createdAt: new Date(m.created_at).getTime(),
           }),
         );
@@ -179,21 +216,33 @@ export default function ChatPage() {
     } catch {
       // ignore
     }
+  }, [setMessages]);
+
+  // 进入页面时若存在上次的会话线程，则自动恢复该对话（需求2）
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    const id = useChatStore.getState().currentThreadId;
+    if (id) loadThreadMessages(id);
+  }, [loadThreadMessages]);
+
+  const handleSelectThread = (id: string) => {
+    setThreadId(id);
+    loadThreadMessages(id);
+    setSidebarOpen(false);
+    // 从 threads 列表中找到该线程的 totalTokens，初始化 usage
+    const t = threads.find((th) => th.id === id);
+    setUsage({
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: t?.totalTokens ?? 0,
+    });
   };
 
   return (
-    <AppLayout
-      sidebarExtra={
-        <Sidebar
-          threads={threads}
-          currentThreadId={currentThreadId}
-          onNewChat={handleNewChat}
-          onSelectThread={handleSelectThread}
-          onDeleteThread={deleteThread}
-        />
-      }
-    >
-      <div className="flex h-full flex-col">
+    <AppLayout>
+      <div className="relative flex h-full flex-col">
         {/* 页面顶部 header：AI 教练标题 + 新对话按钮（置于最上方） */}
         <header className="flex shrink-0 items-center justify-between border-b border-emerald-100 bg-white/70 px-4 py-2.5 backdrop-blur">
           <div className="flex items-center gap-2.5">
@@ -207,15 +256,58 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
-          <Button
-            onClick={handleNewChat}
-            size="sm"
-            variant="outline"
-            className="gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-          >
-            <PlusIcon className="size-4" />
-            新对话
-          </Button>
+          <div className="flex items-center gap-2">
+            <Context
+              usedTokens={usage.total_tokens}
+              maxTokens={MAX_CONTEXT_TOKENS}
+              usage={{
+                inputTokens: usage.input_tokens,
+                outputTokens: usage.output_tokens,
+                totalTokens: usage.total_tokens,
+                inputTokenDetails: {
+                  noCacheTokens: undefined,
+                  cacheReadTokens: undefined,
+                  cacheWriteTokens: undefined,
+                },
+                outputTokenDetails: {
+                  textTokens: undefined,
+                  reasoningTokens: undefined,
+                },
+              }}
+            >
+              <ContextTrigger className="h-8 gap-1.5 rounded-lg px-2.5 text-emerald-700 hover:bg-emerald-50" />
+              <ContextContent side="bottom" align="end">
+                <ContextContentHeader />
+                <ContextContentBody className="space-y-1.5">
+                  <ContextInputUsage />
+                  <ContextOutputUsage />
+                </ContextContentBody>
+                <ContextContentFooter>
+                  <span className="text-muted-foreground">上下文窗口</span>
+                  <span>{MAX_CONTEXT_TOKENS.toLocaleString()} tokens</span>
+                </ContextContentFooter>
+              </ContextContent>
+            </Context>
+            <Button
+              onClick={handleNewChat}
+              size="sm"
+              variant="outline"
+              className="gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+            >
+              <PlusIcon className="size-4" />
+              新对话
+            </Button>
+            <Button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              size="sm"
+              variant="outline"
+              title="会话历史"
+              className={`gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 ${sidebarOpen ? "bg-emerald-50" : ""}`}
+            >
+              <HistoryIcon className="size-4" />
+              <span className="hidden sm:inline">历史</span>
+            </Button>
+          </div>
         </header>
 
         <Conversation className="flex-1">
@@ -275,6 +367,65 @@ export default function ChatPage() {
             </div>
           </PromptInput>
         </div>
+
+        {/* 右侧会话历史抽屉 */}
+        {sidebarOpen && (
+          <div className="absolute inset-y-0 right-0 z-20 flex w-80 flex-col border-l border-emerald-100 bg-white/95 shadow-xl backdrop-blur">
+            <div className="flex shrink-0 items-center justify-between border-b border-emerald-100 px-4 py-3">
+              <span className="text-sm font-semibold text-emerald-900">会话历史</span>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="rounded-md p-1 text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700"
+              >
+                <XIcon className="size-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {threads.length === 0 ? (
+                <p className="px-2 py-8 text-center text-xs text-emerald-600/60">
+                  暂无历史会话
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {threads.map((t) => (
+                    <li key={t.id}>
+                      <div
+                        className={`group flex cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 transition-colors ${
+                          currentThreadId === t.id
+                            ? "bg-emerald-100 text-emerald-900"
+                            : "text-emerald-800 hover:bg-emerald-50"
+                        }`}
+                        onClick={() => handleSelectThread(t.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="line-clamp-1 flex-1 text-sm font-medium">{t.title}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteThread(t.id);
+                            }}
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                          >
+                            <Trash2Icon className="size-3.5 text-emerald-400 hover:text-red-500" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-emerald-500/70">
+                          <span className="flex items-center gap-0.5">
+                            <ZapIcon className="size-3" />
+                            {t.totalTokens > 0 ? `${(t.totalTokens / 1000).toFixed(1)}k tokens` : "0 tokens"}
+                          </span>
+                          <span>{t.messageCount} 条消息</span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

@@ -10,7 +10,7 @@ DashScope Embedding 模型配置
 - text-embedding-v1: 1536 维，旧版本
 
 用法：
-    from agents.memory.embeddings import create_embedding_model, get_embedding_model
+    from agents.harness.memory.embeddings import create_embedding_model, get_embedding_model
     
     # 创建新实例
     embed_model = create_embedding_model()

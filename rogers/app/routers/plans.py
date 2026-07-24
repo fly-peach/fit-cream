@@ -17,6 +17,9 @@ from app.schemas.common import PaginatedResponse, ResponseModel
 from app.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
+    PlanExerciseCreate,
+    PlanExerciseOut,
+    PlanExerciseUpdate,
     PlanListOut,
     PlanOut,
     PlanUpdate,
@@ -121,3 +124,55 @@ async def add_plan_day(
     # 重新获取完整计划
     plan = await PlanService.get_plan_detail(db, plan_id, user.id)
     return ResponseModel(data=PlanOut.model_validate(plan))
+
+
+@router.delete("/days/{day_id}", response_model=ResponseModel[None])
+async def delete_plan_day(
+    day_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除训练日"""
+    await PlanService.delete_plan_day(db, day_id, user.id)
+    await db.commit()
+    return ResponseModel(message="训练日已删除")
+
+
+@router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanExerciseOut])
+async def add_exercise_to_day(
+    day_id: UUID,
+    data: PlanExerciseCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """为训练日添加动作"""
+    exercise = await PlanService.add_exercise_to_day(db, day_id, user.id, data)
+    await db.commit()
+    await db.refresh(exercise)
+    return ResponseModel(data=PlanExerciseOut.model_validate(exercise))
+
+
+@router.put("/exercises/{exercise_id}", response_model=ResponseModel[PlanExerciseOut])
+async def update_exercise(
+    exercise_id: UUID,
+    data: PlanExerciseUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新训练动作（组数、次数、重量）"""
+    exercise = await PlanService.update_exercise(db, exercise_id, user.id, data)
+    await db.commit()
+    await db.refresh(exercise)
+    return ResponseModel(data=PlanExerciseOut.model_validate(exercise))
+
+
+@router.delete("/exercises/{exercise_id}", response_model=ResponseModel[None])
+async def delete_exercise(
+    exercise_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除训练动作"""
+    await PlanService.delete_exercise(db, exercise_id, user.id)
+    await db.commit()
+    return ResponseModel(message="动作已删除")

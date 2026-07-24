@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DumbbellIcon, FlameIcon, HeartPulseIcon, TrophyIcon, EyeIcon, EyeOffIcon } from "lucide-react";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
+const API_URL = "/api";
 
 export default function LoginPage() {
   const navigate = useNavigate();

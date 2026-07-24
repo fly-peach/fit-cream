@@ -9,7 +9,7 @@
 5. 反思 (Reflect): 定期总结，知识升华
 
 用法：
-    from agents.memory.pipeline import MemoryPipeline
+    from agents.harness.memory.pipeline import MemoryPipeline
     
     pipeline = MemoryPipeline(store, extractor)
     
@@ -26,8 +26,8 @@ from typing import Optional
 from langchain_core.messages import BaseMessage
 from langchain_core.language_models import BaseChatModel
 
-from agents.memory.store import MemoryStore, get_memory_store
-from agents.memory.extractor import MemoryExtractor, ExtractionResult
+from agents.harness.memory.store import MemoryStore, get_memory_store
+from agents.harness.memory.extractor import MemoryExtractor, ExtractionResult
 
 
 class MemoryPipeline:
@@ -171,7 +171,7 @@ class MemoryPipeline:
         semantics = await self.store.retrieve_semantic(user_id, limit=100)
         
         # 检测并合并重复记忆
-        # （简单实现：基于 subject + predicate 去重）
+        # （简单实现：基于 subject + predicate 去重，保留最新版本）
         seen = {}
         for mem in semantics:
             key = f"{mem.subject}:{mem.predicate}"

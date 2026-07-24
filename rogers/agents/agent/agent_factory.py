@@ -102,26 +102,26 @@ def create_fitcream_agent(
         ):
             ...
     """
-    # 1. 模型
+    # 1. 模型（默认使用 ChatDashScope + qwen3.5-flash，开启思考模式）
     if model is None:
         model = get_default_model(
             streaming=True,
             enable_thinking=enable_thinking,
         )
 
-    # 2. 工具
+    # 2. 工具（默认加载全部业务工具 + 记忆工具，同进程直接调用 Service 层）
     if tools is None:
         tools = _get_default_tools()
 
-    # 3. 系统提示词
+    # 3. 系统提示词（默认使用 system.py 中的完整 SYSTEM_PROMPT）
     if system_prompt is None:
         system_prompt = SYSTEM_PROMPT
 
-    # 4. 中间件
+    # 4. 中间件（默认：日志 + 限流 + Token追踪 + 会话压缩，编译时注入）
     if middleware is None:
         middleware = _get_default_middleware()
 
-    # 5. 构建 ReAct Agent（middleware 编译时注入）
+    # 5. 构建 ReAct Agent（middleware 在编译时注入，运行时无需 callbacks）
     agent = create_agent(
         model=model,
         tools=tools,
@@ -175,21 +175,62 @@ def create_fitcream_agent_with_context(
     )
 
 
+# ============================================================
+# Summarization 配置常量
+# ============================================================
+
+# 触发压缩的 token 阈值（qwen3.5-flash 上下文窗口 ~128K，在 100K 时触发压缩）
+SUMMARIZE_TRIGGER_TOKENS = 100_000
+
+# 触发记忆更新的 token 阈值（每 20K token 触发一次记忆提取）
+MEMORY_UPDATE_TRIGGER_TOKENS = 20_000
+
+# 压缩后保留的最近消息数（保留足够上下文让对话连贯）
+SUMMARIZE_KEEP_MESSAGES = 10
+
+
 def _get_default_middleware() -> list:
     """
     获取默认中间件列表（无用户上下文版本）。
 
-    包含：日志、限流、Token 追踪。
+    包含：意图识别、日志、限流、Token 追踪、会话压缩。
     不含对话持久化（需要 user_id/thread_id）。
+
+    中间件顺序（before_model 执行顺序）：
+    1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
+    2. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    3. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    4. TokenUsageMiddleware：Token 用量追踪
+    5. SummarizationMiddleware：会话压缩
+
+    会话压缩策略：
+    - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS (100K) 时触发
+    - 使用 LLM 将历史消息压缩为摘要
+    - 保留最近 SUMMARIZE_KEEP_MESSAGES (10) 条消息
     """
+    from langchain.agents.middleware import SummarizationMiddleware
     from agents.harness.middleware.logging_middleware import AgentLoggingMiddleware
     from agents.harness.middleware.rate_limit import create_rate_limit_middleware
     from agents.harness.middleware.callbacks import TokenUsageMiddleware
+    from agents.harness.middleware.intent_middleware import IntentMiddleware
+
+    # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
+    summary_model = create_chat_dashscope(
+        temperature=0.3,
+        streaming=False,
+        enable_thinking=False,
+    )
 
     return [
+        IntentMiddleware(),
         AgentLoggingMiddleware(),
         *create_rate_limit_middleware(),
-        TokenUsageMiddleware(),
+        TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
+        SummarizationMiddleware(
+            model=summary_model,
+            trigger=("tokens", SUMMARIZE_TRIGGER_TOKENS),
+            keep=("messages", SUMMARIZE_KEEP_MESSAGES),
+        ),
     ]
 
 
@@ -209,27 +250,35 @@ def _get_default_tools() -> list:
     try:
         from agents.harness.tools import (
             create_plan_tool,
+            create_diet_plan_tool,
             adjust_plan_tool,
+            list_plans_tool,
             checkin_tool,
+            get_streak_tool,
             query_stats_tool,
             get_exercises_tool,
             get_user_profile_tool,
+            update_user_profile_tool,
         )
 
         tools.extend([
             create_plan_tool,
+            create_diet_plan_tool,
             adjust_plan_tool,
+            list_plans_tool,
             checkin_tool,
+            get_streak_tool,
             query_stats_tool,
             get_exercises_tool,
             get_user_profile_tool,
+            update_user_profile_tool,
         ])
     except ImportError:
         pass
 
     # 2. 记忆工具（分层认知记忆架构）
     try:
-        from agents.memory.tools import create_memory_tools
+        from agents.harness.memory.tools import create_memory_tools
 
         memory_tools = create_memory_tools()
         tools.extend(memory_tools)

@@ -201,7 +201,7 @@ export const ReasoningTrigger = memo(
 export type ReasoningContentProps = ComponentProps<
   typeof CollapsibleContent
 > & {
-  children: string;
+  children: ReactNode;
 };
 
 const streamdownPlugins = { cjk, code, math, mermaid };
@@ -216,7 +216,11 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+      {typeof children === "string" ? (
+        <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+      ) : (
+        children
+      )}
     </CollapsibleContent>
   )
 );

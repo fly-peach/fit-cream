@@ -9,7 +9,7 @@
 使用 LlamaIndex 进行向量化和检索。
 
 用法：
-    from agents.memory.store import MemoryStore, get_memory_store
+    from agents.harness.memory.store import MemoryStore, get_memory_store
     
     store = get_memory_store()
     
@@ -41,8 +41,8 @@ from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.schema import Document, TextNode
 from llama_index.vector_stores.postgres import PGVectorStore
 
-from agents.memory.embeddings import get_embedding_model, get_embedding_dimension
-from agents.memory.models import (
+from agents.harness.memory.embeddings import get_embedding_model, get_embedding_dimension
+from agents.harness.memory.models import (
     MemoryBase,
     EpisodicMemory,
     SemanticMemory,
@@ -111,11 +111,12 @@ class MemoryStore:
             await conn.run_sync(MemoryBase.metadata.create_all)
     
     def _get_vector_store(self) -> PGVectorStore:
-        """获取 LlamaIndex 向量存储"""
+        """获取 LlamaIndex 向量存储（延迟初始化）"""
         if self._vector_store is None:
-            # 转换为 psycopg 格式
+            # 转换为 psycopg 格式（去掉 +asyncpg 后缀）
             psycopg_url = self.database_url.replace("+asyncpg", "")
             
+            # 从连接串解析各参数（格式: postgresql://user:pass@host:port/db）
             self._vector_store = PGVectorStore.from_params(
                 database=psycopg_url.split("/")[-1],
                 host=psycopg_url.split("@")[-1].split(":")[0],
@@ -241,7 +242,7 @@ class MemoryStore:
             # 按相似度排序
             scored_memories.sort(key=lambda x: x[1], reverse=True)
             
-            # 更新访问计数
+            # 更新访问计数（用于遗忘曲线计算）
             top_memories = [m for m, _ in scored_memories[:top_k]]
             for memory in top_memories:
                 memory.access_count += 1
@@ -316,7 +317,7 @@ class MemoryStore:
             记忆 ID
         """
         async with self.async_session() as session:
-            # 查找已存在的相同事实
+            # 查找已存在的相同事实（同 subject + predicate），用于版本管理
             existing_stmt = select(SemanticMemory).where(
                 SemanticMemory.user_id == user_id,
                 SemanticMemory.subject == subject,
@@ -326,7 +327,7 @@ class MemoryStore:
             result = await session.execute(existing_stmt)
             existing = result.scalar_one_or_none()
             
-            # 创建新版本
+            # 版本号递增：新记忆为旧版本号 + 1，首次创建为 1
             new_version = (existing.version + 1) if existing else 1
             
             memory = SemanticMemory(
@@ -342,7 +343,7 @@ class MemoryStore:
                 status="active",
             )
             
-            # 标记旧版本为 superseded
+            # 标记旧版本为 superseded，建立版本链
             if existing:
                 existing.status = "superseded"
                 existing.superseded_by = memory.id

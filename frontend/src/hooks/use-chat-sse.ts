@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
-import type { ChatMessage, ToolCall } from "@/types/chat";
+import type { ChatMessage, ToolCall, TokenUsage } from "@/types/chat";
 
 function getToken(): string | null {
   return localStorage.getItem("fitcream_token");
@@ -12,6 +12,12 @@ export function useChatSSE(threadId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinking, setThinking] = useState("");
+  // 当前会话累计 Token 使用量（用于 Context 组件展示）
+  const [usage, setUsage] = useState<TokenUsage>({
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+  });
   const abortRef = useRef<AbortController | null>(null);
 
   // 使用 store 统一管理 currentThreadId，避免状态不同步
@@ -82,7 +88,8 @@ export function useChatSSE(threadId: string | null) {
 
             case "tool_start": {
               const toolCall: ToolCall = {
-                id: nanoid(),
+                // 使用后端返回的 run_id，便于 tool_result 精确匹配（多轮调用时同名工具不会错乱）
+                id: (event.data.id as string) || nanoid(),
                 name: (event.data.tool as string) || "unknown",
                 input: (event.data.input as Record<string, unknown>) || {},
                 status: "running",
@@ -98,20 +105,43 @@ export function useChatSSE(threadId: string | null) {
             }
 
             case "tool_result": {
+              const toolId = event.data.id as string | undefined;
               const toolName = event.data.tool as string;
               setMessages((prev) =>
                 prev.map((m) => {
                   if (m.id !== assistantId) return m;
                   const calls = [...(m.toolCalls || [])];
-                  for (let i = calls.length - 1; i >= 0; i--) {
-                    if (calls[i].name === toolName && calls[i].status === "running") {
-                      calls[i] = { ...calls[i], output: event.data.data as string, status: "completed" };
-                      break;
+                  // 优先按后端返回的 id 精确匹配
+                  let idx = -1;
+                  if (toolId) {
+                    idx = calls.findIndex((c) => c.id === toolId);
+                  }
+                  // 兜底：按名称匹配最后一个 running 状态的调用
+                  if (idx === -1) {
+                    for (let i = calls.length - 1; i >= 0; i--) {
+                      if (calls[i].name === toolName && calls[i].status === "running") {
+                        idx = i;
+                        break;
+                      }
                     }
+                  }
+                  if (idx !== -1) {
+                    calls[idx] = { ...calls[idx], output: event.data.data as string, status: "completed" };
                   }
                   return { ...m, toolCalls: calls };
                 })
               );
+              break;
+            }
+
+            case "usage": {
+              // 后端返回本轮 token 使用量，累加到会话总量
+              const u = event.data as unknown as TokenUsage;
+              setUsage((prev) => ({
+                input_tokens: prev.input_tokens + (u.input_tokens || 0),
+                output_tokens: prev.output_tokens + (u.output_tokens || 0),
+                total_tokens: prev.total_tokens + (u.total_tokens || 0),
+              }));
               break;
             }
 
@@ -167,7 +197,8 @@ export function useChatSSE(threadId: string | null) {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
+    setUsage({ input_tokens: 0, output_tokens: 0, total_tokens: 0 });
   }, []);
 
-  return { messages, sendMessage, stop, clearMessages, isStreaming, thinking, setMessages };
+  return { messages, sendMessage, stop, clearMessages, isStreaming, thinking, setMessages, usage, setUsage };
 }

@@ -9,9 +9,17 @@ export type SSEEventType =
   | "token"
   | "tool_start"
   | "tool_result"
+  | "usage"
   | "done"
   | "stopped"
   | "error";
+
+/** Token 使用量 */
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
 
 /** SSE 事件 */
 export interface SSEEvent {
@@ -53,6 +61,7 @@ export interface Thread {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+  totalTokens: number;
 }
 
 /** 发送消息请求 */

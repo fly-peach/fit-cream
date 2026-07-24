@@ -10,7 +10,7 @@ FitCream 分层认知记忆架构
 - 程序性记忆 (Procedural Memory): 可复用工作流/技能
 
 用法：
-    from agents.memory import (
+    from agents.harness.memory import (
         MemoryStore,
         MemoryExtractor,
         MemoryPipeline,
@@ -30,17 +30,17 @@ FitCream 分层认知记忆架构
     memories = await store.search_episodic(user_id, query="健身计划")
 """
 
-from agents.memory.embeddings import (
+from agents.harness.memory.embeddings import (
     create_embedding_model,
     get_embedding_model,
     get_embedding_dimension,
     DEFAULT_EMBEDDING_MODEL,
     EMBEDDING_DIMENSION,
 )
-from agents.memory.store import MemoryStore, get_memory_store
-from agents.memory.extractor import MemoryExtractor, ExtractionResult
-from agents.memory.pipeline import MemoryPipeline
-from agents.memory.tools import create_memory_tools
+from agents.harness.memory.store import MemoryStore, get_memory_store
+from agents.harness.memory.extractor import MemoryExtractor, ExtractionResult
+from agents.harness.memory.pipeline import MemoryPipeline
+from agents.harness.memory.tools import create_memory_tools
 
 __all__ = [
     # Embeddings

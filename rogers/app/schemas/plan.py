@@ -1,4 +1,12 @@
-"""训练计划相关 Schemas"""
+"""
+训练计划相关 Schemas
+
+定义训练计划三层结构的请求/响应模型：
+- PlanExerciseCreate / Update / Out: 计划中的动作
+- PlanDayCreate / Out: 训练日（含动作列表）
+- PlanCreate / Update / Out: 训练计划主体（含训练日）
+- PlanListOut: 计划列表摘要（不含详细训练日）
+"""
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
@@ -14,6 +22,14 @@ class PlanExerciseCreate(BaseModel):
     reps: int = Field(ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: int = 0
+
+
+class PlanExerciseUpdate(BaseModel):
+    """计划中动作更新"""
+    sets: Optional[int] = Field(default=None, ge=1, le=20)
+    reps: Optional[int] = Field(default=None, ge=1, le=100)
+    weight_kg: Optional[float] = Field(default=None, ge=0)
+    sort_order: Optional[int] = None
 
 
 class PlanExerciseOut(BaseModel):

@@ -1,4 +1,12 @@
-"""打卡相关 Schema"""
+"""
+打卡相关 Schemas
+
+定义训练打卡的请求/响应模型：
+- CheckinExerciseCreate: 打卡中的单个动作记录
+- CheckinCreate / CheckinUpdate: 创建/更新打卡请求
+- CheckinExerciseOut / CheckinOut: 打卡输出（含动作详情）
+- StreakOut: 连续打卡天数统计输出
+"""
 
 from datetime import date as date_type
 from datetime import datetime

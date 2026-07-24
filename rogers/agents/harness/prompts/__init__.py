@@ -6,10 +6,13 @@ FitCream Agent Prompts
 
 from agents.harness.prompts.system import (
     SYSTEM_PROMPT,
+    BASE_SYSTEM_PROMPT,
+    INTENT_PROMPTS,
+    INTENT_KEYWORDS,
     build_system_prompt,
     IDENTITY_SECTION,
     CAPABILITIES_SECTION,
-    BEHAVIOR_RULES_SECTION,
+    CORE_RULES_SECTION,
     OUTPUT_FORMAT_SECTION,
     CONSTRAINTS_SECTION,
     EXAMPLES_SECTION,
@@ -17,10 +20,13 @@ from agents.harness.prompts.system import (
 
 __all__ = [
     "SYSTEM_PROMPT",
+    "BASE_SYSTEM_PROMPT",
+    "INTENT_PROMPTS",
+    "INTENT_KEYWORDS",
     "build_system_prompt",
     "IDENTITY_SECTION",
     "CAPABILITIES_SECTION",
-    "BEHAVIOR_RULES_SECTION",
+    "CORE_RULES_SECTION",
     "OUTPUT_FORMAT_SECTION",
     "CONSTRAINTS_SECTION",
     "EXAMPLES_SECTION",

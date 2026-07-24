@@ -6,6 +6,7 @@ FitCream Agent Middleware
 - 限流：限制单次对话的 Tool/LLM 调用次数
 - Token 追踪：追踪和限制 Token 使用量
 - 对话持久化：将对话保存到 Conversation 表
+- 意图识别：渐进式提示词注入（IntentMiddleware）
 
 使用方式：
     from agents.harness.middleware import create_agent_middleware
@@ -24,6 +25,10 @@ from agents.harness.middleware.callbacks import (
     TokenUsageMiddleware,
     create_agent_middleware,
 )
+from agents.harness.middleware.intent_middleware import (
+    IntentMiddleware,
+    detect_intent,
+)
 
 __all__ = [
     "AgentLoggingMiddleware",
@@ -32,4 +37,6 @@ __all__ = [
     "ConversationPersistenceMiddleware",
     "TokenUsageMiddleware",
     "create_agent_middleware",
+    "IntentMiddleware",
+    "detect_intent",
 ]

@@ -1,9 +1,15 @@
-"""统计相关 Tools"""
+"""
+统计相关 Tools
 
-from typing import Optional, TYPE_CHECKING
+供 Agent 调用，查询多维度训练统计数据：
+- query_stats_tool: 按周期（周/月/全部/体重）查询统计，返回结构化数据 + 自然语言分析
 
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+直接调用 StatsService（同进程融合，不走 HTTP）。
+"""
+
+from typing import Optional
+
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 

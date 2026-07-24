@@ -9,7 +9,7 @@
 使用 LLM 分析对话内容，自动提取结构化记忆。
 
 用法：
-    from agents.memory.extractor import MemoryExtractor
+    from agents.harness.memory.extractor import MemoryExtractor
     
     extractor = MemoryExtractor(llm)
     extracted = await extractor.extract_from_conversation(
@@ -206,8 +206,8 @@ class MemoryExtractor:
         return role_map.get(message.type, message.type)
     
     def _parse_response(self, content: str) -> ExtractionResult:
-        """解析 LLM 响应"""
-        # 清理可能的 markdown 代码块标记
+        """解析 LLM 响应，容错处理 markdown 代码块和 JSON 提取"""
+        # 清理可能的 markdown 代码块标记（```json ... ```）
         content = content.strip()
         if content.startswith("```json"):
             content = content[7:]
@@ -220,7 +220,7 @@ class MemoryExtractor:
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            # 尝试提取 JSON 部分
+            # 尝试用正则从混杂文本中提取 JSON 部分
             import re
             json_match = re.search(r'\{[\s\S]*\}', content)
             if json_match:

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Thread } from "@/types/chat";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
+const API_URL = "/api";
 
 /** 从 localStorage 获取 token（后续接入 auth store） */
 function getToken(): string | null {
@@ -33,6 +34,8 @@ export function useThreads() {
             title: (t.last_message as string) || "新对话",
             createdAt: t.created_at as string,
             updatedAt: t.updated_at as string,
+            messageCount: (t.message_count as number) || 0,
+            totalTokens: (t.total_tokens as number) || 0,
           }))
         );
       }

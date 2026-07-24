@@ -43,6 +43,7 @@ class TokenUsageMiddleware(AgentMiddleware):
         self._llm_calls: int = 0
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        # 每次对话开始时重置 token 计数器
         self._prompt_tokens = 0
         self._completion_tokens = 0
         self._total_tokens = 0
@@ -50,6 +51,7 @@ class TokenUsageMiddleware(AgentMiddleware):
         return None
 
     def after_model(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
+        # 从最近一条 AI 消息的 usage_metadata 中累积 token 用量
         self._llm_calls += 1
         messages = state.get("messages", [])
         if messages:
@@ -59,6 +61,7 @@ class TokenUsageMiddleware(AgentMiddleware):
             self._completion_tokens += usage.get("output_tokens", 0)
             self._total_tokens += usage.get("total_tokens", 0)
 
+        # 超限时记录警告（不中断，由 SummarizationMiddleware 处理压缩）
         if self._total_tokens > self.max_tokens:
             logger.warning(
                 f"[TokenTracker] Token limit exceeded: "
@@ -152,6 +155,7 @@ class ConversationPersistenceMiddleware(AgentMiddleware):
                     })
 
         if self._pending_messages:
+            # 异步保存（fire-and-forget）：不阻塞 Agent 返回，避免对话延迟
             import asyncio
             try:
                 loop = asyncio.get_running_loop()
@@ -195,8 +199,11 @@ def create_agent_middleware(
     verbose: bool = False,
     max_tool_calls: int = 10,
     max_llm_calls: int = 15,
-    max_tokens: int = 50000,
+    max_tokens: int = 100_000,
     save_conversation: bool = True,
+    enable_summarization: bool = True,
+    enable_memory_update: bool = True,
+    memory_trigger_tokens: int = 20_000,
 ) -> list:
     """
     创建 Agent 中间件列表（编译时注入）。
@@ -207,31 +214,80 @@ def create_agent_middleware(
         verbose: 是否输出详细日志
         max_tool_calls: 最大 Tool 调用次数
         max_llm_calls: 最大 LLM 调用次数
-        max_tokens: 最大 Token 使用量
+        max_tokens: 最大 Token 使用量（同时也是 Summarization 触发阈值，默认 100K）
         save_conversation: 是否保存对话到数据库
+        enable_summarization: 是否启用会话压缩（默认 True）
+        enable_memory_update: 是否启用记忆自动更新（默认 True）
+        memory_trigger_tokens: 记忆更新触发的 token 阈值（默认 20K）
 
     Returns:
         中间件列表，传给 create_agent(middleware=[...])
+
+    中间件执行顺序：
+    1. Logging → 2. RateLimit → 3. TokenTracking → 4. MemoryUpdate → 5. Summarization → 6. Persistence
+
+    会话压缩策略：
+    - 当对话 token 数超过 max_tokens (默认 100K) 时触发
+    - 使用 LLM 将历史消息压缩为结构化摘要
+    - 保留最近 10 条消息确保对话连贯性
+
+    记忆更新策略：
+    - 当累计 token 超过 memory_trigger_tokens (默认 20K) 时触发
+    - 异步提取分层记忆（情景/语义/程序性）
+    - 不阻塞主对话流
     """
+    from langchain.agents.middleware import SummarizationMiddleware
     from agents.harness.middleware.logging_middleware import AgentLoggingMiddleware
     from agents.harness.middleware.rate_limit import create_rate_limit_middleware
+    from agents.harness.middleware.memory_update import MemoryUpdateMiddleware
 
     middleware: list = [
+        # 1. 日志：记录 LLM / Tool 调用详情
         AgentLoggingMiddleware(
             user_id=user_id,
             thread_id=thread_id,
             verbose=verbose,
         ),
+        # 2. 限流：三层策略防止 Agent 陷入循环
         *create_rate_limit_middleware(
             max_tool_calls=max_tool_calls,
             max_llm_calls=max_llm_calls,
         ),
+        # 3. Token 追踪：累积用量，超限告警
         TokenUsageMiddleware(
             max_tokens_per_conversation=max_tokens,
             user_id=user_id,
         ),
     ]
 
+    # 4. 记忆更新：token 达到阈值时自动提取分层记忆（异步，不阻塞对话）
+    if enable_memory_update:
+        middleware.append(
+            MemoryUpdateMiddleware(
+                user_id=user_id,
+                thread_id=thread_id,
+                trigger_tokens=memory_trigger_tokens,
+            )
+        )
+
+    # 5. 会话压缩：token 超限时自动摘要压缩历史消息
+    if enable_summarization:
+        from agents.agent.model_factory import create_chat_dashscope
+
+        summary_model = create_chat_dashscope(
+            temperature=0.3,
+            streaming=False,
+            enable_thinking=False,
+        )
+        middleware.append(
+            SummarizationMiddleware(
+                model=summary_model,
+                trigger=("tokens", max_tokens),
+                keep=("messages", 10),
+            )
+        )
+
+    # 6. 对话持久化：将用户输入和 AI 回复保存到 Conversation 表
     if save_conversation:
         middleware.append(
             ConversationPersistenceMiddleware(

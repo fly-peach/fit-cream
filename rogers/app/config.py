@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # ---------- DashScope (通义千问) ----------
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_MODEL: str = "qwen3.5-flash"
+    DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"  # 视觉模型（图片识别）
     DASHSCOPE_TEMPERATURE: float = 1.2
     DASHSCOPE_ENABLE_THINKING: bool = True
 

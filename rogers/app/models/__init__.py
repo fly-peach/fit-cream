@@ -11,6 +11,7 @@ from app.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from app.models.exercise import Exercise
 from app.models.plan import Plan, PlanDay, PlanDayExercise
 from app.models.user import User
+from app.models.thread_usage import ThreadUsage
 
 __all__ = [
     "User",
@@ -25,4 +26,5 @@ __all__ = [
     "Exercise",
     "Conversation",
     "Achievement",
+    "ThreadUsage",
 ]

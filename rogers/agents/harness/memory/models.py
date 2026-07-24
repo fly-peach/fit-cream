@@ -9,7 +9,7 @@
 使用 pgvector 扩展存储向量，支持语义检索。
 
 用法：
-    from agents.memory.models import EpisodicMemory, SemanticMemory, ProceduralMemory
+    from agents.harness.memory.models import EpisodicMemory, SemanticMemory, ProceduralMemory
 """
 
 import uuid
@@ -35,7 +35,7 @@ except ImportError:
     # 如果 pgvector 未安装，使用 JSON 作为 fallback
     Vector = None
 
-from agents.memory.embeddings import get_embedding_dimension
+from agents.harness.memory.embeddings import get_embedding_dimension
 
 
 class MemoryBase(DeclarativeBase):

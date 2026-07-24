@@ -1,10 +1,12 @@
 """
 Agent 限流中间件
 
-使用 LangChain 内置 ToolCallLimitMiddleware / ModelCallLimitMiddleware
-替代手动 AsyncCallbackHandler 实现。
+三层限流策略，防止 Agent 陷入无限循环或过度消耗 Token：
+1. ModelCallLimitMiddleware: 限制单次对话中 LLM 调用总次数（默认 15 次）
+2. ToolCallLimitMiddleware: 限制单次对话中 Tool 调用总次数（默认 10 次）
+3. SameToolLimitMiddleware: 限制同一 Tool 的重复调用次数（默认 5 次）
 
-保留自定义 FitCreamRateLimitMiddleware 用于同一 Tool 重复调用限制。
+前两者使用 LangChain 内置中间件，后者为自定义实现。
 """
 
 import logging

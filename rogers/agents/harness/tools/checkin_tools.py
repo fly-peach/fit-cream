@@ -1,10 +1,17 @@
-"""打卡相关 Tools"""
+"""
+打卡相关 Tools
+
+供 Agent 调用，完成训练打卡和连续天数查询：
+- checkin_tool: 自然语言打卡（解析动作名称、组数、次数，匹配动作库后写入数据库）
+- get_streak_tool: 查询当前/最长连续打卡天数
+
+直接调用 CheckinService / ExerciseService（同进程融合，不走 HTTP）。
+"""
 
 from datetime import date as date_type
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
-if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 

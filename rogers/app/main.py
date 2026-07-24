@@ -88,7 +88,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 中间件
+# 请求日志中间件（记录每次 HTTP 请求到 access.log）
+# 注意：Starlette 中后添加的中间件位于最外层。CORS 必须处于最外层才能
+# 正确处理浏览器预检（OPTIONS）请求，因此先添加日志中间件（内层），
+# 再添加 CORS 中间件（外层）。
+if settings.ACCESS_LOG_ENABLED:
+    app.add_middleware(RequestLoggingMiddleware)
+
+# CORS 中间件（最后添加 → 最外层，确保预检请求被正确拦截处理）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -96,10 +103,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# 请求日志中间件（记录每次 HTTP 请求到 access.log）
-if settings.ACCESS_LOG_ENABLED:
-    app.add_middleware(RequestLoggingMiddleware)
 
 # 注册 API 路由
 app.include_router(api_router, prefix=settings.API_PREFIX)

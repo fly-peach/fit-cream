@@ -28,8 +28,11 @@ reasoning_content 被正确捕获（langchain-openai >= 1.3 会丢弃 delta 中�
 import os
 from typing import Any, Optional, Iterator, AsyncIterator
 
+from typing import cast
+
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import BaseMessage, AIMessageChunk, ToolCallChunk
+from langchain_core.messages.ai import UsageMetadata
 from langchain_core.outputs import ChatGenerationChunk, ChatResult
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -44,6 +47,9 @@ def _get_setting(key: str, default: str = "") -> str:
 
 
 DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.5-flash")
+
+# 视觉模型备选（当主模型不支持图片识别时，可切换到 Qwen-VL 系列）
+DEFAULT_VISION_MODEL = _get_setting("DASHSCOPE_VISION_MODEL", "qwen3-vl-flash")
 
 
 class ChatDashScope(ChatOpenAI):
@@ -79,8 +85,10 @@ class ChatDashScope(ChatOpenAI):
     def _create_chat_result(
         self, response: Any, generation_info: Optional[dict] = None
     ) -> ChatResult:
+        # 调用父类方法创建标准结果，再补充 reasoning_content
         result = super()._create_chat_result(response, generation_info)
 
+        # 从原始响应中提取 reasoning_content（langchain-openai 会丢弃此字段）
         choices = getattr(response, "choices", None)
         if choices is None and isinstance(response, dict):
             choices = response.get("choices", [])
@@ -112,6 +120,8 @@ class ChatDashScope(ChatOpenAI):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
+        # 直接拦截原始 OpenAI stream，确保 delta 中的 reasoning_content 被正确捕获
+        # （langchain-openai >= 1.3 会丢弃 delta 中的未知字段）
         raw_stream = self._create_raw_stream(messages, stop, **kwargs)
         for raw_chunk in raw_stream:
             gen_chunk = self._convert_raw_chunk(raw_chunk)
@@ -127,6 +137,7 @@ class ChatDashScope(ChatOpenAI):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> AsyncIterator[ChatGenerationChunk]:
+        # 异步版本：同样拦截原始 stream 以捕获 reasoning_content
         raw_stream = await self._create_raw_astream(messages, stop, **kwargs)
         async for raw_chunk in raw_stream:
             gen_chunk = self._convert_raw_chunk(raw_chunk)
@@ -144,6 +155,7 @@ class ChatDashScope(ChatOpenAI):
         return await self.async_client.create(**params)
 
     def _build_stream_params(self, messages, stop, **kwargs) -> dict:
+        # 将 LangChain 消息对象转换为 OpenAI API 格式的 dict
         message_dicts = self._convert_messages_to_dicts(messages)
         params: dict[str, Any] = {
             "model": self.model_name,
@@ -177,15 +189,49 @@ class ChatDashScope(ChatOpenAI):
         return params
 
     def _convert_messages_to_dicts(self, messages: list[BaseMessage]) -> list[dict]:
+        """
+        将 LangChain 消息对象转换为 OpenAI API 格式的 dict。
+
+        支持多模态内容：当 message.content 为 list 时（包含 text/image_url 等
+        content blocks），_convert_message_to_dict 会将其转换为 OpenAI 兼容格式，
+        DashScope Qwen-VL 接口可直接处理。
+        """
         from langchain_openai.chat_models.base import _convert_message_to_dict
         return [_convert_message_to_dict(m) for m in messages]
 
     def _convert_raw_chunk(self, raw_chunk: Any) -> Optional[ChatGenerationChunk]:
+        # 提取 usage 信息（流式最后一个 chunk 的 usage 在 raw_chunk 顶层）
+        raw_usage = getattr(raw_chunk, "usage", None)
+        usage_metadata: UsageMetadata | None = None
+        if raw_usage:
+            usage_metadata = cast(UsageMetadata, {
+                "input_tokens": getattr(raw_usage, "prompt_tokens", 0) or 0,
+                "output_tokens": getattr(raw_usage, "completion_tokens", 0) or 0,
+                "total_tokens": getattr(raw_usage, "total_tokens", 0) or 0,
+            })
+
         if not raw_chunk.choices:
+            # 流式最后一个 chunk 可能只有 usage 没有 choices
+            if usage_metadata:
+                return ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        usage_metadata=usage_metadata,
+                    ),
+                    text="",
+                )
             return None
 
         delta = raw_chunk.choices[0].delta
         if delta is None:
+            if usage_metadata:
+                return ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="",
+                        usage_metadata=usage_metadata,
+                    ),
+                    text="",
+                )
             return None
 
         content = delta.content or ""
@@ -209,13 +255,14 @@ class ChatDashScope(ChatOpenAI):
                 )
 
         if not content and not reasoning_content and not delta.tool_calls:
-            if delta.role:
+            if delta.role or usage_metadata:
                 return ChatGenerationChunk(
                     message=AIMessageChunk(
                         content="",
                         additional_kwargs=additional_kwargs,
                         tool_call_chunks=tool_call_chunks,
-                        response_metadata={"role": delta.role},
+                        response_metadata={"role": delta.role} if delta.role else {},
+                        usage_metadata=usage_metadata,
                     ),
                     text="",
                 )
@@ -226,6 +273,7 @@ class ChatDashScope(ChatOpenAI):
                 content=content,
                 additional_kwargs=additional_kwargs,
                 tool_call_chunks=tool_call_chunks,
+                usage_metadata=usage_metadata,
             ),
             text=content,
         )
@@ -259,5 +307,6 @@ def create_chat_dashscope(
         temperature=temperature if temperature is not None else float(_get_setting("DASHSCOPE_TEMPERATURE", "1.2")),
         enable_thinking=enable_thinking if enable_thinking is not None else _get_setting("DASHSCOPE_ENABLE_THINKING", "true").lower() == "true",
         streaming=streaming,
+        stream_usage=True,
         **kwargs,
     )

@@ -7,7 +7,8 @@
  */
 import { useAuthStore } from "@/stores/auth-store";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
+const API_URL = "/api";
 
 export class ApiError extends Error {
   code: number;

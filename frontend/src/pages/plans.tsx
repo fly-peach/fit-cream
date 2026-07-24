@@ -289,18 +289,60 @@ function CheckinCalendar({
   );
 }
 
-// ============ 训练日详情弹窗 ============
+// ============ 训练日详情弹窗（可编辑） ============
 
 function DayDetailDialog({
   day,
   open,
   onClose,
+  onUpdated,
 }: {
   day: PlanDay | null;
   open: boolean;
   onClose: () => void;
+  onUpdated: () => void;
 }) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSets, setEditSets] = useState(3);
+  const [editReps, setEditReps] = useState(12);
+  const [editWeight, setEditWeight] = useState("");
+  const [saving, setSaving] = useState(false);
+
   if (!day) return null;
+
+  const startEdit = (ex: PlanExercise) => {
+    setEditingId(ex.id);
+    setEditSets(ex.sets);
+    setEditReps(ex.reps);
+    setEditWeight(ex.weight_kg?.toString() ?? "");
+  };
+
+  const saveEdit = async (exId: string) => {
+    setSaving(true);
+    try {
+      await api.put(`/plans/exercises/${exId}`, {
+        sets: editSets,
+        reps: editReps,
+        weight_kg: editWeight ? parseFloat(editWeight) : null,
+      });
+      setEditingId(null);
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteExercise = async (exId: string) => {
+    if (!confirm("确定删除该动作？")) return;
+    try {
+      await api.delete(`/plans/exercises/${exId}`);
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -327,18 +369,77 @@ function DayDetailDialog({
                 .map((ex, idx) => (
                   <div
                     key={ex.id}
-                    className="flex items-center gap-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3"
+                    className="rounded-lg border border-emerald-100 bg-emerald-50/50 px-4 py-3"
                   >
-                    <span className="flex size-6 items-center justify-center rounded-full bg-emerald-200 text-xs font-bold text-emerald-700">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1">
-                      <p className="font-medium text-emerald-900">{ex.exercise_name ?? "未知动作"}</p>
-                      <p className="text-xs text-emerald-600/60">
-                        {ex.sets} 组 × {ex.reps} 次
-                        {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
-                      </p>
-                    </div>
+                    {editingId === ex.id ? (
+                      <div className="space-y-2">
+                        <p className="font-medium text-emerald-900">{ex.exercise_name ?? "未知动作"}</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={20}
+                              value={editSets}
+                              onChange={(e) => setEditSets(parseInt(e.target.value) || 1)}
+                              className="w-16 h-8 text-sm"
+                            />
+                            <span className="text-xs text-emerald-600">组</span>
+                          </div>
+                          <span className="text-emerald-400">×</span>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min={1}
+                              max={100}
+                              value={editReps}
+                              onChange={(e) => setEditReps(parseInt(e.target.value) || 1)}
+                              className="w-16 h-8 text-sm"
+                            />
+                            <span className="text-xs text-emerald-600">次</span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              placeholder="重量"
+                              value={editWeight}
+                              onChange={(e) => setEditWeight(e.target.value)}
+                              className="w-20 h-8 text-sm"
+                            />
+                            <span className="text-xs text-emerald-600">kg</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" className="h-7 text-xs" onClick={() => saveEdit(ex.id)} disabled={saving}>
+                            {saving ? "保存中..." : "保存"}
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingId(null)}>
+                            取消
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <span className="flex size-6 items-center justify-center rounded-full bg-emerald-200 text-xs font-bold text-emerald-700">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1">
+                          <p className="font-medium text-emerald-900">{ex.exercise_name ?? "未知动作"}</p>
+                          <p className="text-xs text-emerald-600/60">
+                            {ex.sets} 组 × {ex.reps} 次
+                            {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
+                          </p>
+                        </div>
+                        <Button variant="ghost" size="icon" className="size-7 text-emerald-400 hover:text-emerald-600" onClick={() => startEdit(ex)}>
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="size-7 text-red-300 hover:text-red-600" onClick={() => deleteExercise(ex.id)}>
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 ))}
             </div>
@@ -354,10 +455,24 @@ function DayDetailDialog({
   );
 }
 
-// ============ 饮食计划组件 ============
+// ============ 饮食计划组件（可编辑） ============
 
-function DietPlanCard({ dietPlan }: { dietPlan: DietPlanDetail | null }) {
+function DietPlanCard({
+  dietPlan,
+  onUpdated,
+}: {
+  dietPlan: DietPlanDetail | null;
+  onUpdated: () => void;
+}) {
   const [selectedDay, setSelectedDay] = useState<number>(1);
+  const [editingMealId, setEditingMealId] = useState<string | null>(null);
+  const [editFood, setEditFood] = useState("");
+  const [editCalories, setEditCalories] = useState("");
+  const [editProtein, setEditProtein] = useState("");
+  const [editCarbs, setEditCarbs] = useState("");
+  const [editFat, setEditFat] = useState("");
+  const [editPortion, setEditPortion] = useState("");
+  const [saving, setSaving] = useState(false);
 
   if (!dietPlan) {
     return (
@@ -374,6 +489,46 @@ function DietPlanCard({ dietPlan }: { dietPlan: DietPlanDetail | null }) {
 
   const currentDay = dietPlan.days.find((d) => d.day_of_week === selectedDay);
   const totalCalories = currentDay?.meals.reduce((sum, m) => sum + (m.calories ?? 0), 0) ?? 0;
+
+  const startEditMeal = (meal: DietMeal) => {
+    setEditingMealId(meal.id);
+    setEditFood(meal.food_name);
+    setEditCalories(meal.calories?.toString() ?? "");
+    setEditProtein(meal.protein_g?.toString() ?? "");
+    setEditCarbs(meal.carbs_g?.toString() ?? "");
+    setEditFat(meal.fat_g?.toString() ?? "");
+    setEditPortion(meal.portion ?? "");
+  };
+
+  const saveMealEdit = async (mealId: string) => {
+    setSaving(true);
+    try {
+      await api.put(`/diet-plans/meals/${mealId}`, {
+        food_name: editFood,
+        calories: editCalories ? parseInt(editCalories) : null,
+        protein_g: editProtein ? parseFloat(editProtein) : null,
+        carbs_g: editCarbs ? parseFloat(editCarbs) : null,
+        fat_g: editFat ? parseFloat(editFat) : null,
+        portion: editPortion || null,
+      });
+      setEditingMealId(null);
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteMeal = async (mealId: string) => {
+    if (!confirm("确定删除该餐食？")) return;
+    try {
+      await api.delete(`/diet-plans/meals/${mealId}`);
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   return (
     <Card className="border-orange-100 bg-white/80 shadow-sm backdrop-blur">
@@ -432,29 +587,113 @@ function DietPlanCard({ dietPlan }: { dietPlan: DietPlanDetail | null }) {
                   key={meal.id}
                   className="rounded-xl border border-orange-100 bg-orange-50/30 p-3"
                 >
-                  <div className="mb-2 flex items-center justify-between">
-                    <span
-                      className={cn(
-                        "rounded-md px-2 py-0.5 text-xs font-medium",
-                        mealTypeColors[meal.meal_type] ?? "bg-gray-100 text-gray-600"
-                      )}
-                    >
-                      {mealTypeLabels[meal.meal_type] ?? meal.meal_type}
-                    </span>
-                    {meal.calories && (
-                      <span className="text-xs font-medium text-orange-600">{meal.calories} kcal</span>
-                    )}
-                  </div>
-                  <p className="font-medium text-orange-950">{meal.food_name}</p>
-                  {meal.portion && (
-                    <p className="mt-0.5 text-xs text-orange-600/60">份量：{meal.portion}</p>
-                  )}
-                  {(meal.protein_g || meal.carbs_g || meal.fat_g) && (
-                    <div className="mt-2 flex gap-3 text-xs text-orange-600/70">
-                      {meal.protein_g != null && <span>蛋白质 {meal.protein_g}g</span>}
-                      {meal.carbs_g != null && <span>碳水 {meal.carbs_g}g</span>}
-                      {meal.fat_g != null && <span>脂肪 {meal.fat_g}g</span>}
+                  {editingMealId === meal.id ? (
+                    <div className="space-y-2">
+                      <Input
+                        value={editFood}
+                        onChange={(e) => setEditFood(e.target.value)}
+                        placeholder="食物名称"
+                        className="h-8 text-sm"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            value={editCalories}
+                            onChange={(e) => setEditCalories(e.target.value)}
+                            placeholder="卡路里"
+                            className="h-7 text-xs"
+                          />
+                          <span className="text-[10px] text-orange-500">kcal</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            value={editPortion}
+                            onChange={(e) => setEditPortion(e.target.value)}
+                            placeholder="份量"
+                            className="h-7 text-xs"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step={0.1}
+                            value={editProtein}
+                            onChange={(e) => setEditProtein(e.target.value)}
+                            placeholder="蛋白质"
+                            className="h-7 text-xs"
+                          />
+                          <span className="text-[10px] text-orange-500">g</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step={0.1}
+                            value={editCarbs}
+                            onChange={(e) => setEditCarbs(e.target.value)}
+                            placeholder="碳水"
+                            className="h-7 text-xs"
+                          />
+                          <span className="text-[10px] text-orange-500">g</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step={0.1}
+                            value={editFat}
+                            onChange={(e) => setEditFat(e.target.value)}
+                            placeholder="脂肪"
+                            className="h-7 text-xs"
+                          />
+                          <span className="text-[10px] text-orange-500">g</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" className="h-7 text-xs" onClick={() => saveMealEdit(meal.id)} disabled={saving}>
+                          {saving ? "保存中..." : "保存"}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingMealId(null)}>
+                          取消
+                        </Button>
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="mb-2 flex items-center justify-between">
+                        <span
+                          className={cn(
+                            "rounded-md px-2 py-0.5 text-xs font-medium",
+                            mealTypeColors[meal.meal_type] ?? "bg-gray-100 text-gray-600"
+                          )}
+                        >
+                          {mealTypeLabels[meal.meal_type] ?? meal.meal_type}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          {meal.calories && (
+                            <span className="text-xs font-medium text-orange-600">{meal.calories} kcal</span>
+                          )}
+                          <Button variant="ghost" size="icon" className="size-6 text-orange-300 hover:text-orange-600" onClick={() => startEditMeal(meal)}>
+                            <Pencil className="size-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="size-6 text-red-300 hover:text-red-600" onClick={() => deleteMeal(meal.id)}>
+                            <Trash2 className="size-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="font-medium text-orange-950">{meal.food_name}</p>
+                      {meal.portion && (
+                        <p className="mt-0.5 text-xs text-orange-600/60">份量：{meal.portion}</p>
+                      )}
+                      {(meal.protein_g || meal.carbs_g || meal.fat_g) && (
+                        <div className="mt-2 flex gap-3 text-xs text-orange-600/70">
+                          {meal.protein_g != null && <span>蛋白质 {meal.protein_g}g</span>}
+                          {meal.carbs_g != null && <span>碳水 {meal.carbs_g}g</span>}
+                          {meal.fat_g != null && <span>脂肪 {meal.fat_g}g</span>}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}
@@ -741,7 +980,14 @@ export default function PlansPage() {
 
               {/* 右栏：饮食计划 */}
               <div className="xl:col-span-1">
-                <DietPlanCard dietPlan={dietPlan} />
+                <DietPlanCard
+                  dietPlan={dietPlan}
+                  onUpdated={() => {
+                    api.get<DietPlanDetail | null>("/diet-plans/active").then((diet) => {
+                      setDietPlan(diet);
+                    });
+                  }}
+                />
               </div>
             </div>
           )}
@@ -753,6 +999,18 @@ export default function PlansPage() {
         day={selectedDay}
         open={dayDialogOpen}
         onClose={() => setDayDialogOpen(false)}
+        onUpdated={() => {
+          // 重新加载当前计划详情
+          const planId = selectedId ?? activePlan?.id;
+          if (planId) {
+            api.get<PlanDetail>(`/plans/${planId}`).then((detail) => {
+              setSelectedPlan(detail);
+              // 更新 selectedDay 以反映最新数据
+              const updatedDay = detail.days.find((d) => d.id === selectedDay?.id);
+              if (updatedDay) setSelectedDay(updatedDay);
+            });
+          }
+        }}
       />
     </AppLayout>
   );

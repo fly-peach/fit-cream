@@ -46,6 +46,19 @@ graph = create_fitcream_agent(
     enable_thinking=True,
 )
 
+# Dev Agent（与 graph 配置一致 + 自动注入管理员身份，用于 LangGraph Studio 调试）
+def _get_dev_middleware() -> list:
+    """获取 dev 中间件：默认中间件 + 管理员自动注入"""
+    from agents.agent.agent_factory import _get_default_middleware
+    from agents.harness.middleware.dev_auth import DevAuthMiddleware
+    return [DevAuthMiddleware(), *_get_default_middleware()]
+
+dev_graph = create_fitcream_agent(
+    system_prompt=SYSTEM_PROMPT,
+    enable_thinking=True,
+    middleware=_get_dev_middleware(),
+)
+
 # 带 checkpointer 的 Agent（生产环境，在 init_agent 中初始化）
 _graph_with_checkpointer = None
 

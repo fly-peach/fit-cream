@@ -70,6 +70,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
         logger.info(
             f"{self._log_prefix()} LLM call #{self._llm_calls} | messages={msg_count}"
         )
+        # verbose 模式下输出最后一条消息预览（调试用）
         if self.verbose and state.get("messages"):
             last_msg = state["messages"][-1]
             content_preview = str(getattr(last_msg, "content", ""))[:100]
@@ -81,6 +82,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
         if messages:
             last = messages[-1]
             content_preview = str(getattr(last, "content", ""))[:100]
+            # usage_metadata 在非流式调用时存在，流式时由 ChatDashScope 补全
             usage = getattr(last, "usage_metadata", None) or {}
             tokens = usage.get("total_tokens", "N/A")
             logger.info(

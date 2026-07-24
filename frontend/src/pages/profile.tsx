@@ -200,10 +200,12 @@ export default function ProfilePage() {
                       <label className="text-sm font-medium text-emerald-800">性别</label>
                       <Select
                         value={form.gender}
-                        onValueChange={(v) => setForm({ ...form, gender: v })}
+                        onValueChange={(v) => setForm({ ...form, gender: v ?? "" })}
                       >
                         <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
-                          <SelectValue placeholder="请选择性别" />
+                          <SelectValue placeholder="请选择性别">
+                            {genderOptions.find((o) => o.value === form.gender)?.label}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {genderOptions.map((o) => (
@@ -218,10 +220,12 @@ export default function ProfilePage() {
                       <label className="text-sm font-medium text-emerald-800">健身目标</label>
                       <Select
                         value={form.goal}
-                        onValueChange={(v) => setForm({ ...form, goal: v })}
+                        onValueChange={(v) => setForm({ ...form, goal: v ?? "" })}
                       >
                         <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
-                          <SelectValue placeholder="请选择目标" />
+                          <SelectValue placeholder="请选择目标">
+                            {goalOptions.find((o) => o.value === form.goal)?.label}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {goalOptions.map((o) => (

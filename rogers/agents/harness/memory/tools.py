@@ -8,7 +8,7 @@
 - list_user_facts: 列出用户信息
 
 用法：
-    from agents.memory.tools import create_memory_tools
+    from agents.harness.memory.tools import create_memory_tools
     
     tools = create_memory_tools()
     agent = create_react_agent(llm, tools=tools)
@@ -17,7 +17,7 @@
 from typing import Optional
 from langchain_core.tools import tool
 
-from agents.memory.store import get_memory_store
+from agents.harness.memory.store import get_memory_store
 
 
 @tool

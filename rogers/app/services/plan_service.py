@@ -13,7 +13,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.plan import Plan, PlanDay, PlanDayExercise
-from app.schemas.plan import PlanCreate, PlanDayCreate, PlanUpdate
+from app.schemas.plan import (
+    PlanCreate,
+    PlanDayCreate,
+    PlanExerciseCreate,
+    PlanExerciseUpdate,
+    PlanUpdate,
+)
 from app.utils.exceptions import ForbiddenException, NotFoundException
 
 
@@ -252,6 +258,129 @@ class PlanService:
         await db.flush()
         await db.refresh(plan)
         return plan
+
+    @staticmethod
+    async def update_exercise(
+        db: AsyncSession,
+        exercise_id: UUID,
+        user_id: UUID,
+        data: PlanExerciseUpdate,
+    ) -> PlanDayExercise:
+        """更新训练日中的单个动作"""
+        result = await db.execute(
+            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+        )
+        plan_exercise = result.scalar_one_or_none()
+        if not plan_exercise:
+            raise NotFoundException("动作不存在")
+
+        # 验证归属：通过 plan_day -> plan -> user_id
+        day_result = await db.execute(
+            select(PlanDay).where(PlanDay.id == plan_exercise.plan_day_id)
+        )
+        plan_day = day_result.scalar_one()
+        plan_result = await db.execute(
+            select(Plan).where(Plan.id == plan_day.plan_id)
+        )
+        plan = plan_result.scalar_one()
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权修改此动作")
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(plan_exercise, field, value)
+
+        await db.flush()
+        await db.refresh(plan_exercise)
+        return plan_exercise
+
+    @staticmethod
+    async def delete_exercise(
+        db: AsyncSession,
+        exercise_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        """删除训练日中的单个动作"""
+        result = await db.execute(
+            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+        )
+        plan_exercise = result.scalar_one_or_none()
+        if not plan_exercise:
+            raise NotFoundException("动作不存在")
+
+        # 验证归属
+        day_result = await db.execute(
+            select(PlanDay).where(PlanDay.id == plan_exercise.plan_day_id)
+        )
+        plan_day = day_result.scalar_one()
+        plan_result = await db.execute(
+            select(Plan).where(Plan.id == plan_day.plan_id)
+        )
+        plan = plan_result.scalar_one()
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权删除此动作")
+
+        await db.delete(plan_exercise)
+        await db.flush()
+
+    @staticmethod
+    async def add_exercise_to_day(
+        db: AsyncSession,
+        plan_day_id: UUID,
+        user_id: UUID,
+        data: PlanExerciseCreate,
+    ) -> PlanDayExercise:
+        """为训练日添加动作"""
+
+        # 验证归属
+        day_result = await db.execute(
+            select(PlanDay).where(PlanDay.id == plan_day_id)
+        )
+        plan_day = day_result.scalar_one_or_none()
+        if not plan_day:
+            raise NotFoundException("训练日不存在")
+        plan_result = await db.execute(
+            select(Plan).where(Plan.id == plan_day.plan_id)
+        )
+        plan = plan_result.scalar_one()
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权操作此训练日")
+
+        plan_exercise = PlanDayExercise(
+            plan_day_id=plan_day_id,
+            exercise_id=data.exercise_id,
+            sets=data.sets,
+            reps=data.reps,
+            weight_kg=data.weight_kg,
+            sort_order=data.sort_order,
+        )
+        db.add(plan_exercise)
+        await db.flush()
+        await db.refresh(plan_exercise)
+        return plan_exercise
+
+    @staticmethod
+    async def delete_plan_day(
+        db: AsyncSession,
+        plan_day_id: UUID,
+        user_id: UUID,
+    ) -> None:
+        """删除训练日"""
+        day_result = await db.execute(
+            select(PlanDay).where(PlanDay.id == plan_day_id)
+        )
+        plan_day = day_result.scalar_one_or_none()
+        if not plan_day:
+            raise NotFoundException("训练日不存在")
+        plan_result = await db.execute(
+            select(Plan).where(Plan.id == plan_day.plan_id)
+        )
+        plan = plan_result.scalar_one()
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权删除此训练日")
+
+        await db.delete(plan_day)
+        await db.flush()
 
     @staticmethod
     async def adjust_plan(

@@ -1,4 +1,12 @@
-"""饮食计划相关 Schemas"""
+"""
+饮食计划相关 Schemas
+
+定义饮食计划三层结构的请求/响应模型：
+- DietMealCreate / Update / Out: 餐食（食物、热量、宏量素）
+- DietDayCreate / Out: 饮食日（含餐食列表）
+- DietPlanCreate / Update / Out: 饮食计划主体（含饮食日）
+- DietPlanListOut: 计划列表摘要（不含详细餐食）
+"""
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
