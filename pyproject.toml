@@ -32,6 +32,13 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     # HTTP client
     "httpx>=0.28.0",
+    # MCP
+    "fastapi-mcp>=0.4.0",
+    # 文档解析（unstructured 多格式：Markdown/Excel/CSV/HTML/纯文本）
+    "unstructured[md,xlsx,csv]>=0.24.0",
+    "PyYAML>=6.0",
+    "lxml>=5.0",
+    "beautifulsoup4>=4.12",
 ]
 
 [project.optional-dependencies]

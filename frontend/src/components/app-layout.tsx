@@ -13,6 +13,8 @@ import {
   LogOutIcon,
   MenuIcon,
   XIcon,
+  BookOpenIcon,
+  ShieldIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
@@ -21,16 +23,30 @@ import { useAuthStore } from "@/stores/auth-store";
  * 全局导航项
  *
  * 桌面端：左侧侧边栏
- * 移动端：底部 Tab 栏
+ * 移动端：底部 Tab 栏（核心 5 项，不含管理后台）
  *
- * 注意：根据需求，已移除"打卡记录"独立入口，相关功能整合到"今日"页面。
+ * 所有登录用户可见：今日 / AI 教练 / 训练计划 / 知识库 / 我的
+ * admin 额外可见：管理后台（仅侧边栏/抽屉，不在底部 Tab）
  */
-const navItems = [
-  { to: "/dashboard", label: "今日", icon: SunIcon },
-  { to: "/chat", label: "AI 教练", icon: MessageSquareIcon },
-  { to: "/plans", label: "训练计划", icon: ClipboardListIcon },
-  { to: "/profile", label: "我的", icon: UserIcon },
-];
+function useNavItems() {
+  const role = useAuthStore((s) => s.user?.role);
+  const items = [
+    { to: "/dashboard", label: "今日", icon: SunIcon },
+    { to: "/chat", label: "AI 教练", icon: MessageSquareIcon },
+    { to: "/plans", label: "训练计划", icon: ClipboardListIcon },
+    { to: "/knowledge-bases", label: "知识库", icon: BookOpenIcon },
+    { to: "/profile", label: "我的", icon: UserIcon },
+  ];
+  if (role === "admin") {
+    items.push({ to: "/admin/knowledge-bases", label: "管理后台", icon: ShieldIcon });
+  }
+  return items;
+}
+
+/** 底部 Tab 栏仅展示核心用户导航（不含管理后台，避免移动端拥挤） */
+function useBottomNavItems() {
+  return useNavItems().filter((i) => !i.to.startsWith("/admin"));
+}
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -43,6 +59,8 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout } = useAuthStore();
+  const navItems = useNavItems();
+  const bottomNavItems = useBottomNavItems();
 
   // 当路由变化时关闭移动端抽屉
   const closeMobileMenu = () => setMobileMenuOpen(false);
@@ -244,7 +262,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
 
       {/* ============ 移动端底部 Tab 栏 ============ */}
       <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-emerald-100 bg-white/95 backdrop-blur md:hidden">
-        {navItems.map((item) => {
+        {bottomNavItems.map((item) => {
           const isActive = location.pathname.startsWith(item.to);
           return (
             <Link

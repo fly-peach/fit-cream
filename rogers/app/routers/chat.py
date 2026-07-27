@@ -15,11 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory, get_db
 from app.dependencies import get_current_user
-from app.models.conversation import Conversation
-from app.models.thread_usage import ThreadUsage
-from app.models.user import User
-from app.schemas.chat import ChatRequest, MessageOut, ThreadMessagesOut, ThreadOut
-from app.schemas.common import ResponseModel
+from src.fitme.models.conversation import Conversation
+from src.fitme.models.thread_usage import ThreadUsage
+from src.fitme.models.user import User
+from src.fitme.schemas.chat import ChatRequest, MessageOut, ThreadMessagesOut, ThreadOut
+from src.fitme.schemas.common import ResponseModel
 
 logger = logging.getLogger("fitcream.chat")
 
@@ -31,15 +31,15 @@ _active_streams: Dict[str, asyncio.Event] = {}
 
 
 def _get_agent():
-    from agents.agent_graph import get_agent
+    from src.agents.agent_graph import get_agent
     return get_agent()
 
 
 async def _build_user_context(user: User) -> str:
     """构建用户动态上下文字符串，注入到对话输入中"""
     from app.database import async_session_factory
-    from app.services.checkin_service import CheckinService
-    from app.services.plan_service import PlanService
+    from src.fitme.services.checkin_service import CheckinService
+    from src.fitme.services.plan_service import PlanService
 
     parts = [f"- 当前日期：{date.today().isoformat()}"]
     parts.append(f"- 用户称呼：{user.name or '用户'}")

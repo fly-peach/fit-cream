@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.common import PaginatedResponse, ResponseModel
-from app.schemas.diet_plan import (
+from src.fitme.models.user import User
+from src.fitme.schemas.common import PaginatedResponse, ResponseModel
+from src.fitme.schemas.diet_plan import (
     DietDayCreate,
     DietMealOut,
     DietMealUpdate,
@@ -23,7 +23,7 @@ from app.schemas.diet_plan import (
     DietPlanOut,
     DietPlanUpdate,
 )
-from app.services.diet_plan_service import DietPlanService
+from src.fitme.services.diet_plan_service import DietPlanService
 
 router = APIRouter(prefix="/diet-plans", tags=["diet-plans"])
 

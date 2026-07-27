@@ -10,7 +10,7 @@ const API_URL = "/api";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const setToken = useAuthStore((s) => s.setToken);
+  const setAuth = useAuthStore((s) => s.setAuth);
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [phone, setPhone] = useState("");
@@ -46,9 +46,15 @@ export default function LoginPage() {
       }
 
       const accessToken = json.data?.tokens?.access_token;
-      if (accessToken) {
-        setToken(accessToken);
-        navigate("/chat");
+      const user = json.data?.user;
+      if (accessToken && user) {
+        setAuth(accessToken, {
+          id: String(user.id),
+          role: user.role === "admin" ? "admin" : "user",
+          name: user.name,
+          phone: user.phone,
+        });
+        navigate(user.role === "admin" ? "/admin/knowledge-bases" : "/knowledge-bases");
       } else {
         setError("未获取到 Token");
       }

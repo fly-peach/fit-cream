@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.common import PaginatedResponse, ResponseModel
-from app.schemas.plan import (
+from src.fitme.models.user import User
+from src.fitme.schemas.common import PaginatedResponse, ResponseModel
+from src.fitme.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
     PlanExerciseCreate,
@@ -24,7 +24,7 @@ from app.schemas.plan import (
     PlanOut,
     PlanUpdate,
 )
-from app.services.plan_service import PlanService
+from src.fitme.services.plan_service import PlanService
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 

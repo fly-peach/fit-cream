@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.common import ResponseModel
-from app.schemas.user import UserOut, UserUpdate
-from app.services.user_service import UserService
+from src.fitme.models.user import User
+from src.fitme.schemas.common import ResponseModel
+from src.fitme.schemas.user import UserOut, UserUpdate
+from src.fitme.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
 

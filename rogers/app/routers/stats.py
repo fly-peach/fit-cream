@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.common import ResponseModel
-from app.services.stats_service import StatsService
+from src.fitme.models.user import User
+from src.fitme.schemas.common import ResponseModel
+from src.fitme.services.stats_service import StatsService
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 

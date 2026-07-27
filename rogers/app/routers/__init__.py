@@ -14,6 +14,7 @@ API 路由汇总
 - stats: 训练数据统计
 - exercises: 动作库查询
 - achievements: 成就系统
+- knowledge_bases: 知识库管理（CRUD + 搜索 + 图谱 + 成员 + 令牌 + lint）
 """
 from fastapi import APIRouter
 
@@ -23,6 +24,7 @@ from app.routers.chat import router as chat_router
 from app.routers.checkins import router as checkins_router
 from app.routers.diet_plans import router as diet_plans_router
 from app.routers.exercises import router as exercises_router
+from app.routers.knowledge_bases import router as knowledge_bases_router
 from app.routers.plans import router as plans_router
 from app.routers.stats import router as stats_router
 from app.routers.users import router as users_router
@@ -37,3 +39,4 @@ api_router.include_router(checkins_router)
 api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
 api_router.include_router(achievements_router)
+api_router.include_router(knowledge_bases_router)

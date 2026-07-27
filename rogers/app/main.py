@@ -33,9 +33,9 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.database import engine, init_db
 from app.routers import api_router
-from app.utils.exceptions import register_exception_handlers
-from app.utils.logger import setup_logging
-from app.utils.request_logging import RequestLoggingMiddleware
+from utils.exceptions import register_exception_handlers
+from utils.logger import setup_logging
+from utils.request_logging import RequestLoggingMiddleware
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 logger = logging.getLogger("fitcream")
@@ -57,12 +57,12 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     from app.database import async_session_factory
-    from app.services.seed_service import seed_admin
+    from src.auth.seed_service import seed_admin
     async with async_session_factory() as session:
         await seed_admin(session)
 
     try:
-        from agents.agent_graph import init_agent
+        from src.agents.agent_graph import init_agent
         await init_agent()
     except Exception:
         pass
@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: 释放 Agent checkpointer 连接
     try:
-        from agents.agent_graph import shutdown_agent
+        from src.agents.agent_graph import shutdown_agent
         await shutdown_agent()
     except Exception:
         pass
@@ -106,6 +106,14 @@ app.add_middleware(
 
 # 注册 API 路由
 app.include_router(api_router, prefix=settings.API_PREFIX)
+
+# 注册 MCP 服务（fastapi-mcp，两个分权限实例）
+try:
+    if settings.MCP_ENABLED:
+        from app.mcp_server import setup_mcp
+        setup_mcp(app)
+except Exception:
+    pass
 
 # 注册异常处理器
 register_exception_handlers(app)

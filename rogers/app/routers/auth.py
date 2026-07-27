@@ -9,15 +9,15 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.auth import (
+from src.auth.auth import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
     TokenPair,
 )
-from app.schemas.common import ResponseModel
-from app.schemas.user import UserOut
-from app.services.auth_service import AuthService
+from src.fitme.schemas.common import ResponseModel
+from src.fitme.schemas.user import UserOut
+from src.auth.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

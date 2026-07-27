@@ -1,10 +1,16 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
+import { AdminRoute } from "@/components/admin-route";
 import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
+import DocumentViewerPage from "@/pages/document-viewer";
+import KnowledgeBasesPage from "@/pages/knowledge-bases";
+import KnowledgeBaseDetailPage from "@/pages/knowledge-base-detail";
 import LoginPage from "@/pages/login";
 import PlansPage from "@/pages/plans";
 import ProfilePage from "@/pages/profile";
+import KbManagementPage from "@/pages/admin/kb-management";
+import KbDetailPage from "@/pages/admin/kb-detail";
 
 /** 需要登录才能访问的路由守卫 */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -21,6 +27,8 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+        {/* 用户端 */}
         <Route
           path="/dashboard"
           element={
@@ -46,11 +54,53 @@ export function App() {
           }
         />
         <Route
+          path="/knowledge-bases"
+          element={
+            <ProtectedRoute>
+              <KnowledgeBasesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/knowledge-bases/:kbId"
+          element={
+            <ProtectedRoute>
+              <KnowledgeBaseDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/knowledge-bases/:kbId/documents/:docId"
+          element={
+            <ProtectedRoute>
+              <DocumentViewerPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/profile"
           element={
             <ProtectedRoute>
               <ProfilePage />
             </ProtectedRoute>
+          }
+        />
+
+        {/* 管理端 */}
+        <Route
+          path="/admin/knowledge-bases"
+          element={
+            <AdminRoute>
+              <KbManagementPage />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/knowledge-bases/:kbId"
+          element={
+            <AdminRoute>
+              <KbDetailPage />
+            </AdminRoute>
           }
         />
       </Routes>

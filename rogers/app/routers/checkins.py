@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.checkin import CheckinCreate, CheckinOut, CheckinUpdate, StreakOut
-from app.schemas.common import PaginatedResponse, ResponseModel
-from app.services.checkin_service import CheckinService
+from src.fitme.models.user import User
+from src.fitme.schemas.checkin import CheckinCreate, CheckinOut, CheckinUpdate, StreakOut
+from src.fitme.schemas.common import PaginatedResponse, ResponseModel
+from src.fitme.services.checkin_service import CheckinService
 
 router = APIRouter(prefix="/checkins", tags=["checkins"])
 
