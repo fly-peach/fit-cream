@@ -4,13 +4,13 @@
 三层结构：
 - Plan: 计划主体（目标、难度、周期、状态）
 - PlanDay: 训练日（星期几、训练重点、组间休息）
-- PlanDayExercise: 训练日中的具体动作（组数、次数、重量、排序）
+- PlanDayExercise: 训练日中的具体动作（组数、次数、重量、排序、执行要点）
 """
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -93,6 +93,7 @@ class PlanDayExercise(Base):
     reps: Mapped[int] = mapped_column(Integer, nullable=False)
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    notes: Mapped[Optional[str]] = mapped_column(Text)  # 动作执行要点 / 备注
 
     # 关系
     plan_day: Mapped["PlanDay"] = relationship(back_populates="exercises")

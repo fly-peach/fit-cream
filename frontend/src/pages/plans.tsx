@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +54,15 @@ import { cn } from "@/lib/utils";
 
 // ============ Types ============
 
+interface ExerciseBrief {
+  name: string;
+  name_en?: string | null;
+  muscle_group?: string | null;
+  equipment?: string | null;
+  difficulty?: string | null;
+  description?: string | null;
+}
+
 interface PlanExercise {
   id: string;
   exercise_id: string;
@@ -61,6 +71,8 @@ interface PlanExercise {
   reps: number;
   weight_kg: number | null;
   sort_order: number;
+  notes?: string | null;
+  exercise?: ExerciseBrief | null;
 }
 
 interface PlanDay {
@@ -145,6 +157,25 @@ const statusLabels: Record<string, string> = {
   active: "进行中",
   archived: "已归档",
   completed: "已完成",
+};
+
+const muscleGroupLabels: Record<string, string> = {
+  chest: "胸部",
+  back: "背部",
+  legs: "腿部",
+  shoulders: "肩部",
+  arms: "手臂",
+  core: "核心",
+  full_body: "全身",
+};
+
+const equipmentLabels: Record<string, string> = {
+  barbell: "杠铃",
+  dumbbell: "哑铃",
+  machine: "器械",
+  bodyweight: "自重",
+  cable: "绳索",
+  kettlebell: "壶铃",
 };
 
 const mealTypeLabels: Record<string, string> = {
@@ -306,6 +337,7 @@ function DayDetailDialog({
   const [editSets, setEditSets] = useState(3);
   const [editReps, setEditReps] = useState(12);
   const [editWeight, setEditWeight] = useState("");
+  const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
   if (!day) return null;
@@ -315,6 +347,7 @@ function DayDetailDialog({
     setEditSets(ex.sets);
     setEditReps(ex.reps);
     setEditWeight(ex.weight_kg?.toString() ?? "");
+    setEditNotes(ex.notes ?? "");
   };
 
   const saveEdit = async (exId: string) => {
@@ -324,6 +357,7 @@ function DayDetailDialog({
         sets: editSets,
         reps: editReps,
         weight_kg: editWeight ? parseFloat(editWeight) : null,
+        notes: editNotes.trim() ? editNotes.trim() : null,
       });
       setEditingId(null);
       onUpdated();
@@ -411,6 +445,12 @@ function DayDetailDialog({
                             <span className="text-xs text-emerald-600">kg</span>
                           </div>
                         </div>
+                        <Textarea
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          placeholder="动作要点 / 备注（如：腰背挺直，下放吸气）"
+                          className="min-h-16 resize-none text-sm"
+                        />
                         <div className="flex gap-2">
                           <Button size="sm" className="h-7 text-xs" onClick={() => saveEdit(ex.id)} disabled={saving}>
                             {saving ? "保存中..." : "保存"}
@@ -421,23 +461,68 @@ function DayDetailDialog({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="flex size-6 items-center justify-center rounded-full bg-emerald-200 text-xs font-bold text-emerald-700">
+                      <div className="flex items-start gap-3">
+                        <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-emerald-200 text-xs font-bold text-emerald-700">
                           {idx + 1}
                         </span>
-                        <div className="flex-1">
-                          <p className="font-medium text-emerald-900">{ex.exercise_name ?? "未知动作"}</p>
-                          <p className="text-xs text-emerald-600/60">
-                            {ex.sets} 组 × {ex.reps} 次
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <p className="font-medium text-emerald-900">
+                              {ex.exercise?.name ?? ex.exercise_name ?? "未知动作"}
+                            </p>
+                            {ex.exercise?.muscle_group && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-emerald-200 px-1.5 text-[10px] text-emerald-600"
+                              >
+                                {muscleGroupLabels[ex.exercise.muscle_group] ?? ex.exercise.muscle_group}
+                              </Badge>
+                            )}
+                            {ex.exercise?.equipment && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-sky-200 bg-sky-50 px-1.5 text-[10px] text-sky-600"
+                              >
+                                {equipmentLabels[ex.exercise.equipment] ?? ex.exercise.equipment}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-emerald-600/70">
+                            <span className="font-medium text-emerald-700">
+                              {ex.sets} 组 × {ex.reps} 次
+                            </span>
                             {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
                           </p>
+                          {ex.exercise?.description && (
+                            <p className="mt-1 line-clamp-2 text-xs text-emerald-600/60">
+                              {ex.exercise.description}
+                            </p>
+                          )}
+                          {ex.notes && (
+                            <p className="mt-1 rounded bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                              <span className="font-medium">要点：</span>
+                              {ex.notes}
+                            </p>
+                          )}
                         </div>
-                        <Button variant="ghost" size="icon" className="size-7 text-emerald-400 hover:text-emerald-600" onClick={() => startEdit(ex)}>
-                          <Pencil className="size-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="size-7 text-red-300 hover:text-red-600" onClick={() => deleteExercise(ex.id)}>
-                          <Trash2 className="size-3.5" />
-                        </Button>
+                        <div className="flex shrink-0 flex-col gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-emerald-400 hover:text-emerald-600"
+                            onClick={() => startEdit(ex)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-red-300 hover:text-red-600"
+                            onClick={() => deleteExercise(ex.id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -722,6 +807,8 @@ export default function PlansPage() {
   const [error, setError] = useState("");
   const [dayDialogOpen, setDayDialogOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [planToDeleteId, setPlanToDeleteId] = useState<string | null>(null);
 
   const loadPlans = async () => {
     try {
@@ -761,18 +848,26 @@ export default function PlansPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm("确定删除该训练计划？")) return;
+  const requestDelete = (id: string) => {
+    setPlanToDeleteId(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const executeDelete = async () => {
+    if (!planToDeleteId) return;
     try {
-      await api.delete(`/plans/${id}`);
-      setPlans((prev) => prev.filter((p) => p.id !== id));
-      if (selectedId === id) {
+      await api.delete(`/plans/${planToDeleteId}`);
+      setPlans((prev) => prev.filter((p) => p.id !== planToDeleteId));
+      if (selectedId === planToDeleteId) {
         setSelectedId(null);
         setSelectedPlan(null);
       }
-      if (activePlan?.id === id) setActivePlan(null);
+      if (activePlan?.id === planToDeleteId) setActivePlan(null);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setDeleteDialogOpen(false);
+      setPlanToDeleteId(null);
     }
   };
 
@@ -897,7 +992,7 @@ export default function PlansPage() {
                           variant="ghost"
                           size="icon"
                           className="text-emerald-400 hover:bg-red-100 hover:text-red-600"
-                          onClick={() => handleDelete(displayPlan.id)}
+                          onClick={() => requestDelete(displayPlan.id)}
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -1012,6 +1107,45 @@ export default function PlansPage() {
           }
         }}
       />
+
+      {/* 删除训练计划确认弹窗 */}
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setPlanToDeleteId(null);
+        }}
+      >
+        <DialogContent className="max-w-sm border-emerald-100 bg-white/95 backdrop-blur">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-950">
+              <Trash2 className="size-4 text-red-500" />
+              删除训练计划
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <p className="text-sm text-emerald-700/80">
+              确定删除训练计划「{plans.find((p) => p.id === planToDeleteId)?.name ?? ""}」？删除后将无法恢复。
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={executeDelete}
+              className="bg-red-500 text-white hover:bg-red-600"
+            >
+              删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

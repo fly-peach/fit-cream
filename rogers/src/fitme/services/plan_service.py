@@ -75,6 +75,7 @@ class PlanService:
                 reps=ex_data.reps,
                 weight_kg=ex_data.weight_kg,
                 sort_order=ex_data.sort_order or i,
+                notes=ex_data.notes,
             )
             db.add(plan_exercise)
 
@@ -169,9 +170,9 @@ class PlanService:
         plan_id: UUID,
         user_id: UUID,
     ) -> None:
-        """软删除计划（设为 archived）"""
+        """删除计划（物理删除；训练日与动作随外键 CASCADE 一并删除）"""
         plan = await PlanService.get_plan_detail(db, plan_id, user_id)
-        plan.status = "archived"
+        await db.delete(plan)
         await db.flush()
 
     @staticmethod
@@ -353,6 +354,7 @@ class PlanService:
             reps=data.reps,
             weight_kg=data.weight_kg,
             sort_order=data.sort_order,
+            notes=data.notes,
         )
         db.add(plan_exercise)
         await db.flush()

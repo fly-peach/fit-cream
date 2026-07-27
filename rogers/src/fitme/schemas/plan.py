@@ -11,10 +11,22 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ===== Exercise in Plan =====
+class ExerciseBrief(BaseModel):
+    """动作库摘要（嵌入计划动作输出，用于展示动作的具体内容）"""
+    name: str
+    name_en: Optional[str] = None
+    muscle_group: Optional[str] = None
+    equipment: Optional[str] = None
+    difficulty: Optional[str] = None
+    description: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PlanExerciseCreate(BaseModel):
     """计划中动作创建"""
     exercise_id: UUID
@@ -22,6 +34,7 @@ class PlanExerciseCreate(BaseModel):
     reps: int = Field(ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: int = 0
+    notes: Optional[str] = Field(default=None, max_length=500)
 
 
 class PlanExerciseUpdate(BaseModel):
@@ -30,6 +43,7 @@ class PlanExerciseUpdate(BaseModel):
     reps: Optional[int] = Field(default=None, ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: Optional[int] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
 
 
 class PlanExerciseOut(BaseModel):
@@ -41,8 +55,17 @@ class PlanExerciseOut(BaseModel):
     reps: int
     weight_kg: Optional[float] = None
     sort_order: int
+    notes: Optional[str] = None
+    exercise: Optional[ExerciseBrief] = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _fill_exercise_name(self):
+        # 模型无 exercise_name 列，从关联动作回填，保证前端可直接展示名称
+        if not self.exercise_name and self.exercise is not None:
+            self.exercise_name = self.exercise.name
+        return self
 
 
 # ===== Plan Day =====

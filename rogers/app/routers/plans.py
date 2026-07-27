@@ -105,10 +105,10 @@ async def delete_plan(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """归档训练计划（软删除）"""
+    """删除训练计划（物理删除）"""
     await PlanService.delete_plan(db, plan_id, user.id)
     await db.commit()
-    return ResponseModel(message="计划已归档")
+    return ResponseModel(message="计划已删除")
 
 
 @router.post("/{plan_id}/days", response_model=ResponseModel[PlanOut])
