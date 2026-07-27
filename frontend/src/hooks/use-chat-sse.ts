@@ -24,14 +24,17 @@ export function useChatSSE(threadId: string | null) {
   const setThreadId = useChatStore((s) => s.setThreadId);
 
   const sendMessage = useCallback(
-    async (content: string) => {
-      if (!content.trim() || isStreaming) return;
+    async (content: string, images?: string[]) => {
+      const hasText = content.trim().length > 0;
+      const hasImages = !!images && images.length > 0;
+      if ((!hasText && !hasImages) || isStreaming) return;
 
       // Add user message
       const userMsg: ChatMessage = {
         id: nanoid(),
         role: "user",
-        content,
+        content: hasText ? content : "[图片消息]",
+        images: hasImages ? images : undefined,
         createdAt: Date.now(),
       };
 
@@ -56,7 +59,7 @@ export function useChatSSE(threadId: string | null) {
 
       try {
         const token = getToken() || undefined;
-        for await (const event of streamChat(content, threadId, controller.signal, token)) {
+        for await (const event of streamChat(content, threadId, controller.signal, token, images)) {
           switch (event.event) {
             case "start":
               // 后端返回 thread_id，同步到全局 store

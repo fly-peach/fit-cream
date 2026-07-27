@@ -48,6 +48,8 @@ export interface ChatMessage {
   id: string;
   role: MessageRole;
   content: string;
+  /** 图片列表（URL 或 base64 data URL），仅用户消息可能携带 */
+  images?: string[];
   thinking?: string;
   toolCalls?: ToolCall[];
   createdAt: number;
@@ -68,6 +70,7 @@ export interface Thread {
 export interface SendMessageRequest {
   message: string;
   thread_id: string | null;
+  images?: string[];
 }
 
 /** 线程列表响应 */

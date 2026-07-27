@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, type ChangeEvent } from "react";
+import { Link } from "react-router-dom";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -24,9 +25,26 @@ import {
   ToolOutput,
 } from "@/components/ai-elements/tool";
 import {
+  Attachments,
+  Attachment,
+  AttachmentPreview,
+  AttachmentRemove,
+} from "@/components/ai-elements/attachments";
+import {
   PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
+  PromptInputBody,
+  PromptInputButton,
+  PromptInputFooter,
+  PromptInputProvider,
   PromptInputTextarea,
   PromptInputSubmit,
+  PromptInputTools,
+  usePromptInputAttachments,
+  type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import {
   Context,
@@ -39,15 +57,17 @@ import {
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
-  SquareIcon,
   PlusIcon,
   BotMessageSquareIcon,
   HistoryIcon,
   XIcon,
   Trash2Icon,
   ZapIcon,
+  CameraIcon,
+  BookOpenIcon,
 } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
 
@@ -80,9 +100,26 @@ function cleanContent(text: string): string {
 
 function MessageItem({ message }: { message: ChatMessage }) {
   if (message.role === "user") {
+    const hasImages = !!message.images && message.images.length > 0;
+    const hasText = !!message.content && message.content !== "[图片消息]";
     return (
       <Message from="user">
-        <MessageContent>{message.content}</MessageContent>
+        <MessageContent>
+          {hasImages && (
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              {message.images!.map((url, i) => (
+                <img
+                  key={i}
+                  src={url}
+                  alt={`图片 ${i + 1}`}
+                  loading="lazy"
+                  className="max-h-52 rounded-lg border border-emerald-100 object-cover shadow-sm"
+                />
+              ))}
+            </div>
+          )}
+          {hasText && <span>{message.content}</span>}
+        </MessageContent>
       </Message>
     );
   }
@@ -147,11 +184,137 @@ function MessageItem({ message }: { message: ChatMessage }) {
 /** 上下文窗口最大 Token 数（与后端 Summarization 触发阈值一致） */
 const MAX_CONTEXT_TOKENS = 100_000;
 
+/** 单张图片大小上限：与后端 /api/chat/upload-image 的 MAX_IMAGE_SIZE 一致（10MB） */
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+/** 最多同时上传图片数量：与后端 ChatRequest.images 限制一致 */
+const MAX_IMAGE_FILES = 10;
+
+/** 单个附件项（memo 优化重渲染，参考 ai-elements prompt-input 示例） */
+interface AttachmentItemProps {
+  attachment: {
+    id: string;
+    type: "file";
+    filename?: string;
+    mediaType?: string;
+    url: string;
+  };
+  onRemove: (id: string) => void;
+}
+
+const AttachmentItem = memo(({ attachment, onRemove }: AttachmentItemProps) => {
+  const handleRemove = useCallback(
+    () => onRemove(attachment.id),
+    [onRemove, attachment.id]
+  );
+  return (
+    <Attachment data={attachment} onRemove={handleRemove}>
+      <AttachmentPreview />
+      <AttachmentRemove />
+    </Attachment>
+  );
+});
+AttachmentItem.displayName = "AttachmentItem";
+
+/** 附件展示区（仅在有附件时渲染，inline 横向缩略图） */
+const PromptInputAttachmentsDisplay = memo(() => {
+  const attachments = usePromptInputAttachments();
+  const handleRemove = useCallback(
+    (id: string) => attachments.remove(id),
+    [attachments]
+  );
+  if (attachments.files.length === 0) return null;
+  return (
+    <Attachments variant="inline">
+      {attachments.files.map((attachment) => (
+        <AttachmentItem
+          key={attachment.id}
+          attachment={attachment}
+          onRemove={handleRemove}
+        />
+      ))}
+    </Attachments>
+  );
+});
+PromptInputAttachmentsDisplay.displayName = "PromptInputAttachmentsDisplay";
+
+/**
+ * 聊天输入区域（PromptInput 内部）。
+ *
+ * 结构参考 ai-elements prompt-input 官方示例：
+ * - 附件展示拆为独立 <PromptInputAttachmentsDisplay>（在 Body 外，inline 缩略图）
+ * - Body 仅放 Textarea
+ * - Footer: 工具按钮（相册 / 拍照）+ Submit（status 接管 streaming/stop）
+ *
+ * 必须作为 <PromptInput> 的直接子节点渲染，以便通过 usePromptInputAttachments
+ * 读取并操作附件。图片以 base64 data URL 形式随消息提交，对接后端
+ * ChatRequest.images，适配 DashScope Qwen-VL 多模态接口。
+ */
+function ChatPromptInner({
+  isStreaming,
+  onStop,
+}: {
+  isStreaming: boolean;
+  onStop: () => void;
+}) {
+  const attachments = usePromptInputAttachments();
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleCameraChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        attachments.add(e.target.files);
+      }
+      // 重置 value 允许重复选择同一文件
+      e.target.value = "";
+    },
+    [attachments]
+  );
+
+  return (
+    <>
+      <PromptInputBody>
+        <PromptInputTextarea placeholder="输入消息，或添加 / 拍摄图片提问…" />
+      </PromptInputBody>
+      <PromptInputFooter>
+        <PromptInputTools>
+          {/* 从相册 / 文件选择 */}
+          <PromptInputActionMenu>
+            <PromptInputActionMenuTrigger tooltip="添加图片" />
+            <PromptInputActionMenuContent>
+              <PromptInputActionAddAttachments label="从相册选择" />
+            </PromptInputActionMenuContent>
+          </PromptInputActionMenu>
+          {/* 拍照：移动端 capture=environment 直接调起后置摄像头 */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleCameraChange}
+            aria-label="拍照"
+          />
+          <PromptInputButton
+            tooltip="拍照"
+            onClick={() => cameraInputRef.current?.click()}
+          >
+            <CameraIcon className="size-4" />
+          </PromptInputButton>
+        </PromptInputTools>
+        <PromptInputSubmit
+          status={isStreaming ? "streaming" : "ready"}
+          onStop={onStop}
+        />
+      </PromptInputFooter>
+    </>
+  );
+}
+
 export default function ChatPage() {
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, setUsage } =
     useChatSSE(currentThreadId);
-  const { threads, deleteThread, loadThreads } = useThreads();
+  const { threads, deleteThread } = useThreads();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -162,6 +325,19 @@ export default function ChatPage() {
     setThreadId(null);
     clearMessages();
   };
+
+  // 发送消息：支持文本 + 图片（图片以 base64 data URL 形式提交，后端走 image_analysis 意图链路）
+  const handleSend = useCallback(
+    async ({ text, files }: PromptInputMessage) => {
+      const images = files
+        .map((f) => f.url)
+        .filter((u): u is string => typeof u === "string" && u.length > 0);
+      const hasText = text.trim().length > 0;
+      if (!hasText && images.length === 0) return;
+      sendMessage(text, images);
+    },
+    [sendMessage]
+  );
 
   // 加载指定线程的历史消息（恢复 thinking / toolCalls）
   const loadThreadMessages = useCallback(async (id: string) => {
@@ -288,6 +464,17 @@ export default function ChatPage() {
                 </ContextContentFooter>
               </ContextContent>
             </Context>
+            <Link
+              to="/knowledge-bases"
+              title="知识库"
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                "gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+              )}
+            >
+              <BookOpenIcon className="size-3.5" />
+              <span className="hidden sm:inline">知识库</span>
+            </Link>
             <Button
               onClick={handleNewChat}
               size="sm"
@@ -349,23 +536,20 @@ export default function ChatPage() {
         </Conversation>
 
         <div className="border-t border-emerald-100 bg-white/70 p-4 backdrop-blur-sm">
-          <PromptInput
-            onSubmit={({ text }) => {
-              if (text.trim()) sendMessage(text);
-            }}
-            className="mx-auto max-w-3xl"
-          >
-            <PromptInputTextarea placeholder="输入消息..." />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              {isStreaming && (
-                <Button variant="outline" size="sm" onClick={stop} type="button">
-                  <SquareIcon className="mr-1 size-3" />
-                  停止
-                </Button>
-              )}
-              <PromptInputSubmit />
-            </div>
-          </PromptInput>
+          <PromptInputProvider>
+            <PromptInput
+              accept="image/*"
+              multiple
+              globalDrop
+              maxFiles={MAX_IMAGE_FILES}
+              maxFileSize={MAX_IMAGE_SIZE}
+              onSubmit={handleSend}
+              className="mx-auto max-w-3xl"
+            >
+              <PromptInputAttachmentsDisplay />
+              <ChatPromptInner isStreaming={isStreaming} onStop={stop} />
+            </PromptInput>
+          </PromptInputProvider>
         </div>
 
         {/* 右侧会话历史抽屉 */}

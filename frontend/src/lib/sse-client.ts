@@ -7,15 +7,19 @@ export async function* streamChat(
   message: string,
   threadId: string | null,
   signal?: AbortSignal,
-  token?: string
+  token?: string,
+  images?: string[]
 ): AsyncGenerator<SSEEvent> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
+  const body: Record<string, unknown> = { message, thread_id: threadId };
+  if (images && images.length > 0) body.images = images;
+
   const response = await fetch(`${API_URL}/chat/message`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message, thread_id: threadId }),
+    body: JSON.stringify(body),
     signal,
   });
 
