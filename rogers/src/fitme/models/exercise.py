@@ -7,7 +7,7 @@
 from typing import Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import String, Text
+from sqlalchemy import Boolean, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,11 +24,19 @@ class Exercise(Base):
     name_en: Mapped[Optional[str]] = mapped_column(String(200))
     muscle_group: Mapped[Optional[str]] = mapped_column(
         String(50), index=True
-    )  # chest / back / legs / shoulders / arms / core / full_body
+    )
+    muscle_subgroup: Mapped[Optional[str]] = mapped_column(String(50))
+    category: Mapped[Optional[str]] = mapped_column(
+        String(50), index=True
+    )
+    is_compound: Mapped[bool] = mapped_column(Boolean, default=False)
     equipment: Mapped[Optional[str]] = mapped_column(
         String(100), index=True
-    )  # barbell / dumbbell / machine / bodyweight / cable / kettlebell
+    )
     difficulty: Mapped[Optional[str]] = mapped_column(
         String(20), index=True
-    )  # beginner / intermediate / advanced
+    )
+    calories_per_min: Mapped[Optional[float]] = mapped_column(Numeric(6, 1))
     description: Mapped[Optional[str]] = mapped_column(Text)
+    instructions: Mapped[Optional[str]] = mapped_column(Text)
+    tips: Mapped[Optional[str]] = mapped_column(Text)

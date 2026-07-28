@@ -41,6 +41,12 @@ async def get_current_user(
     if not user:
         raise UnauthorizedException("用户不存在")
 
+    if not user.is_active:
+        raise ForbiddenException("账号已被禁用")
+
+    if user.deleted_at:
+        raise UnauthorizedException("用户不存在")
+
     return user
 
 

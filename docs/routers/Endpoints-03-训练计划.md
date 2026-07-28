@@ -180,33 +180,125 @@ sets、reps、weight_kg、sort_order、notes、metadata_ 均为 Optional
 
 ## 动作库 (prefix: `/exercises`)
 
-### 搜索
+### 动作列表（含筛选和分页）
 
 | 项目 | 值 |
 |------|-----|
 | 方法 | GET |
 | 路径 | `/api/exercises` |
+| 认证 | JWT (get_current_user) |
 
 **查询参数：**
 
-| 参数 | 类型 | 说明 |
+| 字段 | 类型 | 说明 |
 |------|------|------|
-| muscle_group | Optional[str] | chest / back / legs / shoulders / arms / core / full_body |
-| equipment | Optional[str] | barbell / dumbbell / machine / bodyweight / cable / kettlebell |
-| difficulty | Optional[str] | beginner / intermediate / advanced |
-| keyword | Optional[str] | 名称或描述模糊搜索（ILIKE） |
-| limit | int | 默认 20，最大 100 |
+| muscle_group | Optional[str] | 肌群筛选 |
+| equipment | Optional[str] | 器械筛选 |
+| difficulty | Optional[str] | 难度筛选 |
+| category | Optional[str] | 分类筛选：compound/isolation/cardio/mobility |
+| keyword | Optional[str] | 关键词搜索 |
+| limit | int | 1-100，默认 20 |
+| offset | int | 分页偏移，默认 0 |
 
 **响应：`ResponseModel[list[ExerciseOut]]`**
 
-ExerciseOut：id, name, name_en, muscle_group, equipment, difficulty, description
+ExerciseOut：
 
-### 详情
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| name | str | 中文名 |
+| name_en | Optional[str] | 英文名 |
+| muscle_group | Optional[str] | 肌群 |
+| muscle_subgroup | Optional[str] | 细分肌群 |
+| category | Optional[str] | compound/isolation/cardio/mobility |
+| is_compound | bool | 是否复合动作 |
+| equipment | Optional[str] | 器械 |
+| difficulty | Optional[str] | 难度 |
+| calories_per_min | Optional[float] | 每分钟热量 |
+| description | Optional[str] | 描述 |
+| instructions | Optional[str] | 执行步骤 |
+| tips | Optional[str] | 注意事项 |
+
+### 动作分类统计
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | GET |
+| 路径 | `/api/exercises/categories` |
+| 认证 | JWT |
+
+**响应：`ResponseModel[list[CategoryStats]]`**
+
+| 字段 | 类型 |
+|------|------|
+| name | str |
+| count | int |
+
+### 动作肌群统计
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | GET |
+| 路径 | `/api/exercises/muscle-groups` |
+| 认证 | JWT |
+
+**响应：`ResponseModel[list[MuscleGroupStats]]`**
+
+| 字段 | 类型 |
+|------|------|
+| name | str |
+| count | int |
+
+### 动作详情
 
 | 项目 | 值 |
 |------|-----|
 | 方法 | GET |
 | 路径 | `/api/exercises/{exercise_id}` |
-| 路径参数 | exercise_id: UUID |
+| 认证 | JWT |
 
-**响应：`ResponseModel[ExerciseOut]`**
+### 创建动作
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/api/exercises` |
+| 认证 | JWT (get_admin_user) |
+
+**请求体：ExerciseCreate**
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| name | str | 1-200 字符 |
+| name_en | Optional[str] | 最多 200 字符 |
+| muscle_group | Optional[str] | 最多 50 字符 |
+| muscle_subgroup | Optional[str] | 最多 50 字符 |
+| category | Optional[str] | 最多 50 字符 |
+| is_compound | bool | 默认 False |
+| equipment | Optional[str] | 最多 100 字符 |
+| difficulty | Optional[str] | 最多 20 字符 |
+| calories_per_min | Optional[float] | >=0 |
+| description | Optional[str] | - |
+| instructions | Optional[str] | - |
+| tips | Optional[str] | - |
+
+### 更新动作
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | PUT |
+| 路径 | `/api/exercises/{exercise_id}` |
+| 认证 | JWT (get_admin_user) |
+
+**请求体：ExerciseUpdate**（所有字段可选）
+
+### 删除动作
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | DELETE |
+| 路径 | `/api/exercises/{exercise_id}` |
+| 认证 | JWT (get_admin_user) |
+
+逻辑：删除前检查 PlanDayExercise 和 CheckinExercise 引用数量，有引用则拒绝删除并返回 40000。

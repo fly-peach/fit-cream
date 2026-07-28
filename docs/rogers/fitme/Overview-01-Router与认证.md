@@ -95,14 +95,6 @@
 | 身体数据 | /api/stats/body | GET | |
 | 总览 | /api/stats/overview | GET | 含累计数据 + 连续打卡 |
 
-### 成就
-
-| 端点 | 路径 | 方法 | 用途 |
-|------|------|------|------|
-| 已解锁 | /api/achievements | GET | 已获得的成就列表 |
-| 全部 | /api/achievements/all | GET | 所有成就 + 解锁状态 |
-
-成就定义（共 6 种）：streak_7/streak_30/streak_100/first_plan/total_50_workouts/total_100_workouts，各配 name/description/icon。
 
 ## 响应格式
 

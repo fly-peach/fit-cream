@@ -47,25 +47,31 @@ async def _build_user_context(user: User) -> str:
     from app.database import async_session_factory
     from src.fitme.services.checkin_service import CheckinService
     from src.fitme.services.plan_service import PlanService
+    from src.fitme.services.user_service import UserService
 
     parts = [f"- 当前日期：{date.today().isoformat()}"]
     parts.append(f"- 用户称呼：{user.name or '用户'}")
 
-    if user.goal:
-        goal_map = {
-            "lose_fat": "减脂", "gain_muscle": "增肌",
-            "maintain": "维持体型", "improve_health": "改善健康",
-        }
-        parts.append(f"- 用户目标：{goal_map.get(user.goal, user.goal)}")
-
-    if user.height_cm and user.weight_kg:
-        bmi = user.weight_kg / ((user.height_cm / 100) ** 2)
-        parts.append(f"- 身体数据：{user.height_cm}cm / {user.weight_kg}kg")
-        bmi_text = "偏瘦" if bmi < 18.5 else "正常" if bmi < 24 else "偏胖" if bmi < 28 else "肥胖"
-        parts.append(f"- BMI：{bmi:.1f}（{bmi_text}）")
-
     try:
         async with async_session_factory() as db:
+            # 获取用户设置
+            settings = await UserService.get_user_settings(db, user.id)
+            if settings.goal:
+                goal_map = {
+                    "lose_fat": "减脂", "gain_muscle": "增肌",
+                    "maintain": "维持体型", "improve_health": "改善健康",
+                }
+                parts.append(f"- 用户目标：{goal_map.get(settings.goal, settings.goal)}")
+
+            # 获取最新健康指标
+            latest_metric = await UserService.get_latest_health_metric(db, user.id)
+            if latest_metric and latest_metric.height_cm and latest_metric.weight_kg:
+                bmi = latest_metric.weight_kg / ((latest_metric.height_cm / 100) ** 2)
+                parts.append(f"- 身体数据：{latest_metric.height_cm}cm / {latest_metric.weight_kg}kg")
+                bmi_text = "偏瘦" if bmi < 18.5 else "正常" if bmi < 24 else "偏胖" if bmi < 28 else "肥胖"
+                parts.append(f"- BMI：{bmi:.1f}（{bmi_text}）")
+
+            # 获取打卡 streak 和计划
             streak = await CheckinService.get_streak(db, user.id)
             if streak.get("current_streak"):
                 parts.append(f"- 当前连续打卡：{streak['current_streak']} 天")

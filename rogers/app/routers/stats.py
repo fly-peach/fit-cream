@@ -60,3 +60,15 @@ async def get_overview_stats(
     """获取总览统计（累计训练量、连续打卡天数）"""
     data = await StatsService.get_all_stats(db, user.id)
     return ResponseModel(data=data)
+
+
+@router.get("/diet", response_model=ResponseModel[list])
+async def get_diet_trend(
+    start: Optional[date] = Query(None, description="开始日期 (YYYY-MM-DD)，默认7天前"),
+    end: Optional[date] = Query(None, description="结束日期 (YYYY-MM-DD)，默认今天"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取饮食营养趋势（每日汇总）"""
+    data = await StatsService.get_diet_trend(db, user.id, start=start, end=end)
+    return ResponseModel(data=data)

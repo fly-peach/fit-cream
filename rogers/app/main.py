@@ -58,8 +58,11 @@ async def lifespan(app: FastAPI):
 
     from app.database import async_session_factory
     from src.auth.seed_service import seed_admin
+    from src.fitme.services.exercise_seed import seed_exercises
     async with async_session_factory() as session:
         await seed_admin(session)
+        await seed_exercises(session)
+        await session.commit()
 
     try:
         from src.agents.agent_graph import init_agent

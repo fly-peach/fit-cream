@@ -34,6 +34,19 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60  # access token 7 天
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # refresh token 30 天
 
+    # ---------- 阿里云 ----------
+    ALIBABA_CLOUD_ACCESS_KEY_ID: str = ""
+    ALIBABA_CLOUD_ACCESS_KEY_SECRET: str = ""
+    ALIBABA_CLOUD_SMS_SIGN_NAME: str = ""
+    ALIBABA_CLOUD_SMS_TEMPLATE_CODE: str = ""
+
+    # ---------- 安全策略 ----------
+    LOGIN_MAX_ATTEMPTS: int = 5
+    LOGIN_LOCK_MINUTES: int = 15
+    VERIFICATION_CODE_EXPIRE_MINUTES: int = 5
+    VERIFICATION_CODE_COOLDOWN: int = 60
+    VERIFICATION_CODE_MAX_PER_HOUR: int = 5
+
     # ---------- 种子管理员（首次启动自动创建） ----------
     SEED_ADMIN_PHONE: str = ""
     SEED_ADMIN_PASSWORD: str = ""

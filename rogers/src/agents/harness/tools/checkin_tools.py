@@ -28,6 +28,8 @@ class ExerciseRecord(BaseModel):
     sets_done: int = Field(ge=1, description="完成组数")
     reps_done: int = Field(ge=1, description="每组次数")
     weight_kg: Optional[float] = Field(default=None, description="重量（kg）")
+    rpe: Optional[int] = Field(default=None, ge=1, le=10, description="自感用力等级 1-10")
+    notes: Optional[str] = Field(default=None, description="动作备注")
 
 
 class CheckinInput(BaseModel):
@@ -35,6 +37,8 @@ class CheckinInput(BaseModel):
 
     exercises: List[ExerciseRecord] = Field(description="完成的动作列表")
     duration_min: int = Field(ge=1, description="训练时长（分钟）")
+    actual_intensity: Optional[str] = Field(default=None, description="实际强度: low/medium/high")
+    calories_burned: Optional[int] = Field(default=None, description="估算消耗热量(kcal)")
     mood: Optional[int] = Field(default=None, ge=1, le=5, description="心情评分 1-5")
     note: Optional[str] = Field(default=None, description="备注")
     checkin_date: Optional[str] = Field(
@@ -46,6 +50,8 @@ class CheckinInput(BaseModel):
 async def checkin_tool(
     exercises: List[dict],
     duration_min: int,
+    actual_intensity: Optional[str] = None,
+    calories_burned: Optional[int] = None,
     mood: Optional[int] = None,
     note: Optional[str] = None,
     checkin_date: Optional[str] = None,
@@ -88,6 +94,8 @@ async def checkin_tool(
                             sets_done=ex["sets_done"],
                             reps_done=ex["reps_done"],
                             weight_kg=ex.get("weight_kg"),
+                            rpe=ex.get("rpe"),
+                            notes=ex.get("notes"),
                         )
                     )
 
@@ -96,6 +104,8 @@ async def checkin_tool(
                 date=target_date,
                 plan_day_id=None,
                 duration_min=duration_min,
+                actual_intensity=actual_intensity,
+                calories_burned=calories_burned,
                 mood=mood,
                 note=note,
                 exercises=matched_exercises,

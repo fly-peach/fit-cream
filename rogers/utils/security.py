@@ -9,7 +9,7 @@
 """
 from datetime import datetime, timedelta
 from typing import Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import bcrypt
 from jose import JWTError, jwt
@@ -38,6 +38,8 @@ def create_access_token(user_id: UUID, expires_delta: Optional[timedelta] = None
     )
     payload = {
         "sub": str(user_id),
+        "jti": str(uuid4()),
+        "iat": datetime.utcnow(),
         "exp": expire,
         "type": "access",
     }
@@ -49,6 +51,8 @@ def create_refresh_token(user_id: UUID) -> str:
     expire = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     payload = {
         "sub": str(user_id),
+        "jti": str(uuid4()),
+        "iat": datetime.utcnow(),
         "exp": expire,
         "type": "refresh",
     }

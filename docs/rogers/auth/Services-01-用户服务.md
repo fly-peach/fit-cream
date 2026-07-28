@@ -6,10 +6,18 @@
 
 | 方法 | 功能 | 逻辑 |
 |------|------|------|
-| register | 用户注册 | 校验 phone 唯一 → bcrypt 哈希密码 → 创建 User → 生成 TokenPair |
-| login | 用户登录 | 按 phone 查用户 → bcrypt 验密码 → 生成 TokenPair |
-| refresh_token | 刷新令牌 | verify_refresh_token 解码 → 查用户存活性 → 生成新 TokenPair |
-| _generate_tokens | 生成令牌对 | 调用 create_access_token + create_refresh_token，封装 TokenPair |
+| register | 用户注册 | 校验 phone 唯一 → （可选）短信验证码校验 → bcrypt 哈希密码 → 创建 User（含 is_active/is_verified） → 创建 UserSettings → 记录审计日志 → 生成 TokenPair |
+| login | 用户登录 | 检查登录锁定 → 按 phone 查用户 → bcrypt 验密码 → 检查 is_active/deleted_at → 更新 last_login_at/last_login_ip → 记录登录尝试 → 记录审计日志 → 生成 TokenPair |
+| refresh_token | 刷新令牌 | verify_refresh_token 解码 → 检查 jti 黑名单 → 查用户存活性 → 生成新 TokenPair |
+| change_password | 修改密码 | 验证旧密码 → bcrypt 哈希新密码 → 记录审计日志 |
+| logout | 登出 | 解码 refresh_token → 将 jti 写入 RefreshTokenBlacklist |
+| send_verification_code | 发送验证码 | 检查冷却期/每小时上限 → 生成 6 位验证码 → 持久化 → 调用 SmsService.send_code |
+| verify_code | 验证验证码 | 按 phone + code + code_type 查询 → 校验未使用/未过期 → 标记 used_at |
+| request_password_reset | 请求密码重置 | 校验手机号已注册 → 调用 send_verification_code(code_type="reset_password") |
+| reset_password | 重置密码 | 调用 verify_code → 更新 password_hash |
+| _check_login_lock | 登录锁定检查 | 查询最近 15 分钟内失败次数 → >= 5 次则抛 FORBIDDEN |
+| _log_login_attempt | 记录登录尝试 | 创建 LoginAttempt（user_id/phone/ip/success） |
+| _log_audit | 审计日志 | 创建 UserAuditLog（user_id/action/ip/user_agent） |
 
 ### 注册逻辑
 
@@ -81,6 +89,12 @@ Agent 工具通过 LangChain `@tool` 装饰器定义，直接调用 UserService�
 | POST | /api/auth/register | 无 | 注册新用户 |
 | POST | /api/auth/login | 无 | 登录 |
 | POST | /api/auth/refresh | 无 | 刷新令牌 |
+| POST | /api/auth/change-password | JWT | 修改密码（需旧密码） |
+| POST | /api/auth/logout | 无 | 登出（加入黑名单） |
+| POST | /api/auth/send-verification-code | 无 | 发送短信验证码 |
+| POST | /api/auth/verify-code | 无 | 验证验证码 |
+| POST | /api/auth/request-password-reset | 无 | 请求密码重置 |
+| POST | /api/auth/reset-password | 无 | 重置密码 |
 | GET | /api/users/me | JWT | 获取当前用户资料 |
 | PUT | /api/users/me | JWT | 更新个人资料 |
 
@@ -93,6 +107,14 @@ AuthService.register/login
 
 AuthService.refresh_token
   └── 依赖 UserService.get_by_id()（确认用户仍存在）
+  └── 依赖 RefreshTokenBlacklist（检查 jti 黑名单）
+
+AuthService.logout
+  └── 依赖 RefreshTokenBlacklist（添加 jti）
+
+AuthService.send_verification_code
+  └── 依赖 SmsService（阿里云 SMS）
+  └── 依赖 VerificationCode（持久化验证码）
 
 UserService
   └── 依赖 User model

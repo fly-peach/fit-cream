@@ -66,6 +66,10 @@ class CheckinService:
             plan_day_id=data.plan_day_id,
             date=data.date,
             duration_min=data.duration_min,
+            actual_intensity=data.actual_intensity,
+            calories_burned=data.calories_burned or CheckinService._estimate_calories(
+                data.duration_min, data.exercises
+            ),
             mood=data.mood,
             note=data.note,
         )
@@ -80,6 +84,8 @@ class CheckinService:
                 sets_done=ex_data.sets_done,
                 reps_done=ex_data.reps_done,
                 weight_kg=ex_data.weight_kg,
+                rpe=ex_data.rpe,
+                notes=ex_data.notes,
             )
             db.add(checkin_exercise)
 
@@ -188,12 +194,23 @@ class CheckinService:
                         sets_done=ex_data.get("sets_done"),
                         reps_done=ex_data.get("reps_done"),
                         weight_kg=ex_data.get("weight_kg"),
+                        rpe=ex_data.get("rpe"),
+                        notes=ex_data.get("notes"),
                     )
                     db.add(checkin_exercise)
 
         await db.flush()
         await db.refresh(checkin)
         return checkin
+
+    @staticmethod
+    def _estimate_calories(
+        duration_min: int,
+        exercises: list,
+    ) -> int:
+        """根据时长和训练强度估算消耗热量"""
+        base_per_min = 7
+        return int(duration_min * base_per_min)
 
     @staticmethod
     async def get_streak(

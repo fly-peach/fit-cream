@@ -48,17 +48,16 @@
 
 ### 待办
 
-- [ ] 删除 `rogers/src/fitme/models/achievement.py`
-- [ ] 修改 `rogers/src/fitme/models/__init__.py`：移除 Achievement import 和 __all__
-- [ ] 修改 `rogers/src/fitme/models/user.py`：移除 achievements relationship
-- [ ] 删除 `rogers/app/routers/achievements.py`
-- [ ] 修改 `rogers/app/routers/__init__.py`：移除 achievements_router
-- [ ] 修改 `docs/rogers/fitme/Database-01-训练计划数据表.md`：删除 achievements 表和类型映射
-- [ ] 修改 `docs/rogers/fitme/Overview-01-Router与认证.md`：删除成就端点
-- [ ] 修改 `docs/rogers/auth/Database-01-用户表.md`：删除 achievements 关系
-- [ ] 修改 `docs/routers/Overview-01-路由总览.md`：删除 achievements 路由
-- [ ] 修改 `docs/routers/Endpoints-05-打卡与统计.md`：删除成就端点段
-- [ ] 修改 `docs/agent.md`：清理成就引用
+- [x] 删除 `rogers/src/fitme/models/achievement.py`
+- [x] 修改 `rogers/src/fitme/models/__init__.py`：移除 Achievement import 和 __all__
+- [x] 修改 `rogers/src/fitme/models/user.py`：移除 achievements relationship
+- [x] 删除 `rogers/app/routers/achievements.py`
+- [x] 修改 `rogers/app/routers/__init__.py`：移除 achievements_router
+- [x] 修改 `docs/rogers/fitme/Database-01-训练计划数据表.md`：删除 achievements 表和类型映射
+- [x] 修改 `docs/rogers/auth/Database-01-用户表.md`：删除 achievements 关系
+- [x] 修改 `docs/routers/Overview-01-路由总览.md`：删除 achievements 路由
+- [x] 修改 `docs/routers/Endpoints-05-打卡与统计.md`：删除成就端点段
+- [x] 修改 `docs/agent.md`：清理成就引用
 
 ---
 

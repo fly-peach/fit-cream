@@ -12,6 +12,7 @@ class RegisterRequest(BaseModel):
     phone: str = Field(min_length=11, max_length=20, description="手机号码")
     password: str = Field(min_length=6, max_length=128)
     name: str | None = Field(default=None, max_length=100)
+    verification_code: str | None = Field(default=None, min_length=4, max_length=10, description="短信验证码")
 
 
 class LoginRequest(BaseModel):
@@ -34,3 +35,39 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # access token 有效秒数
+
+
+class SendVerificationCodeRequest(BaseModel):
+    """发送验证码请求"""
+    phone: str = Field(min_length=11, max_length=20)
+    code_type: str = Field(default="register", pattern="^(register|login|reset_password)$")
+
+
+class VerifyCodeRequest(BaseModel):
+    """验证验证码请求"""
+    phone: str = Field(min_length=11, max_length=20)
+    code: str = Field(min_length=4, max_length=10)
+    code_type: str = Field(default="register")
+
+
+class RequestPasswordResetRequest(BaseModel):
+    """请求密码重置"""
+    phone: str = Field(min_length=11, max_length=20)
+
+
+class ResetPasswordRequest(BaseModel):
+    """重置密码"""
+    phone: str = Field(min_length=11, max_length=20)
+    code: str = Field(min_length=4, max_length=10)
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class ChangePasswordRequest(BaseModel):
+    """修改密码"""
+    old_password: str
+    new_password: str = Field(min_length=6, max_length=128)
+
+
+class LogoutRequest(BaseModel):
+    """登出请求"""
+    refresh_token: str

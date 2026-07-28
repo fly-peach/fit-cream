@@ -15,16 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 # ===== Exercise in Plan =====
-class ExerciseBrief(BaseModel):
-    """动作库摘要（嵌入计划动作输出，用于展示动作的具体内容）"""
-    name: str
-    name_en: Optional[str] = None
-    muscle_group: Optional[str] = None
-    equipment: Optional[str] = None
-    difficulty: Optional[str] = None
-    description: Optional[str] = None
-
-    model_config = {"from_attributes": True}
+from src.fitme.schemas.exercise import ExerciseBrief  # noqa: F401
 
 
 class PlanExerciseCreate(BaseModel):

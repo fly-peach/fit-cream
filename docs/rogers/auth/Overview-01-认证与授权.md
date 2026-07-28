@@ -45,10 +45,10 @@ FitCream 使用手机号 + 密码登录，基于 JWT（HS256）实现无状态�
 | 签名算法 | HS256 | HS256 |
 | 签名密钥 | JWT_SECRET（共享） | JWT_SECRET（共享） |
 | 有效期 | 7 天 | 30 天 |
-| Payload | sub (user_id)、type="access"、exp | sub (user_id)、type="refresh"、exp |
+| Payload | sub (user_id), jti (uuid), iat (时间戳), type="access", exp | sub (user_id), jti (uuid), iat (时间戳), type="refresh", exp |
 | 用途 | 身份认证 | 获取新的 Access Token |
 
-Token 字段不含 `jti`（JWT ID）和 `iat`（签发时间）。
+Token 字段含 `jti`（JWT ID）和 `iat`（签发时间）。
 
 ### 安全说明
 
@@ -56,6 +56,16 @@ Token 字段不含 `jti`（JWT ID）和 `iat`（签发时间）。
 - Access Token 有效期 7 天在生产环境中偏长
 - Refresh Token 无撤销机制，有效期 30 天不可注销
 - 无登录失败锁定机制
+
+### 安全增强
+
+- **账号状态**：User 模型新增 `is_active`（是否启用）和 `deleted_at`（软删除），`get_current_user` 依赖检查两者
+- **登录锁定**：连续 5 次登录失败自动锁定 15 分钟（`LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` 可配置），使用 `LoginAttempt` 表持久化
+- **令牌黑名单**：logout 时将 refresh_token 的 jti 写入 `RefreshTokenBlacklist`，refresh 时检查黑名单拒绝已注销令牌
+- **审计日志**：register/login/change_password 等敏感操作通过 `UserAuditLog` 记录（用户/操作/IP/UA）
+- **短信验证码**：集成阿里云 SMS（`ALIBABA_CLOUD_*` 环境变量），支持注册/登录/密码重置场景发送验证码；未配置时开发环境跳过
+- **密码管理**：新增 change_password（需旧密码验证）和 reset_password（验证码后重置）端点
+- **手机验证**：`is_verified` 标志记录手机号验证状态
 
 ## 密码安全
 
@@ -81,6 +91,8 @@ get_current_user
   → HTTPBearer 提取 Authorization: Bearer <token>
   → verify_access_token() 解码 JWT，校验 type
   → 查询 User 表（WHERE id = sub）
+  → 检查 is_active（禁用则 403）
+  → 检查 deleted_at（已删除则 401）
   → 返回 User ORM 实例
 
 get_admin_user
@@ -103,6 +115,8 @@ get_kb_from_token（知识库 MCP 专用）
 | 40103 | 凭据无效 | login 时密码错误或用户不存在 |
 | 40300 | 禁止访问 | 非管理员调用 admin 接口 |
 | 40401 | 用户不存在 | refresh_token 时用户已被删除 |
+| 40000 | BAD_REQUEST | 验证码发送过于频繁或已达上限 |
+| 40300 | FORBIDDEN | 账号已被禁用 / 登录失败次数过多 |
 
 所有业务异常统一返回 HTTP 200，在 `ResponseModel.code` 中携带错误码。
 

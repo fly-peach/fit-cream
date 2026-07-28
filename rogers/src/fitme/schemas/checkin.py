@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from src.fitme.schemas.plan import ExerciseBrief
+from src.fitme.schemas.exercise import ExerciseBrief
 
 
 class CheckinExerciseCreate(BaseModel):
@@ -25,6 +25,8 @@ class CheckinExerciseCreate(BaseModel):
     sets_done: Optional[int] = Field(None, ge=1, description="完成组数")
     reps_done: Optional[int] = Field(None, ge=1, description="每组次数")
     weight_kg: Optional[float] = Field(None, ge=0, description="重量(kg)")
+    rpe: Optional[int] = Field(None, ge=1, le=10, description="自感用力等级 1-10")
+    notes: Optional[str] = Field(None, max_length=500, description="动作备注")
 
 
 class CheckinCreate(BaseModel):
@@ -33,6 +35,8 @@ class CheckinCreate(BaseModel):
     date: date_type = Field(description="打卡日期")
     plan_day_id: Optional[UUID] = Field(None, description="关联的训练日ID")
     duration_min: int = Field(gt=0, description="训练时长(分钟)")
+    actual_intensity: Optional[str] = Field(None, pattern="^(low|medium|high)$", description="实际强度")
+    calories_burned: Optional[int] = Field(None, ge=0, description="估算消耗热量(kcal)")
     mood: Optional[int] = Field(None, ge=1, le=5, description="心情评分 1-5")
     note: Optional[str] = Field(None, max_length=1000, description="备注")
     exercises: List[CheckinExerciseCreate] = Field(
@@ -44,6 +48,8 @@ class CheckinUpdate(BaseModel):
     """更新打卡请求"""
 
     duration_min: Optional[int] = Field(None, gt=0)
+    actual_intensity: Optional[str] = Field(None, pattern="^(low|medium|high)$")
+    calories_burned: Optional[int] = Field(None, ge=0)
     mood: Optional[int] = Field(None, ge=1, le=5)
     note: Optional[str] = Field(None, max_length=1000)
     exercises: Optional[List[CheckinExerciseCreate]] = None
@@ -58,6 +64,8 @@ class CheckinExerciseOut(BaseModel):
     sets_done: Optional[int] = None
     reps_done: Optional[int] = None
     weight_kg: Optional[float] = None
+    rpe: Optional[int] = None
+    notes: Optional[str] = None
     exercise: Optional[ExerciseBrief] = None
 
     model_config = {"from_attributes": True}
@@ -77,6 +85,8 @@ class CheckinOut(BaseModel):
     plan_day_id: Optional[UUID] = None
     date: date_type
     duration_min: int
+    actual_intensity: Optional[str] = None
+    calories_burned: Optional[int] = None
     mood: Optional[int] = None
     note: Optional[str] = None
     created_at: datetime

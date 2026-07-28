@@ -90,3 +90,16 @@ async def update_checkin(
     await db.commit()
     await db.refresh(checkin)
     return ResponseModel(data=CheckinOut.model_validate(checkin))
+
+
+@router.delete("/{checkin_id}", response_model=ResponseModel[None])
+async def delete_checkin(
+    checkin_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除打卡记录"""
+    checkin = await CheckinService.get_by_id(db, checkin_id, user.id)
+    await db.delete(checkin)
+    await db.commit()
+    return ResponseModel(message="打卡记录已删除")

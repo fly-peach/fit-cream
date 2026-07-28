@@ -1,8 +1,8 @@
 """
 打卡模型
 
-- Checkin: 每日打卡记录（日期、时长、心情、备注），同一用户同一天只能打卡一次
-- CheckinExercise: 打卡中完成的具体动作（组数、次数、重量）
+- Checkin: 每日打卡记录（日期、时长、强度、心情、备注、估算热量），同一用户同一天只能打卡一次
+- CheckinExercise: 打卡中完成的具体动作（组数、次数、重量、RPE、备注）
 """
 from datetime import date as date_type
 from datetime import datetime
@@ -46,13 +46,14 @@ class Checkin(Base):
     )
     date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
     duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
-    mood: Mapped[Optional[int]] = mapped_column(Integer)  # 1-5
+    actual_intensity: Mapped[Optional[str]] = mapped_column(String(20))
+    calories_burned: Mapped[Optional[int]] = mapped_column(Integer)
+    mood: Mapped[Optional[int]] = mapped_column(Integer)
     note: Mapped[Optional[str]] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
-    # 关系
     user: Mapped["User"] = relationship(back_populates="checkins")  # type: ignore[name-defined]
     exercises: Mapped[List["CheckinExercise"]] = relationship(
         back_populates="checkin", cascade="all, delete-orphan", lazy="selectin"
@@ -76,7 +77,8 @@ class CheckinExercise(Base):
     sets_done: Mapped[Optional[int]] = mapped_column(Integer)
     reps_done: Mapped[Optional[int]] = mapped_column(Integer)
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
+    rpe: Mapped[Optional[int]] = mapped_column(Integer)
+    notes: Mapped[Optional[str]] = mapped_column(Text)
 
-    # 关系
     checkin: Mapped["Checkin"] = relationship(back_populates="exercises")
     exercise: Mapped["Exercise"] = relationship(lazy="selectin")  # type: ignore[name-defined]

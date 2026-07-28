@@ -62,3 +62,15 @@ FitCream 使用 PostgreSQL 数据库，通过 SQLAlchemy ORM 管理。本文件�
 - **所有权校验**：所有操作逐级校验 `diet_plan_day -> diet_plan -> user_id`，已抽取为 `_verify_diet_day_ownership` / `_verify_meal_ownership` helper
 - **级联策略**：父记录删除时子记录自动 CASCADE 删除
 - 通用设计原则详见 Database-01-训练计划数据表.md
+
+## 实际饮食记录 vs 饮食计划
+
+本文件描述的是饮食计划层（DietPlan → DietPlanDay → DietPlanMeal），
+与实际的每餐记录（DietMeal）和每日营养汇总（DailyDietSummary）为不同层次：
+
+- **饮食计划（DietPlan）**：预设的计划模板，包含目标卡路里和计划餐食
+- **实际记录（DietMeal）**：用户实际每日每餐的摄入记录
+- **每日汇总（DailyDietSummary）**：按日期自动聚合的营养统计
+- **自定义食物（CustomFoodItem）**：用户自定义的常用食物，可在 DietMeal 中引用
+
+详见 Database-01 中 diet_meals / daily_diet_summaries / custom_food_items 表定义。

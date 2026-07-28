@@ -6,15 +6,15 @@
 
 | 序号 | 路由模块 | 前缀 | 标签 | 说明 |
 |------|---------|------|------|------|
-| 1 | auth | `/auth` | auth | 注册/登录/刷新 Token |
-| 2 | users | `/users` | users | 用户资料 CRUD |
+| 1 | auth | `/auth` | auth | 注册/登录/刷新Token/验证码/密码管理 |
+| 2 | users | `/users` | users | 用户资料 CRUD + 健康指标 |
 | 3 | chat | `/chat` | chat | AI 对话（SSE 流式）+ 线程管理 |
 | 4 | plans | `/plans` | plans | 训练计划 CRUD |
 | 5 | diet_plans | `/diet-plans` | diet-plans | 饮食计划 CRUD |
-| 6 | checkins | `/checkins` | checkins | 打卡记录 CRUD + 连续打卡统计 |
-| 7 | stats | `/stats` | stats | 训练数据统计 |
-| 8 | exercises | `/exercises` | exercises | 动作库查询 |
-| 9 | achievements | `/achievements` | achievements | 成就系统 |
+| 6 | diet_meals | `/diet-meals` | diet-meals | 每餐记录 CRUD + 每日营养汇总 + 自定义食物 |
+| 7 | checkins | `/checkins` | checkins | 打卡记录 CRUD + 连续打卡统计 |
+| 8 | stats | `/stats` | stats | 训练统计 + 饮食趋势 |
+| 9 | exercises | `/exercises` | exercises | 动作库查询 + 管理 CRUD + 分类/肌群统计 |
 | 10 | knowledge_bases | `/knowledge-bases` | knowledge-bases | 知识库管理 |
 
 ## 响应格式
