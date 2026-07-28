@@ -11,6 +11,8 @@ const API_URL = "/api";
 export default function LoginPage() {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const logoutReason = useAuthStore((s) => s.logoutReason);
+  const clearLogoutReason = useAuthStore((s) => s.clearLogoutReason);
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [phone, setPhone] = useState("");
@@ -20,9 +22,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // 被动登出（token 失效等）跳转至此：直接以 logoutReason 作为提示来源，
+  // 用户开始操作（提交 / 切换模式）时清除，避免在 effect 内 setState。
+  const errorMessage = error || logoutReason;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    clearLogoutReason();
     setLoading(true);
 
     try {
@@ -172,9 +179,9 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {error && (
+            {errorMessage && (
               <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
-                {error}
+                {errorMessage}
               </div>
             )}
 
@@ -205,6 +212,7 @@ export default function LoginPage() {
               onClick={() => {
                 setMode(mode === "login" ? "register" : "login");
                 setError("");
+                clearLogoutReason();
               }}
             >
               {mode === "login" ? "立即注册" : "去登录"}

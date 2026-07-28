@@ -9,14 +9,47 @@
 """
 
 from datetime import date, timedelta
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import Checkin, CheckinExercise
 from src.fitme.models.user import User
+from src.fitme.services.checkin_service import CheckinService
+from utils.exceptions import NotFoundException
+
+
+class WeeklyStats(TypedDict):
+    week_start: str
+    week_end: str
+    total_workouts: int
+    total_duration_min: int
+    total_sets: int
+    daily_breakdown: list
+
+
+class MonthlyStats(TypedDict):
+    year: int
+    month: int
+    total_workouts: int
+    total_duration_min: int
+    average_mood: Optional[float]
+    weekly_trend: list
+
+
+class BodyTrend(TypedDict):
+    current_weight_kg: Optional[float]
+    height_cm: Optional[float]
+    goal: Optional[str]
+
+
+class AllStats(TypedDict):
+    total_workouts: int
+    total_duration_min: int
+    current_streak: int
+    longest_streak: int
 
 
 class StatsService:
@@ -25,16 +58,14 @@ class StatsService:
         db: AsyncSession,
         user_id: UUID,
         week_start: Optional[date] = None,
-    ) -> dict:
+    ) -> WeeklyStats:
         """获取周统计"""
         if week_start is None:
             today = date.today()
-            # 本周一
             week_start = today - timedelta(days=today.weekday())
 
         week_end = week_start + timedelta(days=6)
 
-        # 查询本周打卡记录
         result = await db.execute(
             select(Checkin).where(
                 Checkin.user_id == user_id,
@@ -47,18 +78,17 @@ class StatsService:
         total_workouts = len(checkins)
         total_duration = sum(c.duration_min for c in checkins)
 
-        # 计算总组数
         total_sets = 0
-        for checkin in checkins:
+        if checkins:
+            checkin_ids = [c.id for c in checkins]
             ex_result = await db.execute(
                 select(CheckinExercise).where(
-                    CheckinExercise.checkin_id == checkin.id
+                    CheckinExercise.checkin_id.in_(checkin_ids)
                 )
             )
-            exercises = list(ex_result.scalars().all())
-            total_sets += sum(e.sets_done or 0 for e in exercises)
+            all_exercises = list(ex_result.scalars().all())
+            total_sets = sum(e.sets_done or 0 for e in all_exercises)
 
-        # 每日明细
         daily_breakdown = []
         for i in range(7):
             d = week_start + timedelta(days=i)
@@ -86,7 +116,7 @@ class StatsService:
         user_id: UUID,
         year: Optional[int] = None,
         month: Optional[int] = None,
-    ) -> dict:
+    ) -> MonthlyStats:
         """获取月统计"""
         today = date.today()
         if year is None:
@@ -100,65 +130,54 @@ class StatsService:
         else:
             month_end = date(year, month + 1, 1) - timedelta(days=1)
 
-        result = await db.execute(
-            select(Checkin).where(
+        agg_result = await db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(Checkin.duration_min), 0),
+                func.avg(Checkin.mood),
+            ).where(
                 Checkin.user_id == user_id,
                 Checkin.date >= month_start,
                 Checkin.date <= month_end,
             )
         )
-        checkins = list(result.scalars().all())
+        total_workouts, total_duration, avg_mood = agg_result.one()
+        total_workouts = int(total_workouts or 0)
+        total_duration = int(total_duration or 0)
+        avg_mood = round(float(avg_mood), 1) if avg_mood else None
 
-        total_workouts = len(checkins)
-        total_duration = sum(c.duration_min for c in checkins)
-
-        # 平均心情
-        moods = [c.mood for c in checkins if c.mood is not None]
-        avg_mood = sum(moods) / len(moods) if moods else None
-
-        # 按周分组
-        weekly_trend = []
-        current_week = 1
-        week_workouts = 0
-        week_duration = 0
-
-        for i, checkin in enumerate(
-            sorted(checkins, key=lambda c: c.date)
-        ):
-            day_of_month = checkin.date.day
-            week_num = (day_of_month - 1) // 7 + 1
-
-            if week_num != current_week and i > 0:
-                weekly_trend.append(
-                    {
-                        "week": current_week,
-                        "workouts": week_workouts,
-                        "duration_min": week_duration,
-                    }
-                )
-                current_week = week_num
-                week_workouts = 0
-                week_duration = 0
-
-            week_workouts += 1
-            week_duration += checkin.duration_min
-
-        # 最后一周
-        if week_workouts > 0:
-            weekly_trend.append(
-                {
-                    "week": current_week,
-                    "workouts": week_workouts,
-                    "duration_min": week_duration,
-                }
+        week_expr = (func.floor((extract("day", Checkin.date) - 1) / 7) + 1).label(
+            "week"
+        )
+        week_result = await db.execute(
+            select(
+                week_expr,
+                func.count().label("workouts"),
+                func.coalesce(func.sum(Checkin.duration_min), 0).label("duration_min"),
             )
+            .where(
+                Checkin.user_id == user_id,
+                Checkin.date >= month_start,
+                Checkin.date <= month_end,
+            )
+            .group_by(week_expr)
+            .order_by(week_expr)
+        )
+        weekly_trend = [
+            {
+                "week": int(row.week),
+                "workouts": int(row.workouts),
+                "duration_min": int(row.duration_min),
+            }
+            for row in week_result.all()
+        ]
 
         return {
             "year": year,
             "month": month,
             "total_workouts": total_workouts,
             "total_duration_min": total_duration,
-            "average_mood": round(avg_mood, 1) if avg_mood else None,
+            "average_mood": avg_mood,
             "weekly_trend": weekly_trend,
         }
 
@@ -167,13 +186,13 @@ class StatsService:
         db: AsyncSession,
         user_id: UUID,
         days: int = 30,
-    ) -> dict:
+    ) -> BodyTrend:
         """获取体重趋势（从用户资料获取当前体重）"""
         result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
 
         if not user:
-            return {"success": False, "error": "用户不存在"}
+            raise NotFoundException("用户不存在")
 
         current_weight = float(user.weight_kg) if user.weight_kg else None
 
@@ -187,18 +206,17 @@ class StatsService:
     async def get_all_stats(
         db: AsyncSession,
         user_id: UUID,
-    ) -> dict:
+    ) -> AllStats:
         """获取全部统计"""
-        result = await db.execute(
-            select(Checkin).where(Checkin.user_id == user_id)
+        agg_result = await db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(Checkin.duration_min), 0),
+            ).where(Checkin.user_id == user_id)
         )
-        checkins = list(result.scalars().all())
-
-        total_workouts = len(checkins)
-        total_duration = sum(c.duration_min for c in checkins)
-
-        # 计算连续天数
-        from src.fitme.services.checkin_service import CheckinService
+        total_workouts, total_duration = agg_result.one()
+        total_workouts = int(total_workouts or 0)
+        total_duration = int(total_duration or 0)
 
         streak = await CheckinService.get_streak(db, user_id)
 

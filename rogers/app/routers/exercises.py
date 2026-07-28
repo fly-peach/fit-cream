@@ -51,6 +51,7 @@ async def list_exercises(
     ),
     keyword: Optional[str] = Query(None, description="关键词搜索（匹配名称或描述）"),
     limit: int = Query(20, ge=1, le=100, description="返回数量上限"),
+    offset: int = Query(0, ge=0, description="分页偏移量"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -62,6 +63,7 @@ async def list_exercises(
         keyword=keyword,
         difficulty=difficulty,
         limit=limit,
+        offset=offset,
     )
     return ResponseModel(data=[ExerciseOut.model_validate(e) for e in exercises])
 

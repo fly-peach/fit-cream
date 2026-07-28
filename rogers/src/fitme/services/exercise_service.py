@@ -62,6 +62,7 @@ class ExerciseService:
         keyword: Optional[str] = None,
         difficulty: Optional[str] = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> List[Exercise]:
         """搜索动作"""
         query = select(Exercise)
@@ -80,7 +81,7 @@ class ExerciseService:
                 )
             )
 
-        query = query.order_by(Exercise.name).limit(limit)
+        query = query.order_by(Exercise.name).offset(offset).limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())
 

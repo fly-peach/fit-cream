@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { PlusIcon, TrashIcon, MessageSquareIcon, SparklesIcon } from "lucide-react";
+import { PlusIcon, SparklesIcon } from "lucide-react";
 import type { Thread } from "@/types/chat";
-import { cn } from "@/lib/utils";
+import { ThreadHistoryItem } from "@/components/thread-history-item";
 
 interface SidebarProps {
   threads: Thread[];
@@ -10,6 +11,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectThread: (id: string) => void;
   onDeleteThread: (id: string) => void;
+  onRenameThread: (id: string, title: string) => Promise<boolean>;
 }
 
 /**
@@ -24,7 +26,10 @@ export function Sidebar({
   onNewChat,
   onSelectThread,
   onDeleteThread,
+  onRenameThread,
 }: SidebarProps) {
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+
   return (
     <div className="flex h-full flex-col">
       <div className="px-3 pt-4 pb-2">
@@ -57,40 +62,21 @@ export function Sidebar({
             </div>
           )}
           {threads.map((thread) => (
-            <div
+            <ThreadHistoryItem
               key={thread.id}
-              className={cn(
-                "group relative flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all duration-150",
-                currentThreadId === thread.id
-                  ? "bg-emerald-100/80 font-medium text-emerald-900 shadow-sm"
-                  : "text-emerald-800/80 hover:bg-emerald-100/60 hover:text-emerald-900"
-              )}
-              onClick={() => onSelectThread(thread.id)}
-            >
-              {currentThreadId === thread.id && (
-                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-emerald-500" />
-              )}
-              <MessageSquareIcon
-                className={cn(
-                  "size-4 shrink-0 transition-colors",
-                  currentThreadId === thread.id
-                    ? "text-emerald-500"
-                    : "text-emerald-400 group-hover:text-emerald-500"
-                )}
-              />
-              <span className="flex-1 truncate">{thread.title || "新对话"}</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-6 shrink-0 opacity-0 transition-opacity hover:bg-red-100 hover:text-red-600 group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteThread(thread.id);
-                }}
-              >
-                <TrashIcon className="size-3" />
-              </Button>
-            </div>
+              thread={thread}
+              isActive={currentThreadId === thread.id}
+              isEditing={editingThreadId === thread.id}
+              onSelect={() => onSelectThread(thread.id)}
+              onDelete={() => onDeleteThread(thread.id)}
+              onStartEdit={() => setEditingThreadId(thread.id)}
+              onCancelEdit={() => setEditingThreadId(null)}
+              onRename={async (title) => {
+                const ok = await onRenameThread(thread.id, title);
+                setEditingThreadId(null);
+                return ok;
+              }}
+            />
           ))}
         </div>
       </ScrollArea>

@@ -16,9 +16,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import async_session_factory, get_db
 from app.dependencies import get_current_user
 from src.fitme.models.conversation import Conversation
+from src.fitme.models.thread_meta import ThreadMeta
 from src.fitme.models.thread_usage import ThreadUsage
 from src.fitme.models.user import User
-from src.fitme.schemas.chat import ChatRequest, MessageOut, ThreadMessagesOut, ThreadOut
+from src.fitme.schemas.chat import (
+    ChatRequest,
+    MessageOut,
+    ThreadMessagesOut,
+    ThreadOut,
+    ThreadTitleIn,
+)
 from src.fitme.schemas.common import ResponseModel
 
 logger = logging.getLogger("fitcream.chat")
@@ -180,10 +187,14 @@ async def send_message(
                 async for event in agent.astream_events(input_msg, config=config, version="v2"):
                     # 检查是否需要停止
                     if stop_event.is_set():
-                        if full_content:
+                        if full_content or full_thinking:
                             await _save_message(
                                 stream_db, user.id, thread_id, "assistant", full_content,
-                                metadata={"tool_calls": tool_calls, "stopped": True},
+                                metadata={
+                                    "thinking": full_thinking or None,
+                                    "tool_calls": tool_calls or None,
+                                    "stopped": True,
+                                },
                             )
                         yield _sse_event("stopped", {"thread_id": thread_id, "partial_content": full_content})
                         return
@@ -246,6 +257,7 @@ async def send_message(
                             "input": tool_input or {},
                             "output": None,
                             "status": "running",
+                            "thinking_offset": len(full_thinking),
                         }
                         tool_calls.append(_current_tool)
                         yield _sse_event("tool_start", {
@@ -429,12 +441,21 @@ async def list_threads(
     # 批量查询 thread_usage
     thread_ids = [row.thread_id for row in rows]
     usage_map: dict[str, int] = {}
+    title_map: dict[str, str] = {}
     if thread_ids:
         usage_stmt = select(ThreadUsage.thread_id, ThreadUsage.total_tokens).where(
             ThreadUsage.thread_id.in_(thread_ids)
         )
         usage_rows = (await db.execute(usage_stmt)).all()
         usage_map = {r.thread_id: r.total_tokens for r in usage_rows}
+
+        title_stmt = select(ThreadMeta.thread_id, ThreadMeta.title).where(
+            ThreadMeta.thread_id.in_(thread_ids)
+        )
+        title_rows = (await db.execute(title_stmt)).all()
+        title_map = {
+            r.thread_id: r.title for r in title_rows if r.title
+        }
 
     threads = []
     for row in rows:
@@ -451,6 +472,7 @@ async def list_threads(
 
         threads.append(ThreadOut(
             thread_id=row.thread_id,
+            title=title_map.get(row.thread_id),
             last_message=(last_content[:100] if last_content else None),
             message_count=row.message_count,
             created_at=row.created_at,
@@ -494,6 +516,59 @@ async def get_thread_messages(
         total=total,
     ))
 
+
+@router.patch("/threads/{thread_id}/title", response_model=ResponseModel[ThreadOut])
+async def update_thread_title(
+    thread_id: str,
+    req: ThreadTitleIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    更新对话线程的自定义标题（用户可编辑会话记录名称）。
+
+    采用 upsert 语义：若 ThreadMeta 不存在则创建，存在则更新标题。
+    仅允许线程所有者操作；线程需归属当前用户（校验存在至少一条消息）。
+    """
+    # 校验线程归属当前用户
+    owns = (
+        await db.execute(
+            select(func.count(Conversation.id)).where(
+                Conversation.user_id == user.id,
+                Conversation.thread_id == thread_id,
+            )
+        )
+    ).scalar() or 0
+    if owns == 0:
+        return ResponseModel(code=404, message="线程不存在")
+
+    meta = (
+        await db.execute(
+            select(ThreadMeta).where(ThreadMeta.thread_id == thread_id)
+        )
+    ).scalar_one_or_none()
+
+    if meta is None:
+        meta = ThreadMeta(
+            user_id=user.id,
+            thread_id=thread_id,
+            title=req.title.strip(),
+        )
+        db.add(meta)
+    else:
+        meta.title = req.title.strip()
+    await db.commit()
+    await db.refresh(meta)
+
+    return ResponseModel(
+        message="标题已更新",
+        data=ThreadOut(
+            thread_id=thread_id,
+            title=meta.title,
+        ),
+    )
+
+
 @router.delete("/threads/{thread_id}", response_model=ResponseModel[None])
 async def delete_thread(
     thread_id: str,
@@ -506,6 +581,10 @@ async def delete_thread(
         Conversation.thread_id == thread_id,
     )
     result = await db.execute(stmt)
+    # 同步清理线程元信息（标题），避免残留孤立记录
+    await db.execute(
+        delete(ThreadMeta).where(ThreadMeta.thread_id == thread_id)
+    )
     await db.commit()
 
     if result.rowcount == 0:
@@ -521,6 +600,10 @@ async def clear_history(
     """清空当前用户的所有对话历史"""
     stmt = delete(Conversation).where(Conversation.user_id == user.id)
     result = await db.execute(stmt)
+    # 同步清理该用户所有线程元信息
+    await db.execute(
+        delete(ThreadMeta).where(ThreadMeta.user_id == user.id)
+    )
     await db.commit()
 
     return ResponseModel(message=f"已清空 {result.rowcount} 条消息")

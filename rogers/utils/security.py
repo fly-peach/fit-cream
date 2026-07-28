@@ -3,8 +3,8 @@
 
 提供 JWT Token 的生成与验证，以及 bcrypt 密码哈希功能。
 
-- access token: 短期有效（默认 15 分钟），用于 API 鉴权
-- refresh token: 长期有效（默认 7 天），用于无感刷新 access token
+- access token: 默认 7 天，用于 API 鉴权
+- refresh token: 默认 30 天，用于无感刷新 access token
 - 密码哈希: bcrypt 12 轮，不可逆
 """
 from datetime import datetime, timedelta

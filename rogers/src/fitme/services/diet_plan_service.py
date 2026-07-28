@@ -6,17 +6,62 @@
 - 根据用户目标自动生成饮食计划（Agent create_diet_plan_tool 调用）
 """
 from typing import List, Optional, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
-from src.fitme.schemas.diet_plan import DietDayCreate, DietMealUpdate, DietPlanCreate, DietPlanUpdate
+from src.fitme.schemas.diet_plan import (
+    DietDayCreate,
+    DietDayUpdate,
+    DietMealUpdate,
+    DietPlanCreate,
+    DietPlanUpdate,
+)
 from utils.exceptions import ForbiddenException, NotFoundException
 
 
 class DietPlanService:
+    @staticmethod
+    async def _verify_diet_day_ownership(
+        db: AsyncSession,
+        diet_day_id: UUID,
+        user_id: UUID,
+    ) -> Tuple[DietPlanDay, DietPlan]:
+        """验证饮食日归属，返回 (diet_day, diet_plan)"""
+        day_result = await db.execute(
+            select(DietPlanDay).where(DietPlanDay.id == diet_day_id)
+        )
+        diet_day = day_result.scalar_one_or_none()
+        if not diet_day:
+            raise NotFoundException("饮食日不存在")
+        plan_result = await db.execute(
+            select(DietPlan).where(DietPlan.id == diet_day.diet_plan_id)
+        )
+        diet_plan = plan_result.scalar_one()
+        if diet_plan.user_id != user_id:
+            raise ForbiddenException("无权操作此饮食日")
+        return diet_day, diet_plan
+
+    @staticmethod
+    async def _verify_meal_ownership(
+        db: AsyncSession,
+        meal_id: UUID,
+        user_id: UUID,
+    ) -> Tuple[DietPlanMeal, DietPlanDay, DietPlan]:
+        """验证餐食归属，返回 (meal, diet_day, diet_plan)"""
+        result = await db.execute(
+            select(DietPlanMeal).where(DietPlanMeal.id == meal_id)
+        )
+        meal = result.scalar_one_or_none()
+        if not meal:
+            raise NotFoundException("餐食不存在")
+        diet_day, diet_plan = await DietPlanService._verify_diet_day_ownership(
+            db, meal.diet_plan_day_id, user_id
+        )
+        return meal, diet_day, diet_plan
+
     @staticmethod
     async def create_diet_plan(
         db: AsyncSession,
@@ -34,7 +79,6 @@ class DietPlanService:
         db.add(diet_plan)
         await db.flush()
 
-        # 如果包含饮食日，一并创建
         if data.days:
             for day_data in data.days:
                 await DietPlanService._create_diet_day(db, diet_plan.id, day_data)
@@ -49,18 +93,20 @@ class DietPlanService:
         data: DietDayCreate,
     ) -> DietPlanDay:
         """创建饮食日"""
+        day_id = uuid4()
         diet_day = DietPlanDay(
+            id=day_id,
             diet_plan_id=diet_plan_id,
             day_of_week=data.day_of_week,
             focus=data.focus,
+            metadata_=data.metadata_ or {},
         )
         db.add(diet_day)
-        await db.flush()
 
-        # 创建餐食
         for i, meal_data in enumerate(data.meals):
             meal = DietPlanMeal(
-                diet_plan_day_id=diet_day.id,
+                id=uuid4(),
+                diet_plan_day_id=day_id,
                 meal_type=meal_data.meal_type,
                 food_name=meal_data.food_name,
                 calories=meal_data.calories,
@@ -69,6 +115,7 @@ class DietPlanService:
                 fat_g=meal_data.fat_g,
                 portion=meal_data.portion,
                 sort_order=meal_data.sort_order or i,
+                metadata_=meal_data.metadata_ or {},
             )
             db.add(meal)
 
@@ -91,11 +138,9 @@ class DietPlanService:
             query = query.where(DietPlan.status == status)
             count_query = count_query.where(DietPlan.status == status)
 
-        # 获取总数
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
 
-        # 分页查询
         query = (
             query.order_by(DietPlan.created_at.desc())
             .offset((page - 1) * size)
@@ -176,10 +221,29 @@ class DietPlanService:
         data: DietDayCreate,
     ) -> DietPlanDay:
         """为饮食计划添加饮食日"""
-        # 验证饮食计划归属
         await DietPlanService.get_diet_plan_detail(db, diet_plan_id, user_id)
         diet_day = await DietPlanService._create_diet_day(db, diet_plan_id, data)
         await db.flush()
+        return diet_day
+
+    @staticmethod
+    async def update_diet_day(
+        db: AsyncSession,
+        diet_day_id: UUID,
+        user_id: UUID,
+        data: DietDayUpdate,
+    ) -> DietPlanDay:
+        """更新饮食日"""
+        diet_day, _ = await DietPlanService._verify_diet_day_ownership(
+            db, diet_day_id, user_id
+        )
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(diet_day, field, value)
+
+        await db.flush()
+        await db.refresh(diet_day)
         return diet_day
 
     @staticmethod
@@ -190,25 +254,9 @@ class DietPlanService:
         data: DietMealUpdate,
     ) -> DietPlanMeal:
         """更新餐食"""
-        result = await db.execute(
-            select(DietPlanMeal).where(DietPlanMeal.id == meal_id)
+        meal, _, _ = await DietPlanService._verify_meal_ownership(
+            db, meal_id, user_id
         )
-        meal = result.scalar_one_or_none()
-
-        if not meal:
-            raise NotFoundException("餐食不存在")
-
-        # 验证归属
-        day_result = await db.execute(
-            select(DietPlanDay).where(DietPlanDay.id == meal.diet_plan_day_id)
-        )
-        day = day_result.scalar_one()
-        plan_result = await db.execute(
-            select(DietPlan).where(DietPlan.id == day.diet_plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权修改此餐食")
 
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
@@ -225,25 +273,9 @@ class DietPlanService:
         user_id: UUID,
     ) -> None:
         """删除餐食"""
-        result = await db.execute(
-            select(DietPlanMeal).where(DietPlanMeal.id == meal_id)
+        meal, _, _ = await DietPlanService._verify_meal_ownership(
+            db, meal_id, user_id
         )
-        meal = result.scalar_one_or_none()
-
-        if not meal:
-            raise NotFoundException("餐食不存在")
-
-        # 验证归属
-        day_result = await db.execute(
-            select(DietPlanDay).where(DietPlanDay.id == meal.diet_plan_day_id)
-        )
-        day = day_result.scalar_one()
-        plan_result = await db.execute(
-            select(DietPlan).where(DietPlan.id == day.diet_plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权删除此餐食")
 
         await db.delete(meal)
         await db.flush()
@@ -254,11 +286,11 @@ class DietPlanService:
         user_id: UUID,
         goal: str,
         target_calories: int = 2000,
+        days_per_week: int = 7,
         preferences: Optional[str] = None,
         user_data: Optional[dict] = None,
     ) -> DietPlan:
         """根据目标智能生成饮食计划（Agent 调用）"""
-        # 目标名称映射
         goal_names = {
             "lose_fat": "减脂饮食",
             "gain_muscle": "增肌饮食",
@@ -267,7 +299,6 @@ class DietPlanService:
         }
         goal_name = goal_names.get(goal, "综合饮食")
 
-        # 创建饮食计划
         diet_plan = DietPlan(
             user_id=user_id,
             name=f"{goal_name}计划",
@@ -278,7 +309,6 @@ class DietPlanService:
         db.add(diet_plan)
         await db.flush()
 
-        # 根据目标设置宏量素比例
         macro_ratios = {
             "lose_fat": {"protein": 0.4, "carbs": 0.3, "fat": 0.3},
             "gain_muscle": {"protein": 0.35, "carbs": 0.45, "fat": 0.2},
@@ -287,7 +317,6 @@ class DietPlanService:
         }
         ratios = macro_ratios.get(goal, macro_ratios["maintain"])
 
-        # 计算每餐大概热量分配（早餐30%，午餐35%，晚餐25%，加餐10%）
         meal_calories = {
             "breakfast": int(target_calories * 0.3),
             "lunch": int(target_calories * 0.35),
@@ -295,7 +324,6 @@ class DietPlanService:
             "snack": int(target_calories * 0.1),
         }
 
-        # 默认7天饮食计划
         day_focuses = {
             1: "高蛋白低碳水",
             2: "均衡营养",
@@ -306,7 +334,6 @@ class DietPlanService:
             7: "轻食恢复",
         }
 
-        # 默认餐食模板
         meal_templates = {
             "breakfast": [
                 {"food_name": "燕麦粥 + 鸡蛋", "portion": "1碗 + 2个"},
@@ -326,26 +353,32 @@ class DietPlanService:
             ],
         }
 
-        for day_num in range(1, 8):
+        num_days = min(days_per_week, 7)
+        for day_num in range(1, num_days + 1):
+            day_id = uuid4()
             diet_day = DietPlanDay(
+                id=day_id,
                 diet_plan_id=diet_plan.id,
                 day_of_week=day_num,
                 focus=day_focuses.get(day_num, "均衡饮食"),
             )
             db.add(diet_day)
-            await db.flush()
 
-            # 为每天添加餐食
             for meal_type, calories in meal_calories.items():
                 templates = meal_templates.get(meal_type, [])
-                template = templates[(day_num - 1) % len(templates)] if templates else {"food_name": "健康餐食", "portion": "适量"}
+                template = (
+                    templates[(day_num - 1) % len(templates)]
+                    if templates
+                    else {"food_name": "健康餐食", "portion": "适量"}
+                )
 
                 protein_g = round(calories * ratios["protein"] / 4, 1)
                 carbs_g = round(calories * ratios["carbs"] / 4, 1)
                 fat_g = round(calories * ratios["fat"] / 9, 1)
 
                 meal = DietPlanMeal(
-                    diet_plan_day_id=diet_day.id,
+                    id=uuid4(),
+                    diet_plan_day_id=day_id,
                     meal_type=meal_type,
                     food_name=template["food_name"],
                     calories=calories,

@@ -8,7 +8,7 @@
 - DietPlanListOut: 计划列表摘要（不含详细餐食）
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -25,6 +25,7 @@ class DietMealCreate(BaseModel):
     fat_g: Optional[float] = Field(default=None, ge=0)
     portion: Optional[str] = Field(default=None, max_length=100)
     sort_order: int = 0
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class DietMealUpdate(BaseModel):
@@ -37,6 +38,7 @@ class DietMealUpdate(BaseModel):
     fat_g: Optional[float] = Field(default=None, ge=0)
     portion: Optional[str] = Field(default=None, max_length=100)
     sort_order: Optional[int] = None
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class DietMealOut(BaseModel):
@@ -50,6 +52,7 @@ class DietMealOut(BaseModel):
     fat_g: Optional[float] = None
     portion: Optional[str] = None
     sort_order: int
+    metadata_: Optional[dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
 
@@ -59,7 +62,14 @@ class DietDayCreate(BaseModel):
     """饮食日创建"""
     day_of_week: int = Field(ge=1, le=7, description="1=周一 ... 7=周日")
     focus: Optional[str] = Field(default=None, max_length=100)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
     meals: List[DietMealCreate] = Field(default_factory=list)
+
+
+class DietDayUpdate(BaseModel):
+    """饮食日更新"""
+    focus: Optional[str] = Field(default=None, max_length=100)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class DietDayOut(BaseModel):
@@ -67,6 +77,7 @@ class DietDayOut(BaseModel):
     id: UUID
     day_of_week: int
     focus: Optional[str] = None
+    metadata_: Optional[dict[str, Any]] = None
     meals: List[DietMealOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

@@ -11,7 +11,7 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -67,6 +67,7 @@ class PlanDay(Base):
     day_of_week: Mapped[int] = mapped_column(Integer)  # 1=周一 ... 7=周日
     focus: Mapped[Optional[str]] = mapped_column(String(100))  # 训练重点
     rest_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    metadata_: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # 自定义扩展数据
 
     # 关系
     plan: Mapped["Plan"] = relationship(back_populates="days")
@@ -94,6 +95,7 @@ class PlanDayExercise(Base):
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text)  # 动作执行要点 / 备注
+    metadata_: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # 自定义扩展数据
 
     # 关系
     plan_day: Mapped["PlanDay"] = relationship(back_populates="exercises")

@@ -57,6 +57,9 @@ export function useChatSSE(threadId: string | null) {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // 本地累积思考文本，用于计算工具调用在 thinking 流中的插入位置
+      let full_thinking = "";
+
       try {
         const token = getToken() || undefined;
         for await (const event of streamChat(content, threadId, controller.signal, token, images)) {
@@ -68,16 +71,19 @@ export function useChatSSE(threadId: string | null) {
               }
               break;
 
-            case "thinking":
-              setThinking((prev) => prev + (event.data.content as string));
+            case "thinking": {
+              const delta = (event.data.content as string) || "";
+              full_thinking += delta;
+              setThinking((prev) => prev + delta);
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId
-                    ? { ...m, thinking: (m.thinking || "") + (event.data.content as string) }
+                    ? { ...m, thinking: (m.thinking || "") + delta }
                     : m
                 )
               );
               break;
+            }
 
             case "token":
               setMessages((prev) =>
@@ -96,6 +102,8 @@ export function useChatSSE(threadId: string | null) {
                 name: (event.data.tool as string) || "unknown",
                 input: (event.data.input as Record<string, unknown>) || {},
                 status: "running",
+                // 记录工具调用在 thinking 流中的插入位置，便于前端链式渲染
+                thinkingOffset: full_thinking.length,
               };
               setMessages((prev) =>
                 prev.map((m) =>

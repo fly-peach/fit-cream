@@ -12,6 +12,7 @@ from src.fitme.models.exercise import Exercise
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.fitme.models.user import User
 from src.fitme.models.thread_usage import ThreadUsage
+from src.fitme.models.thread_meta import ThreadMeta
 
 # 知识库模型
 from src.knowledge_base.models import (
@@ -37,6 +38,7 @@ __all__ = [
     "Conversation",
     "Achievement",
     "ThreadUsage",
+    "ThreadMeta",
     # 知识库
     "KnowledgeBase",
     "KBDocument",

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, type ChangeEvent } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
@@ -57,20 +57,19 @@ import {
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
+import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { checkAuthEnvelope } from "@/lib/api";
 import {
   PlusIcon,
   BotMessageSquareIcon,
   HistoryIcon,
   XIcon,
-  Trash2Icon,
-  ZapIcon,
   CameraIcon,
   BookOpenIcon,
 } from "lucide-react";
-import type { ChatMessage } from "@/types/chat";
-
+import type { ChatMessage, ToolCall } from "@/types/chat";
 /** 工具名 -> 中文展示名映射，让工具调用块更易读 */
 const toolNameMap: Record<string, string> = {
   query_stats_tool: "查询训练统计",
@@ -96,6 +95,90 @@ function cleanContent(text: string): string {
     .replace(/\[?调用\s+\w+_tool\s*\([^)]*\)\]?/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/** 单个工具调用块 */
+function ToolBlock({ tc }: { tc: ToolCall }) {
+  return (
+    <Tool defaultOpen={tc.status === "running"}>
+      <ToolHeader
+        title={toolNameMap[tc.name] ?? tc.name}
+        type="tool-call"
+        state={
+          tc.status === "running"
+            ? "input-available"
+            : tc.status === "error"
+              ? "output-error"
+              : "output-available"
+        }
+      />
+      <ToolContent>
+        <ToolInput input={tc.input} />
+        <ToolOutput output={tc.output} errorText={tc.error} />
+      </ToolContent>
+    </Tool>
+  );
+}
+
+/**
+ * 链式思考渲染：按 thinkingOffset 把工具块插入到思考文本流中。
+ *
+ * 当工具调用没有 offset 信息（历史消息兼容）时，回退到旧布局：
+ * 思考文本在上，工具块在下。
+ */
+function InterleavedReasoning({
+  thinking,
+  toolCalls,
+}: {
+  thinking?: string;
+  toolCalls?: ToolCall[];
+}) {
+  if (!toolCalls?.length) {
+    return thinking ? <div className="whitespace-pre-wrap">{thinking}</div> : null;
+  }
+
+  const hasOffsets = toolCalls.some((tc) => typeof tc.thinkingOffset === "number");
+  if (!hasOffsets) {
+    return (
+      <>
+        {thinking && <div className="whitespace-pre-wrap">{thinking}</div>}
+        <div className={thinking ? "mt-3 space-y-2 border-t border-border/50 pt-3" : "space-y-2"}>
+          {toolCalls.map((tc) => (
+            <ToolBlock key={tc.id} tc={tc} />
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  const sorted = [...toolCalls].sort(
+    (a, b) => (a.thinkingOffset ?? 0) - (b.thinkingOffset ?? 0)
+  );
+  const nodes: ReactNode[] = [];
+  let lastOffset = 0;
+
+  for (const tc of sorted) {
+    const offset = Math.min(tc.thinkingOffset ?? 0, thinking?.length ?? 0);
+    if (thinking && lastOffset < offset) {
+      nodes.push(
+        <div key={`thinking-${lastOffset}`} className="whitespace-pre-wrap">
+          {thinking.slice(lastOffset, offset)}
+        </div>
+      );
+    }
+    nodes.push(<ToolBlock key={`tool-${tc.id}`} tc={tc} />);
+    lastOffset = offset;
+  }
+
+  if (thinking && lastOffset < thinking.length) {
+    nodes.push(
+      <div key="thinking-end" className="whitespace-pre-wrap">
+        {thinking.slice(lastOffset)}
+      </div>
+    );
+  }
+
+  return <div className="space-y-2">{nodes}</div>;
 }
 
 function MessageItem({ message }: { message: ChatMessage }) {
@@ -139,34 +222,10 @@ function MessageItem({ message }: { message: ChatMessage }) {
           <Reasoning isStreaming={isThinking}>
             <ReasoningTrigger />
             <ReasoningContent>
-              {/* 思考文本 */}
-              {message.thinking && (
-                <div className="whitespace-pre-wrap">{message.thinking}</div>
-              )}
-              {/* 工具调用嵌套在思考过程内部（chain-of-thought 模式） */}
-              {hasToolCalls && (
-                <div className={message.thinking ? "mt-3 space-y-2 border-t border-border/50 pt-3" : "space-y-2"}>
-                  {message.toolCalls!.map((tc) => (
-                    <Tool key={tc.id} defaultOpen={tc.status === "running"}>
-                      <ToolHeader
-                        title={toolNameMap[tc.name] ?? tc.name}
-                        type="tool-call"
-                        state={
-                          tc.status === "running"
-                            ? "input-available"
-                            : tc.status === "error"
-                              ? "output-error"
-                              : "output-available"
-                        }
-                      />
-                      <ToolContent>
-                        <ToolInput input={tc.input} />
-                        <ToolOutput output={tc.output} errorText={tc.error} />
-                      </ToolContent>
-                    </Tool>
-                  ))}
-                </div>
-              )}
+              <InterleavedReasoning
+                thinking={message.thinking}
+                toolCalls={message.toolCalls}
+              />
             </ReasoningContent>
           </Reasoning>
         )}
@@ -314,8 +373,9 @@ export default function ChatPage() {
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, setUsage } =
     useChatSSE(currentThreadId);
-  const { threads, deleteThread } = useThreads();
+  const { threads, deleteThread, renameThread } = useThreads();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -350,6 +410,7 @@ export default function ChatPage() {
       });
       if (res.ok) {
         const json = await res.json();
+        checkAuthEnvelope(json);
         const data = json.data || {};
         const restored: ChatMessage[] = (data.messages || []).map(
           (m: {
@@ -364,6 +425,7 @@ export default function ChatPage() {
                 input: Record<string, unknown>;
                 output?: unknown;
                 status: string;
+                thinking_offset?: number;
               }>;
             } | null;
             created_at: string;
@@ -383,6 +445,7 @@ export default function ChatPage() {
                   : tc.status === "error"
                     ? "error"
                     : "completed") as "running" | "completed" | "error",
+                thinkingOffset: tc.thinking_offset ?? undefined,
               })) || undefined,
             createdAt: new Date(m.created_at).getTime(),
           }),
@@ -574,35 +637,20 @@ export default function ChatPage() {
                 <ul className="space-y-1">
                   {threads.map((t) => (
                     <li key={t.id}>
-                      <div
-                        className={`group flex cursor-pointer flex-col gap-1 rounded-lg px-3 py-2.5 transition-colors ${
-                          currentThreadId === t.id
-                            ? "bg-emerald-100 text-emerald-900"
-                            : "text-emerald-800 hover:bg-emerald-50"
-                        }`}
-                        onClick={() => handleSelectThread(t.id)}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="line-clamp-1 flex-1 text-sm font-medium">{t.title}</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteThread(t.id);
-                            }}
-                            className="opacity-0 transition-opacity group-hover:opacity-100"
-                          >
-                            <Trash2Icon className="size-3.5 text-emerald-400 hover:text-red-500" />
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-3 text-[11px] text-emerald-500/70">
-                          <span className="flex items-center gap-0.5">
-                            <ZapIcon className="size-3" />
-                            {t.totalTokens > 0 ? `${(t.totalTokens / 1000).toFixed(1)}k tokens` : "0 tokens"}
-                          </span>
-                          <span>{t.messageCount} 条消息</span>
-                        </div>
-                      </div>
+                      <ThreadHistoryItem
+                        thread={t}
+                        isActive={currentThreadId === t.id}
+                        isEditing={editingThreadId === t.id}
+                        onSelect={() => handleSelectThread(t.id)}
+                        onDelete={() => deleteThread(t.id)}
+                        onStartEdit={() => setEditingThreadId(t.id)}
+                        onCancelEdit={() => setEditingThreadId(null)}
+                        onRename={async (title) => {
+                          const ok = await renameThread(t.id, title);
+                          setEditingThreadId(null);
+                          return ok;
+                        }}
+                      />
                     </li>
                   ))}
                 </ul>

@@ -41,6 +41,8 @@ export interface ToolCall {
   output?: unknown;
   error?: string;
   status: ToolCallStatus;
+  /** 该工具调用开始时的 thinking 文本长度，用于在思考流中内联渲染工具块 */
+  thinkingOffset?: number;
 }
 
 /** 聊天消息 */
@@ -59,9 +61,14 @@ export interface ChatMessage {
 /** 对话线程 */
 export interface Thread {
   id: string;
-  title: string;
-  createdAt: number;
-  updatedAt: number;
+  /** 用户自定义标题（null 表示未自定义，展示时回退到 lastMessage） */
+  title: string | null;
+  /** 最后一条助手消息预览（无自定义标题时作为展示与编辑初始值） */
+  lastMessage: string | null;
+  /** ISO 时间字符串，会话创建时间（首条消息时间） */
+  createdAt: string;
+  /** ISO 时间字符串，会话最后更新时间 */
+  updatedAt: string;
   messageCount: number;
   totalTokens: number;
 }

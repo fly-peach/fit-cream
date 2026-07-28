@@ -26,9 +26,9 @@ class Exercise(Base):
         String(50), index=True
     )  # chest / back / legs / shoulders / arms / core / full_body
     equipment: Mapped[Optional[str]] = mapped_column(
-        String(100)
+        String(100), index=True
     )  # barbell / dumbbell / machine / bodyweight / cable / kettlebell
     difficulty: Mapped[Optional[str]] = mapped_column(
-        String(20)
+        String(20), index=True
     )  # beginner / intermediate / advanced
     description: Mapped[Optional[str]] = mapped_column(Text)

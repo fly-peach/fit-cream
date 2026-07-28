@@ -16,6 +16,7 @@ from src.fitme.models.user import User
 from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.diet_plan import (
     DietDayCreate,
+    DietDayUpdate,
     DietMealOut,
     DietMealUpdate,
     DietPlanCreate,
@@ -122,6 +123,21 @@ async def add_diet_day(
     await db.commit()
     # 重新获取完整饮食计划
     diet_plan = await DietPlanService.get_diet_plan_detail(db, diet_plan_id, user.id)
+    return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
+
+
+@router.put("/days/{day_id}", response_model=ResponseModel[DietPlanOut])
+async def update_diet_day(
+    day_id: UUID,
+    data: DietDayUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新饮食日（重点、自定义数据）"""
+    diet_day = await DietPlanService.update_diet_day(db, day_id, user.id, data)
+    await db.commit()
+    # 重新获取完整饮食计划
+    diet_plan = await DietPlanService.get_diet_plan_detail(db, diet_day.diet_plan_id, user.id)
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 

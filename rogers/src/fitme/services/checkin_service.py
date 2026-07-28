@@ -12,12 +12,19 @@ from datetime import timedelta
 from typing import List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import Integer, cast, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import Checkin, CheckinExercise
+from src.fitme.models.exercise import Exercise
 from src.fitme.schemas.checkin import CheckinCreate, CheckinUpdate
-from utils.exceptions import BusinessException, ForbiddenException, NotFoundException
+from utils.exceptions import (
+    BadRequestException,
+    BusinessException,
+    ErrorCode,
+    ForbiddenException,
+    NotFoundException,
+)
 
 
 class CheckinService:
@@ -31,11 +38,28 @@ class CheckinService:
         # 检查是否已打卡
         existing = await CheckinService.get_by_date(db, user_id, data.date)
         if existing:
-            raise BusinessException(40002, "该日期已打卡，不能重复打卡")
+            raise BusinessException(
+                ErrorCode.CHECKIN_ALREADY_EXISTS, "该日期已打卡，不能重复打卡"
+            )
 
         # 检查日期不能是未来
         if data.date > date_type.today():
-            raise BusinessException(40003, "打卡日期不能是未来日期")
+            raise BusinessException(
+                ErrorCode.INVALID_DATE, "打卡日期不能是未来日期"
+            )
+
+        # 预校验 exercise_id 存在性
+        if data.exercises:
+            exercise_ids = [ex.exercise_id for ex in data.exercises]
+            result = await db.execute(
+                select(Exercise.id).where(Exercise.id.in_(exercise_ids))
+            )
+            found_ids = {row[0] for row in result.all()}
+            missing_ids = set(exercise_ids) - found_ids
+            if missing_ids:
+                raise BadRequestException(
+                    f"动作不存在: {', '.join(str(m) for m in missing_ids)}"
+                )
 
         checkin = Checkin(
             user_id=user_id,
@@ -142,12 +166,30 @@ class CheckinService:
         """更新打卡记录"""
         checkin = await CheckinService.get_by_id(db, checkin_id, user_id)
 
-        if data.duration_min is not None:
-            checkin.duration_min = data.duration_min
-        if data.mood is not None:
-            checkin.mood = data.mood
-        if data.note is not None:
-            checkin.note = data.note
+        update_data = data.model_dump(exclude_unset=True)
+        has_exercises_update = "exercises" in update_data
+        exercises_data = update_data.pop("exercises", None)
+
+        for field, value in update_data.items():
+            setattr(checkin, field, value)
+
+        # 替换打卡动作记录
+        if has_exercises_update:
+            await db.execute(
+                delete(CheckinExercise).where(
+                    CheckinExercise.checkin_id == checkin_id
+                )
+            )
+            if exercises_data:
+                for ex_data in exercises_data:
+                    checkin_exercise = CheckinExercise(
+                        checkin_id=checkin_id,
+                        exercise_id=ex_data["exercise_id"],
+                        sets_done=ex_data.get("sets_done"),
+                        reps_done=ex_data.get("reps_done"),
+                        weight_kg=ex_data.get("weight_kg"),
+                    )
+                    db.add(checkin_exercise)
 
         await db.flush()
         await db.refresh(checkin)
@@ -159,49 +201,64 @@ class CheckinService:
         user_id: UUID,
     ) -> dict:
         """计算连续打卡天数"""
-        # 获取所有打卡日期（降序）
-        result = await db.execute(
-            select(Checkin.date)
-            .where(Checkin.user_id == user_id)
-            .order_by(Checkin.date.desc())
+        # 获取最近打卡日期
+        last_result = await db.execute(
+            select(func.max(Checkin.date)).where(Checkin.user_id == user_id)
         )
-        dates = [row[0] for row in result.all()]
+        last_date = last_result.scalar()
 
-        if not dates:
+        if not last_date:
             return {
                 "current_streak": 0,
                 "longest_streak": 0,
                 "last_checkin_date": None,
             }
 
+        # 查询最近 100 天的打卡日期用于计算当前连续天数（有界查询）
+        today = date_type.today()
+        lookback = today - timedelta(days=100)
+        recent_result = await db.execute(
+            select(Checkin.date)
+            .where(Checkin.user_id == user_id, Checkin.date >= lookback)
+            .order_by(Checkin.date.desc())
+        )
+        recent_dates = [row[0] for row in recent_result.all()]
+
         # 计算当前连续天数
         current_streak = 0
-        today = date_type.today()
         check_date = today
 
-        # 如果今天没打卡，从昨天开始算
-        if dates[0] != today:
+        if recent_dates and recent_dates[0] != today:
             check_date = today - timedelta(days=1)
 
-        for d in dates:
+        for d in recent_dates:
             if d == check_date:
                 current_streak += 1
                 check_date -= timedelta(days=1)
             elif d < check_date:
                 break
 
-        # 计算最长连续天数
-        longest_streak = 1
-        temp_streak = 1
-        for i in range(1, len(dates)):
-            if dates[i - 1] - dates[i] == timedelta(days=1):
-                temp_streak += 1
-                longest_streak = max(longest_streak, temp_streak)
-            else:
-                temp_streak = 1
+        # SQL 窗口函数计算最长连续天数（gaps-and-islands）
+        rn = func.row_number().over(order_by=Checkin.date)
+        consecutive_cte = (
+            select(
+                Checkin.date,
+                (Checkin.date - cast(rn, Integer)).label("grp"),
+            )
+            .where(Checkin.user_id == user_id)
+            .cte("consecutive")
+        )
+        group_subq = (
+            select(func.count().label("cnt"))
+            .select_from(consecutive_cte)
+            .group_by(consecutive_cte.c.grp)
+            .subquery()
+        )
+        longest_result = await db.execute(select(func.max(group_subq.c.cnt)))
+        longest_streak = longest_result.scalar() or 0
 
         return {
             "current_streak": current_streak,
             "longest_streak": longest_streak,
-            "last_checkin_date": dates[0],
+            "last_checkin_date": last_date,
         }

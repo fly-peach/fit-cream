@@ -13,7 +13,9 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from src.fitme.schemas.plan import ExerciseBrief
 
 
 class CheckinExerciseCreate(BaseModel):
@@ -56,8 +58,15 @@ class CheckinExerciseOut(BaseModel):
     sets_done: Optional[int] = None
     reps_done: Optional[int] = None
     weight_kg: Optional[float] = None
+    exercise: Optional[ExerciseBrief] = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _fill_exercise_name(self):
+        if not self.exercise_name and self.exercise is not None:
+            self.exercise_name = self.exercise.name
+        return self
 
 
 class CheckinOut(BaseModel):

@@ -11,7 +11,7 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -63,6 +63,7 @@ class DietPlanDay(Base):
     )
     day_of_week: Mapped[int] = mapped_column(Integer)  # 1=周一 ... 7=周日
     focus: Mapped[Optional[str]] = mapped_column(String(100))  # 当日饮食重点
+    metadata_: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # 自定义扩展数据
 
     # 关系
     diet_plan: Mapped["DietPlan"] = relationship(back_populates="days")
@@ -92,6 +93,7 @@ class DietPlanMeal(Base):
     fat_g: Mapped[Optional[float]] = mapped_column(Numeric(6, 1))  # 脂肪(克)
     portion: Mapped[Optional[str]] = mapped_column(String(100))  # 份量描述
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # 自定义扩展数据
 
     # 关系
     diet_plan_day: Mapped["DietPlanDay"] = relationship(back_populates="meals")

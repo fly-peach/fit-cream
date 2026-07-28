@@ -38,7 +38,6 @@ class Checkin(Base):
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        index=True,
     )
     plan_day_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True),

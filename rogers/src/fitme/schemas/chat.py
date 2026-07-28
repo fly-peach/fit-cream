@@ -48,6 +48,7 @@ class ChatRequest(BaseModel):
 class ThreadOut(BaseModel):
     """对话线程"""
     thread_id: str
+    title: Optional[str] = None
     last_message: Optional[str] = None
     message_count: int = 0
     created_at: Optional[datetime] = None
@@ -55,6 +56,11 @@ class ThreadOut(BaseModel):
     total_tokens: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class ThreadTitleIn(BaseModel):
+    """更新线程标题请求"""
+    title: str = Field(..., min_length=1, max_length=200, description="自定义线程标题")
 
 
 class MessageOut(BaseModel):

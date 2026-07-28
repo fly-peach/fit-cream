@@ -8,7 +8,7 @@
 - PlanListOut: 计划列表摘要（不含详细训练日）
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -35,6 +35,7 @@ class PlanExerciseCreate(BaseModel):
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: int = 0
     notes: Optional[str] = Field(default=None, max_length=500)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class PlanExerciseUpdate(BaseModel):
@@ -44,6 +45,7 @@ class PlanExerciseUpdate(BaseModel):
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class PlanExerciseOut(BaseModel):
@@ -56,6 +58,7 @@ class PlanExerciseOut(BaseModel):
     weight_kg: Optional[float] = None
     sort_order: int
     notes: Optional[str] = None
+    metadata_: Optional[dict[str, Any]] = None
     exercise: Optional[ExerciseBrief] = None
 
     model_config = {"from_attributes": True}
@@ -74,7 +77,15 @@ class PlanDayCreate(BaseModel):
     day_of_week: int = Field(ge=1, le=7, description="1=周一 ... 7=周日")
     focus: Optional[str] = Field(default=None, max_length=100)
     rest_seconds: int = Field(default=60, ge=0)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
     exercises: List[PlanExerciseCreate] = Field(default_factory=list)
+
+
+class PlanDayUpdate(BaseModel):
+    """训练日更新"""
+    focus: Optional[str] = Field(default=None, max_length=100)
+    rest_seconds: Optional[int] = Field(default=None, ge=0)
+    metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
 class PlanDayOut(BaseModel):
@@ -83,6 +94,7 @@ class PlanDayOut(BaseModel):
     day_of_week: int
     focus: Optional[str] = None
     rest_seconds: int
+    metadata_: Optional[dict[str, Any]] = None
     exercises: List[PlanExerciseOut] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}

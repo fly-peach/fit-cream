@@ -18,6 +18,36 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 判断信封 code 是否为认证失败（类型守卫，命中后将 code 收窄为 number）。
+ *
+ * 后端认证异常统一返回 HTTP 200 + 业务码，认证段为 401xx
+ * （40100 未授权 / 40101 无效 token / 40102 过期 / 40103 凭证无效），
+ * 故不能仅依赖 HTTP 状态码判断，需识别该码段以触发自动登出。
+ */
+export function isAuthError(code: number | null | undefined): code is number {
+  return typeof code === "number" && code >= 40100 && code < 40200;
+}
+
+/** 认证失效时统一登出并抛出，避免页面停留在「无效的访问令牌」等错误态 */
+function handleAuthExpired(code: number): never {
+  useAuthStore.getState().logout("登录已过期，请重新登录");
+  throw new ApiError(code, "登录已过期，请重新登录");
+}
+
+/**
+ * 供绕过统一 request 的直接 fetch 调用使用：解析到信封后检测认证失败并登出。
+ * 命中 401xx 时抛出（never），调用方应在 try/catch 中调用。
+ */
+export function checkAuthEnvelope(
+  json: { code?: number } | null | undefined
+): void {
+  const code = json?.code;
+  if (isAuthError(code)) {
+    handleAuthExpired(code);
+  }
+}
+
 interface Envelope<T> {
   code: number;
   message: string;
@@ -40,8 +70,7 @@ async function request<T>(
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    useAuthStore.getState().logout();
-    throw new ApiError(401, "登录已过期，请重新登录");
+    handleAuthExpired(401);
   }
 
   let json: Envelope<T>;
@@ -49,6 +78,11 @@ async function request<T>(
     json = await res.json();
   } catch {
     throw new ApiError(res.status, `请求失败 (${res.status})`);
+  }
+
+  // 后端认证失败返回 HTTP 200 + 401xx 业务码，需在此识别并自动登出
+  if (isAuthError(json.code)) {
+    handleAuthExpired(json.code);
   }
 
   if (!res.ok || (json.code !== 0 && json.code !== 200)) {

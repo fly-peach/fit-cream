@@ -199,19 +199,32 @@ class ChatDashScope(ChatOpenAI):
         from langchain_openai.chat_models.base import _convert_message_to_dict
         return [_convert_message_to_dict(m) for m in messages]
 
+    @staticmethod
+    def _extract_usage(raw_usage: Any) -> dict[str, int]:
+        if isinstance(raw_usage, dict):
+            return {
+                "input_tokens": int(raw_usage.get("input_tokens") or raw_usage.get("prompt_tokens") or 0),
+                "output_tokens": int(raw_usage.get("output_tokens") or raw_usage.get("completion_tokens") or 0),
+                "total_tokens": int(raw_usage.get("total_tokens") or 0),
+            }
+        return {
+            "input_tokens": int(getattr(raw_usage, "input_tokens", 0) or getattr(raw_usage, "prompt_tokens", 0) or 0),
+            "output_tokens": int(getattr(raw_usage, "output_tokens", 0) or getattr(raw_usage, "completion_tokens", 0) or 0),
+            "total_tokens": int(getattr(raw_usage, "total_tokens", 0) or 0),
+        }
+
     def _convert_raw_chunk(self, raw_chunk: Any) -> Optional[ChatGenerationChunk]:
-        # 提取 usage 信息（流式最后一个 chunk 的 usage 在 raw_chunk 顶层）
-        raw_usage = getattr(raw_chunk, "usage", None)
+        raw_usage: Any = None
+        if isinstance(raw_chunk, dict):
+            raw_usage = raw_chunk.get("usage")
+        else:
+            raw_usage = getattr(raw_chunk, "usage", None)
+
         usage_metadata: UsageMetadata | None = None
         if raw_usage:
-            usage_metadata = cast(UsageMetadata, {
-                "input_tokens": getattr(raw_usage, "prompt_tokens", 0) or 0,
-                "output_tokens": getattr(raw_usage, "completion_tokens", 0) or 0,
-                "total_tokens": getattr(raw_usage, "total_tokens", 0) or 0,
-            })
+            usage_metadata = cast(UsageMetadata, self._extract_usage(raw_usage))
 
         if not raw_chunk.choices:
-            # 流式最后一个 chunk 可能只有 usage 没有 choices
             if usage_metadata:
                 return ChatGenerationChunk(
                     message=AIMessageChunk(
@@ -241,7 +254,6 @@ class ChatDashScope(ChatOpenAI):
         if reasoning_content:
             additional_kwargs["reasoning_content"] = reasoning_content
 
-        # 构建 tool_call_chunks（LangGraph ReAct agent 需要此字段来解析工具调用）
         tool_call_chunks: list[ToolCallChunk] = []
         if delta.tool_calls:
             for tc in delta.tool_calls:
@@ -307,6 +319,6 @@ def create_chat_dashscope(
         temperature=temperature if temperature is not None else float(_get_setting("DASHSCOPE_TEMPERATURE", "1.2")),
         enable_thinking=enable_thinking if enable_thinking is not None else _get_setting("DASHSCOPE_ENABLE_THINKING", "true").lower() == "true",
         streaming=streaming,
-        stream_usage=True,
+        stream_usage=False,
         **kwargs,
     )

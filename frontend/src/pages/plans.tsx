@@ -15,6 +15,8 @@ import {
 } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { AppLayout } from "@/components/app-layout";
+import { MetadataEditor, MetadataPreview } from "@/components/metadata-editor";
+import { toMetaRows, toMetaDict, type MetaRow } from "@/lib/meta-utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,13 +30,6 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dumbbell,
   Loader2,
   Trash2,
@@ -47,7 +42,8 @@ import {
   UtensilsCrossed,
   Pencil,
   Plus,
-  X,
+  CheckCircle,
+  Search,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -72,6 +68,7 @@ interface PlanExercise {
   weight_kg: number | null;
   sort_order: number;
   notes?: string | null;
+  metadata_?: Record<string, string> | null;
   exercise?: ExerciseBrief | null;
 }
 
@@ -80,6 +77,7 @@ interface PlanDay {
   day_of_week: number;
   focus: string | null;
   rest_seconds: number;
+  metadata_?: Record<string, string> | null;
   exercises: PlanExercise[];
 }
 
@@ -118,6 +116,7 @@ interface DietMeal {
   fat_g: number | null;
   portion: string | null;
   sort_order: number;
+  metadata_?: Record<string, string> | null;
 }
 
 interface DietDay {
@@ -125,6 +124,7 @@ interface DietDay {
   day_of_week: number;
   focus: string | null;
   meals: DietMeal[];
+  metadata_?: Record<string, string> | null;
 }
 
 interface DietPlanDetail {
@@ -338,7 +338,32 @@ function DayDetailDialog({
   const [editReps, setEditReps] = useState(12);
   const [editWeight, setEditWeight] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editMetadata, setEditMetadata] = useState<MetaRow[]>([]);
   const [saving, setSaving] = useState(false);
+
+  // 训练日信息（名称 / 组间休息 / 自定义项）编辑表单
+  const [dayInfoSync, setDayInfoSync] = useState<string | null>(null);
+  const [dayFocus, setDayFocus] = useState("");
+  const [dayRest, setDayRest] = useState(60);
+  const [dayMeta, setDayMeta] = useState<MetaRow[]>([]);
+  const [dayInfoSaving, setDayInfoSaving] = useState(false);
+
+  // 添加动作：搜索与结果
+  const [exKeyword, setExKeyword] = useState("");
+  const [exResults, setExResults] = useState<(ExerciseBrief & { id: string })[]>([]);
+  const [exSearching, setExSearching] = useState(false);
+  const [addingExId, setAddingExId] = useState<string | null>(null);
+
+  // 渲染期同步：切换训练日时重置表单（避免在 effect 内 setState）
+  if (day && day.id !== dayInfoSync) {
+    setDayInfoSync(day.id);
+    setDayFocus(day.focus ?? "");
+    setDayRest(day.rest_seconds);
+    setDayMeta(toMetaRows(day.metadata_));
+    setEditingId(null);
+    setExKeyword("");
+    setExResults([]);
+  }
 
   if (!day) return null;
 
@@ -348,6 +373,7 @@ function DayDetailDialog({
     setEditReps(ex.reps);
     setEditWeight(ex.weight_kg?.toString() ?? "");
     setEditNotes(ex.notes ?? "");
+    setEditMetadata(toMetaRows(ex.metadata_));
   };
 
   const saveEdit = async (exId: string) => {
@@ -358,6 +384,7 @@ function DayDetailDialog({
         reps: editReps,
         weight_kg: editWeight ? parseFloat(editWeight) : null,
         notes: editNotes.trim() ? editNotes.trim() : null,
+        metadata_: toMetaDict(editMetadata),
       });
       setEditingId(null);
       onUpdated();
@@ -378,9 +405,59 @@ function DayDetailDialog({
     }
   };
 
+  const saveDayInfo = async () => {
+    setDayInfoSaving(true);
+    try {
+      await api.put(`/plans/days/${day.id}`, {
+        focus: dayFocus.trim() || null,
+        rest_seconds: dayRest,
+        metadata_: toMetaDict(dayMeta),
+      });
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setDayInfoSaving(false);
+    }
+  };
+
+  const searchExercises = async () => {
+    setExSearching(true);
+    try {
+      const kw = exKeyword.trim();
+      const list = await api.get<(ExerciseBrief & { id: string })[]>(
+        `/exercises?limit=20${kw ? `&keyword=${encodeURIComponent(kw)}` : ""}`
+      );
+      setExResults(list || []);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setExSearching(false);
+    }
+  };
+
+  const addExerciseToDay = async (ex: ExerciseBrief & { id: string }) => {
+    setAddingExId(ex.id);
+    try {
+      await api.post(`/plans/days/${day.id}/exercises`, {
+        exercise_id: ex.id,
+        sets: 3,
+        reps: 12,
+        weight_kg: null,
+        sort_order: day.exercises.length,
+        notes: null,
+      });
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setAddingExId(null);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-950">
             <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
@@ -390,12 +467,93 @@ function DayDetailDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm text-emerald-600/70">
-            <Clock className="size-4" />
-            组间休息 {day.rest_seconds} 秒
+          {/* 训练日信息编辑 */}
+          <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-xs font-medium text-emerald-700">训练重点</span>
+              <Input
+                value={dayFocus}
+                onChange={(e) => setDayFocus(e.target.value)}
+                placeholder="如 胸部 + 三头"
+                className="h-8 text-sm"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-16 shrink-0 text-xs font-medium text-emerald-700">组间休息</span>
+              <Input
+                type="number"
+                min={0}
+                value={dayRest}
+                onChange={(e) => setDayRest(parseInt(e.target.value) || 0)}
+                className="h-8 w-24 text-sm"
+              />
+              <span className="text-xs text-emerald-600">秒</span>
+            </div>
+            <div>
+              <p className="mb-1 text-xs font-medium text-emerald-700">自定义项（可选）</p>
+              <MetadataEditor value={dayMeta} onChange={setDayMeta} />
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" className="h-7 text-xs" onClick={saveDayInfo} disabled={dayInfoSaving}>
+                {dayInfoSaving ? "保存中..." : "保存训练日信息"}
+              </Button>
+            </div>
           </div>
+
+          {/* 添加动作 */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-emerald-700">添加动作</p>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-emerald-400" />
+                <Input
+                  value={exKeyword}
+                  onChange={(e) => setExKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      searchExercises();
+                    }
+                  }}
+                  placeholder="搜索动作名称（如 卧推 / 深蹲）"
+                  className="h-8 pl-7 text-sm"
+                />
+              </div>
+              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={searchExercises} disabled={exSearching}>
+                {exSearching ? "搜索中..." : "搜索"}
+              </Button>
+            </div>
+            {exResults.length > 0 && (
+              <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-emerald-100 p-1">
+                {exResults.map((ex) => (
+                  <button
+                    key={ex.id}
+                    type="button"
+                    disabled={addingExId === ex.id}
+                    onClick={() => addExerciseToDay(ex)}
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-emerald-50 disabled:opacity-50"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-medium text-emerald-900">{ex.name}</span>
+                      {ex.muscle_group && (
+                        <Badge variant="outline" className="h-4 shrink-0 border-emerald-200 px-1 text-[9px] text-emerald-600">
+                          {muscleGroupLabels[ex.muscle_group] ?? ex.muscle_group}
+                        </Badge>
+                      )}
+                    </span>
+                    <Plus className="size-3.5 shrink-0 text-emerald-500" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 当日动作列表 */}
+          <p className="text-xs font-medium text-emerald-700">
+            当日动作（{day.exercises.length}）
+          </p>
           {day.exercises.length === 0 ? (
-            <p className="py-4 text-center text-sm text-emerald-600/50">休息日，无训练安排</p>
+            <p className="py-4 text-center text-sm text-emerald-600/50">暂无动作，在上方搜索并添加</p>
           ) : (
             <div className="space-y-2">
               {[...day.exercises]
@@ -451,6 +609,10 @@ function DayDetailDialog({
                           placeholder="动作要点 / 备注（如：腰背挺直，下放吸气）"
                           className="min-h-16 resize-none text-sm"
                         />
+                        <MetadataEditor
+                          value={editMetadata}
+                          onChange={setEditMetadata}
+                        />
                         <div className="flex gap-2">
                           <Button size="sm" className="h-7 text-xs" onClick={() => saveEdit(ex.id)} disabled={saving}>
                             {saving ? "保存中..." : "保存"}
@@ -504,6 +666,9 @@ function DayDetailDialog({
                               {ex.notes}
                             </p>
                           )}
+                          <div className="mt-1">
+                            <MetadataPreview value={ex.metadata_} />
+                          </div>
                         </div>
                         <div className="flex shrink-0 flex-col gap-1">
                           <Button
@@ -557,7 +722,11 @@ function DietPlanCard({
   const [editCarbs, setEditCarbs] = useState("");
   const [editFat, setEditFat] = useState("");
   const [editPortion, setEditPortion] = useState("");
+  const [editMealMetadata, setEditMealMetadata] = useState<MetaRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [editingDayId, setEditingDayId] = useState<string | null>(null);
+  const [editDayFocus, setEditDayFocus] = useState("");
+  const [editDayMetadata, setEditDayMetadata] = useState<MetaRow[]>([]);
 
   if (!dietPlan) {
     return (
@@ -583,6 +752,7 @@ function DietPlanCard({
     setEditCarbs(meal.carbs_g?.toString() ?? "");
     setEditFat(meal.fat_g?.toString() ?? "");
     setEditPortion(meal.portion ?? "");
+    setEditMealMetadata(toMetaRows(meal.metadata_));
   };
 
   const saveMealEdit = async (mealId: string) => {
@@ -595,6 +765,7 @@ function DietPlanCard({
         carbs_g: editCarbs ? parseFloat(editCarbs) : null,
         fat_g: editFat ? parseFloat(editFat) : null,
         portion: editPortion || null,
+        metadata_: toMetaDict(editMealMetadata),
       });
       setEditingMealId(null);
       onUpdated();
@@ -612,6 +783,28 @@ function DietPlanCard({
       onUpdated();
     } catch (e) {
       alert((e as Error).message);
+    }
+  };
+
+  const startEditDay = (day: DietDay) => {
+    setEditingDayId(day.id);
+    setEditDayFocus(day.focus ?? "");
+    setEditDayMetadata(toMetaRows(day.metadata_));
+  };
+
+  const saveDayEdit = async (dayId: string) => {
+    setSaving(true);
+    try {
+      await api.put(`/diet-plans/days/${dayId}`, {
+        focus: editDayFocus.trim() || null,
+        metadata_: toMetaDict(editDayMetadata),
+      });
+      setEditingDayId(null);
+      onUpdated();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -658,8 +851,43 @@ function DietPlanCard({
         {/* 当日餐食 */}
         {currentDay && currentDay.meals.length > 0 ? (
           <div className="space-y-3">
-            {currentDay.focus && (
-              <p className="text-xs font-medium text-orange-600/70">📋 {currentDay.focus}</p>
+            {editingDayId === currentDay.id ? (
+              <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50/50 p-2">
+                <Input
+                  value={editDayFocus}
+                  onChange={(e) => setEditDayFocus(e.target.value)}
+                  placeholder="今日饮食重点"
+                  className="h-8 text-sm"
+                />
+                <MetadataEditor value={editDayMetadata} onChange={setEditDayMetadata} />
+                <div className="flex gap-2">
+                  <Button size="sm" className="h-7 text-xs" onClick={() => saveDayEdit(currentDay.id)} disabled={saving}>
+                    {saving ? "保存中..." : "保存"}
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingDayId(null)}>
+                    取消
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  {currentDay.focus ? (
+                    <p className="text-xs font-medium text-orange-600/70">📋 {currentDay.focus}</p>
+                  ) : (
+                    <span />
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 text-orange-300 hover:text-orange-600"
+                    onClick={() => startEditDay(currentDay)}
+                  >
+                    <Pencil className="size-3" />
+                  </Button>
+                </div>
+                <MetadataPreview value={currentDay.metadata_} />
+              </div>
             )}
             <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
               <span className="text-xs text-orange-600">当日总热量</span>
@@ -735,6 +963,7 @@ function DietPlanCard({
                           <span className="text-[10px] text-orange-500">g</span>
                         </div>
                       </div>
+                      <MetadataEditor value={editMealMetadata} onChange={setEditMealMetadata} />
                       <div className="flex gap-2">
                         <Button size="sm" className="h-7 text-xs" onClick={() => saveMealEdit(meal.id)} disabled={saving}>
                           {saving ? "保存中..." : "保存"}
@@ -778,6 +1007,9 @@ function DietPlanCard({
                           {meal.fat_g != null && <span>脂肪 {meal.fat_g}g</span>}
                         </div>
                       )}
+                      <div className="mt-1">
+                        <MetadataPreview value={meal.metadata_} />
+                      </div>
                     </>
                   )}
                 </div>
@@ -809,6 +1041,7 @@ export default function PlansPage() {
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [planToDeleteId, setPlanToDeleteId] = useState<string | null>(null);
+  const [checkinLoading, setCheckinLoading] = useState<string | null>(null);
 
   const loadPlans = async () => {
     try {
@@ -876,6 +1109,62 @@ export default function PlansPage() {
     setDayDialogOpen(true);
   };
 
+  const deleteTrainingDay = async (dayId: string) => {
+    if (!confirm("确定删除该训练日？")) return;
+    try {
+      await api.delete(`/plans/days/${dayId}`);
+      const planId = selectedId ?? activePlan?.id;
+      if (planId) {
+        const detail = await api.get<PlanDetail>(`/plans/${planId}`);
+        setSelectedPlan(detail);
+        if (activePlan?.id === planId) setActivePlan(detail);
+      }
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const addTrainingDay = async () => {
+    const planId = selectedId ?? activePlan?.id;
+    if (!planId) return;
+    const displayDays = selectedPlan?.days ?? activePlan?.days ?? [];
+    const usedDays = new Set(displayDays.map((d) => d.day_of_week));
+    const nextDay = [1, 2, 3, 4, 5, 6, 7].find((d) => !usedDays.has(d));
+    if (!nextDay) {
+      alert("已存在周一到周日的训练日，无法再添加");
+      return;
+    }
+    try {
+      await api.post(`/plans/${planId}/days`, {
+        day_of_week: nextDay,
+        focus: `训练日 ${dayNames[nextDay - 1]}`,
+        rest_seconds: 60,
+        exercises: [],
+      });
+      const detail = await api.get<PlanDetail>(`/plans/${planId}`);
+      setSelectedPlan(detail);
+      if (activePlan?.id === planId) setActivePlan(detail);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const checkinDay = async (day: PlanDay) => {
+    setCheckinLoading(day.id);
+    try {
+      const duration = Math.max(15, day.exercises.length * 5);
+      await api.post("/checkins", { date: format(new Date(), "yyyy-MM-dd"), duration_min: duration });
+      const streakRes = await api.get<{ current_streak: number }>("/checkins/streak");
+      const checkinRes = await api.get<{ items: CheckinItem[] }>("/checkins?limit=200");
+      setStreak(streakRes.current_streak);
+      if (checkinRes?.items) setCheckins(checkinRes.items);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setCheckinLoading(null);
+    }
+  };
+
   const displayPlan = selectedPlan ?? activePlan;
 
   return (
@@ -903,10 +1192,13 @@ export default function PlansPage() {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            <div className="grid gap-6 xl:grid-cols-4">
-              {/* 左栏：打卡日历 + 计划列表 */}
-              <div className="space-y-6 xl:col-span-1">
-                <CheckinCalendar checkinDates={checkinDates} streak={streak} />
+            <div className="space-y-6">
+              {/* 顶部：打卡日历 + 全部计划 */}
+              <div className="grid gap-6 lg:grid-cols-3">
+                <div className="lg:col-span-1">
+                  <CheckinCalendar checkinDates={checkinDates} streak={streak} />
+                </div>
+                <div className="lg:col-span-2">
 
                 <div className="space-y-3">
                   <h2 className="text-sm font-semibold text-emerald-800">全部计划</h2>
@@ -954,10 +1246,13 @@ export default function PlansPage() {
                     </Card>
                   ))}
                 </div>
+                </div>
               </div>
 
-              {/* 中栏：训练计划详情 */}
-              <div className="xl:col-span-2">
+              {/* 底部：训练计划 + 饮食计划 两列 */}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* 训练计划详情 */}
+                <div>
                 {displayPlan ? (
                   <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                     <CardHeader>
@@ -1009,56 +1304,97 @@ export default function PlansPage() {
                         .map((day) => (
                           <div
                             key={day.id}
-                            onClick={() => openDayDetail(day)}
-                            className="cursor-pointer rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 transition-all hover:border-emerald-300 hover:shadow-sm"
+                            className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 transition-all hover:border-emerald-300 hover:shadow-sm"
                           >
-                            <div className="mb-3 flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
-                                  {dayNames[day.day_of_week - 1]}
-                                </span>
-                                <span className="font-medium text-emerald-900">
-                                  {day.focus || "综合训练"}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="flex items-center gap-1 text-xs text-emerald-600/60">
+                              <>
+                                <div className="mb-2 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
+                                      {dayNames[day.day_of_week - 1]}
+                                    </span>
+                                    <span className="font-medium text-emerald-900">
+                                      {day.focus || "综合训练"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-0.5">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title="编辑"
+                                      className="size-7 text-emerald-400 hover:text-emerald-600"
+                                      onClick={() => openDayDetail(day)}
+                                    >
+                                      <Pencil className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title="打卡"
+                                      className="size-7 text-emerald-400 hover:text-orange-600"
+                                      onClick={() => checkinDay(day)}
+                                      disabled={checkinLoading === day.id}
+                                    >
+                                      <CheckCircle className="size-3.5" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      title="删除"
+                                      className="size-7 text-emerald-400 hover:text-red-600"
+                                      onClick={() => deleteTrainingDay(day.id)}
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="mb-2 flex items-center gap-1 text-xs text-emerald-600/60">
                                   <Clock className="size-3" />
                                   休息 {day.rest_seconds}s
-                                </span>
-                                <Pencil className="size-3.5 text-emerald-400" />
-                              </div>
-                            </div>
-                            {day.exercises.length === 0 ? (
-                              <p className="text-xs text-emerald-600/50">休息日</p>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {[...day.exercises]
-                                  .sort((a, b) => a.sort_order - b.sort_order)
-                                  .slice(0, 3)
-                                  .map((ex) => (
-                                    <div
-                                      key={ex.id}
-                                      className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm"
-                                    >
-                                      <span className="font-medium text-emerald-900">
-                                        {ex.exercise_name ?? "未知动作"}
-                                      </span>
-                                      <span className="tabular-nums text-emerald-600/70">
-                                        {ex.sets} 组 × {ex.reps} 次
-                                        {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
-                                      </span>
+                                </div>
+                                <div className="mb-2">
+                                  <MetadataPreview value={day.metadata_} />
+                                </div>
+                                <div onClick={() => openDayDetail(day)} className="cursor-pointer">
+                                  {day.exercises.length === 0 ? (
+                                    <p className="text-xs text-emerald-600/50">暂无动作，点击编辑添加</p>
+                                  ) : (
+                                    <div className="space-y-1.5">
+                                      {[...day.exercises]
+                                        .sort((a, b) => a.sort_order - b.sort_order)
+                                        .slice(0, 3)
+                                        .map((ex) => (
+                                          <div
+                                            key={ex.id}
+                                            className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm"
+                                          >
+                                            <span className="font-medium text-emerald-900">
+                                              {ex.exercise_name ?? "未知动作"}
+                                            </span>
+                                            <span className="tabular-nums text-emerald-600/70">
+                                              {ex.sets} 组 × {ex.reps} 次
+                                              {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      {day.exercises.length > 3 && (
+                                        <p className="text-center text-xs text-emerald-500">
+                                          +{day.exercises.length - 3} 个动作，点击查看详情
+                                        </p>
+                                      )}
                                     </div>
-                                  ))}
-                                {day.exercises.length > 3 && (
-                                  <p className="text-center text-xs text-emerald-500">
-                                    +{day.exercises.length - 3} 个动作，点击查看详情
-                                  </p>
-                                )}
-                              </div>
-                            )}
+                                  )}
+                                </div>
+                              </>
                           </div>
                         ))}
+                      <Button
+                        variant="outline"
+                        className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        onClick={addTrainingDay}
+                      >
+                        <Plus className="mr-1 size-4" />
+                        添加训练日
+                      </Button>
                     </CardContent>
                   </Card>
                 ) : (
@@ -1073,8 +1409,8 @@ export default function PlansPage() {
                 )}
               </div>
 
-              {/* 右栏：饮食计划 */}
-              <div className="xl:col-span-1">
+                {/* 饮食计划 */}
+                <div>
                 <DietPlanCard
                   dietPlan={dietPlan}
                   onUpdated={() => {
@@ -1083,6 +1419,7 @@ export default function PlansPage() {
                     });
                   }}
                 />
+                </div>
               </div>
             </div>
           )}

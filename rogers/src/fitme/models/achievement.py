@@ -32,6 +32,9 @@ class Achievement(Base):
     type: Mapped[str] = mapped_column(
         String(50)
     )  # streak_7 / streak_30 / streak_100 / first_plan / total_50_workouts / total_100_workouts
+    name: Mapped[Optional[str]] = mapped_column(String(100))
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    icon: Mapped[Optional[str]] = mapped_column(String(50))
     unlocked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

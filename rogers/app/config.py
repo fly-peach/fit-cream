@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     # ---------- JWT 认证 ----------
     JWT_SECRET: str = "your-super-secret-key-change-in-production-min-32-chars"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60  # access token 7 天
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # refresh token 30 天
 
     # ---------- 种子管理员（首次启动自动创建） ----------
     SEED_ADMIN_PHONE: str = ""

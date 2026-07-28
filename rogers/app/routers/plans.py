@@ -17,6 +17,7 @@ from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
+    PlanDayUpdate,
     PlanExerciseCreate,
     PlanExerciseOut,
     PlanExerciseUpdate,
@@ -136,6 +137,21 @@ async def delete_plan_day(
     await PlanService.delete_plan_day(db, day_id, user.id)
     await db.commit()
     return ResponseModel(message="训练日已删除")
+
+
+@router.put("/days/{day_id}", response_model=ResponseModel[PlanOut])
+async def update_plan_day(
+    day_id: UUID,
+    data: PlanDayUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新训练日（重点、休息时长、自定义数据）"""
+    plan_day = await PlanService.update_plan_day(db, day_id, user.id, data)
+    await db.commit()
+    # 重新获取完整计划
+    plan = await PlanService.get_plan_detail(db, plan_day.plan_id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(plan))
 
 
 @router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanExerciseOut])

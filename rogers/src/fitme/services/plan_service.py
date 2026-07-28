@@ -7,15 +7,18 @@
 - 计划调整（Agent adjust_plan_tool 调用）
 """
 from typing import List, Optional, Tuple
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from src.fitme.models.exercise import Exercise
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.fitme.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
+    PlanDayUpdate,
     PlanExerciseCreate,
     PlanExerciseUpdate,
     PlanUpdate,
@@ -24,6 +27,45 @@ from utils.exceptions import ForbiddenException, NotFoundException
 
 
 class PlanService:
+    @staticmethod
+    async def _verify_plan_day_ownership(
+        db: AsyncSession,
+        plan_day_id: UUID,
+        user_id: UUID,
+    ) -> Tuple[PlanDay, Plan]:
+        """验证训练日归属，返回 (plan_day, plan)"""
+        day_result = await db.execute(
+            select(PlanDay).where(PlanDay.id == plan_day_id)
+        )
+        plan_day = day_result.scalar_one_or_none()
+        if not plan_day:
+            raise NotFoundException("训练日不存在")
+        plan_result = await db.execute(
+            select(Plan).where(Plan.id == plan_day.plan_id)
+        )
+        plan = plan_result.scalar_one()
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权操作此训练日")
+        return plan_day, plan
+
+    @staticmethod
+    async def _verify_exercise_ownership(
+        db: AsyncSession,
+        exercise_id: UUID,
+        user_id: UUID,
+    ) -> Tuple[PlanDayExercise, PlanDay, Plan]:
+        """验证训练日动作归属，返回 (exercise, plan_day, plan)"""
+        result = await db.execute(
+            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+        )
+        plan_exercise = result.scalar_one_or_none()
+        if not plan_exercise:
+            raise NotFoundException("动作不存在")
+        plan_day, plan = await PlanService._verify_plan_day_ownership(
+            db, plan_exercise.plan_day_id, user_id
+        )
+        return plan_exercise, plan_day, plan
+
     @staticmethod
     async def create_plan(
         db: AsyncSession,
@@ -42,7 +84,6 @@ class PlanService:
         db.add(plan)
         await db.flush()
 
-        # 如果包含训练日，一并创建
         if data.days:
             for day_data in data.days:
                 await PlanService._create_plan_day(db, plan.id, day_data)
@@ -57,25 +98,28 @@ class PlanService:
         data: PlanDayCreate,
     ) -> PlanDay:
         """创建训练日"""
+        day_id = uuid4()
         plan_day = PlanDay(
+            id=day_id,
             plan_id=plan_id,
             day_of_week=data.day_of_week,
             focus=data.focus,
             rest_seconds=data.rest_seconds,
+            metadata_=data.metadata_ or {},
         )
         db.add(plan_day)
-        await db.flush()
 
-        # 创建训练日动作
         for i, ex_data in enumerate(data.exercises):
             plan_exercise = PlanDayExercise(
-                plan_day_id=plan_day.id,
+                id=uuid4(),
+                plan_day_id=day_id,
                 exercise_id=ex_data.exercise_id,
                 sets=ex_data.sets,
                 reps=ex_data.reps,
                 weight_kg=ex_data.weight_kg,
                 sort_order=ex_data.sort_order or i,
                 notes=ex_data.notes,
+                metadata_=ex_data.metadata_ or {},
             )
             db.add(plan_exercise)
 
@@ -98,11 +142,9 @@ class PlanService:
             query = query.where(Plan.status == status)
             count_query = count_query.where(Plan.status == status)
 
-        # 获取总数
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
 
-        # 分页查询
         query = (
             query.order_by(Plan.created_at.desc())
             .offset((page - 1) * size)
@@ -121,7 +163,11 @@ class PlanService:
     ) -> Plan:
         """获取计划详情（含训练日和动作）"""
         result = await db.execute(
-            select(Plan).where(Plan.id == plan_id)
+            select(Plan)
+            .options(
+                selectinload(Plan.days).selectinload(PlanDay.exercises)
+            )
+            .where(Plan.id == plan_id)
         )
         plan = result.scalar_one_or_none()
 
@@ -170,9 +216,9 @@ class PlanService:
         plan_id: UUID,
         user_id: UUID,
     ) -> None:
-        """删除计划（物理删除；训练日与动作随外键 CASCADE 一并删除）"""
+        """软删除计划（设为 archived，训练日与动作保留）"""
         plan = await PlanService.get_plan_detail(db, plan_id, user_id)
-        await db.delete(plan)
+        plan.status = "archived"
         await db.flush()
 
     @staticmethod
@@ -183,10 +229,29 @@ class PlanService:
         data: PlanDayCreate,
     ) -> PlanDay:
         """为计划添加训练日"""
-        # 验证计划归属
         await PlanService.get_plan_detail(db, plan_id, user_id)
         plan_day = await PlanService._create_plan_day(db, plan_id, data)
         await db.flush()
+        return plan_day
+
+    @staticmethod
+    async def update_plan_day(
+        db: AsyncSession,
+        plan_day_id: UUID,
+        user_id: UUID,
+        data: PlanDayUpdate,
+    ) -> PlanDay:
+        """更新训练日"""
+        plan_day, _ = await PlanService._verify_plan_day_ownership(
+            db, plan_day_id, user_id
+        )
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(plan_day, field, value)
+
+        await db.flush()
+        await db.refresh(plan_day)
         return plan_day
 
     @staticmethod
@@ -200,7 +265,6 @@ class PlanService:
         user_data: Optional[dict] = None,
     ) -> Plan:
         """根据目标智能生成计划（Agent 调用）"""
-        # 目标名称映射
         goal_names = {
             "lose_fat": "减脂塑形",
             "gain_muscle": "增肌力量",
@@ -209,7 +273,6 @@ class PlanService:
         }
         goal_name = goal_names.get(goal, "综合训练")
 
-        # 根据难度设置训练参数
         difficulty_config = {
             "beginner": {"sets": 3, "reps": 12, "rest": 60},
             "intermediate": {"sets": 4, "reps": 10, "rest": 90},
@@ -217,7 +280,6 @@ class PlanService:
         }
         config = difficulty_config.get(difficulty, difficulty_config["beginner"])
 
-        # 创建计划
         plan = Plan(
             user_id=user_id,
             name=f"{goal_name}计划 - 每周{days_per_week}天",
@@ -229,8 +291,6 @@ class PlanService:
         db.add(plan)
         await db.flush()
 
-        # 根据每周天数分配训练日
-        # 默认分配：1=周一, 2=周二, 3=周三, 4=周四, 5=周五, 6=周六, 7=周日
         day_focuses = {
             1: "胸部 + 三头",
             2: "背部 + 二头",
@@ -241,20 +301,51 @@ class PlanService:
             7: "休息 / 拉伸",
         }
 
-        # 均匀分配训练日
-        if days_per_week <= 5:
-            training_days = list(range(1, days_per_week + 1))
-        else:
-            training_days = list(range(1, 6)) + [6][: days_per_week - 5]
+        focus_to_muscle = {
+            "胸部 + 三头": "chest",
+            "背部 + 二头": "back",
+            "腿部": "legs",
+            "肩部 + 核心": "shoulders",
+            "全身有氧": "full_body",
+            "上肢综合": "arms",
+        }
+
+        training_days = list(range(1, min(days_per_week, 7) + 1))
 
         for day_num in training_days:
+            focus = day_focuses.get(day_num, "综合训练")
+            muscle_group = focus_to_muscle.get(focus)
+
+            day_id = uuid4()
             plan_day = PlanDay(
+                id=day_id,
                 plan_id=plan.id,
                 day_of_week=day_num,
-                focus=day_focuses.get(day_num, "综合训练"),
+                focus=focus,
                 rest_seconds=config["rest"],
             )
             db.add(plan_day)
+
+            # 查询匹配肌群的动作填充训练日
+            if muscle_group:
+                ex_result = await db.execute(
+                    select(Exercise)
+                    .where(Exercise.muscle_group == muscle_group)
+                    .order_by(Exercise.difficulty.nulls_last())
+                    .limit(3)
+                )
+                day_exercises = list(ex_result.scalars().all())
+                for i, ex in enumerate(day_exercises):
+                    db.add(
+                        PlanDayExercise(
+                            id=uuid4(),
+                            plan_day_id=day_id,
+                            exercise_id=ex.id,
+                            sets=config["sets"],
+                            reps=config["reps"],
+                            sort_order=i,
+                        )
+                    )
 
         await db.flush()
         await db.refresh(plan)
@@ -268,24 +359,9 @@ class PlanService:
         data: PlanExerciseUpdate,
     ) -> PlanDayExercise:
         """更新训练日中的单个动作"""
-        result = await db.execute(
-            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+        plan_exercise, _, _ = await PlanService._verify_exercise_ownership(
+            db, exercise_id, user_id
         )
-        plan_exercise = result.scalar_one_or_none()
-        if not plan_exercise:
-            raise NotFoundException("动作不存在")
-
-        # 验证归属：通过 plan_day -> plan -> user_id
-        day_result = await db.execute(
-            select(PlanDay).where(PlanDay.id == plan_exercise.plan_day_id)
-        )
-        plan_day = day_result.scalar_one()
-        plan_result = await db.execute(
-            select(Plan).where(Plan.id == plan_day.plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权修改此动作")
 
         update_data = data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
@@ -302,24 +378,9 @@ class PlanService:
         user_id: UUID,
     ) -> None:
         """删除训练日中的单个动作"""
-        result = await db.execute(
-            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+        plan_exercise, _, _ = await PlanService._verify_exercise_ownership(
+            db, exercise_id, user_id
         )
-        plan_exercise = result.scalar_one_or_none()
-        if not plan_exercise:
-            raise NotFoundException("动作不存在")
-
-        # 验证归属
-        day_result = await db.execute(
-            select(PlanDay).where(PlanDay.id == plan_exercise.plan_day_id)
-        )
-        plan_day = day_result.scalar_one()
-        plan_result = await db.execute(
-            select(Plan).where(Plan.id == plan_day.plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权删除此动作")
 
         await db.delete(plan_exercise)
         await db.flush()
@@ -332,22 +393,10 @@ class PlanService:
         data: PlanExerciseCreate,
     ) -> PlanDayExercise:
         """为训练日添加动作"""
-
-        # 验证归属
-        day_result = await db.execute(
-            select(PlanDay).where(PlanDay.id == plan_day_id)
-        )
-        plan_day = day_result.scalar_one_or_none()
-        if not plan_day:
-            raise NotFoundException("训练日不存在")
-        plan_result = await db.execute(
-            select(Plan).where(Plan.id == plan_day.plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权操作此训练日")
+        await PlanService._verify_plan_day_ownership(db, plan_day_id, user_id)
 
         plan_exercise = PlanDayExercise(
+            id=uuid4(),
             plan_day_id=plan_day_id,
             exercise_id=data.exercise_id,
             sets=data.sets,
@@ -355,6 +404,7 @@ class PlanService:
             weight_kg=data.weight_kg,
             sort_order=data.sort_order,
             notes=data.notes,
+            metadata_=data.metadata_ or {},
         )
         db.add(plan_exercise)
         await db.flush()
@@ -368,18 +418,9 @@ class PlanService:
         user_id: UUID,
     ) -> None:
         """删除训练日"""
-        day_result = await db.execute(
-            select(PlanDay).where(PlanDay.id == plan_day_id)
+        plan_day, _ = await PlanService._verify_plan_day_ownership(
+            db, plan_day_id, user_id
         )
-        plan_day = day_result.scalar_one_or_none()
-        if not plan_day:
-            raise NotFoundException("训练日不存在")
-        plan_result = await db.execute(
-            select(Plan).where(Plan.id == plan_day.plan_id)
-        )
-        plan = plan_result.scalar_one()
-        if plan.user_id != user_id:
-            raise ForbiddenException("无权删除此训练日")
 
         await db.delete(plan_day)
         await db.flush()
@@ -405,7 +446,6 @@ class PlanService:
             changes["summary"] = f"难度从 {old_difficulty} 调整为 {plan.difficulty}"
 
         elif action == "remove_day":
-            # 移除最后一个训练日
             if plan.days:
                 last_day = plan.days[-1]
                 await db.delete(last_day)
