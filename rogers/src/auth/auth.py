@@ -37,6 +37,12 @@ class TokenPair(BaseModel):
     expires_in: int  # access token 有效秒数
 
 
+class SmsLoginRequest(BaseModel):
+    """短信验证码登录请求（未注册手机号自动注册）"""
+    phone: str = Field(min_length=11, max_length=20)
+    code: str = Field(min_length=4, max_length=10)
+
+
 class SendVerificationCodeRequest(BaseModel):
     """发送验证码请求"""
     phone: str = Field(min_length=11, max_length=20)

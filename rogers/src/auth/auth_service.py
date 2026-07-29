@@ -4,10 +4,11 @@
 处理用户注册、登录、Token 刷新、密码管理、验证码、审计日志。
 """
 import logging
+import secrets
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -26,7 +27,6 @@ from utils.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
-    verify_access_token,
     verify_password,
     verify_refresh_token,
 )
@@ -53,22 +53,16 @@ class AuthService:
         if verification_code and settings.ALIBABA_CLOUD_ACCESS_KEY_ID:
             await AuthService.verify_code(db, phone, verification_code, "register")
 
-        user = User(
-            phone=phone,
-            password_hash=hash_password(password),
-            name=name,
-            is_active=True,
+        user = await AuthService._create_user(
+            db,
+            phone,
+            hash_password(password),
+            name,
             is_verified=bool(verification_code),
+            ip=ip,
+            user_agent=user_agent,
+            audit_action="register",
         )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
-        user_settings = UserSettings(user_id=user.id)
-        db.add(user_settings)
-        await db.flush()
-
-        AuthService._log_audit(db, user.id, "register", ip, user_agent)
         tokens = AuthService._generate_tokens(user.id)
         return user, tokens
 
@@ -87,21 +81,51 @@ class AuthService:
         user = result.scalar_one_or_none()
 
         if not user or not verify_password(password, user.password_hash):
-            AuthService._log_login_attempt(db, user.id if user else None, phone, False, ip)
+            await AuthService._record_failed_attempt(db, user.id if user else None, phone, ip)
             raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "手机号或密码错误")
 
-        if not user.is_active:
-            raise BusinessException(ErrorCode.FORBIDDEN, "账号已被禁用")
+        await AuthService._finalize_login(db, user, phone, ip, user_agent, action="login")
+        tokens = AuthService._generate_tokens(user.id)
+        return user, tokens
 
-        if user.deleted_at:
-            raise BusinessException(ErrorCode.USER_NOT_FOUND, "用户不存在")
+    @staticmethod
+    async def sms_login(
+        db: AsyncSession,
+        phone: str,
+        code: str,
+        ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[User, TokenPair]:
+        """短信验证码登录：验证码校验通过后，未注册手机号自动注册。
 
-        user.last_login_at = datetime.utcnow()
-        user.last_login_ip = ip
-        await db.flush()
+        与密码登录一致地复用登录失败锁定，防止验证码被暴力破解。
+        """
+        # 检查登录失败锁定（防验证码暴力破解）
+        await AuthService._check_login_lock(db, phone)
 
-        AuthService._log_login_attempt(db, user.id, phone, True, ip)
-        AuthService._log_audit(db, user.id, "login", ip, user_agent)
+        try:
+            user = await AuthService.verify_code(db, phone, code, "login")
+        except BusinessException:
+            # 验证码错误/过期：记录失败 attempt（单独提交，供锁定机制计数）
+            await AuthService._record_failed_attempt(db, None, phone, ip)
+            raise
+
+        if not user:
+            user = await AuthService._create_user(
+                db,
+                phone,
+                hash_password(uuid4().hex),
+                f"用户{phone[-4:]}",
+                is_verified=True,
+                ip=ip,
+                user_agent=user_agent,
+                audit_action="register_sms",
+            )
+        else:
+            await AuthService._finalize_login(
+                db, user, phone, ip, user_agent, action="login_sms", mark_verified=True
+            )
+
         tokens = AuthService._generate_tokens(user.id)
         return user, tokens
 
@@ -174,6 +198,7 @@ class AuthService:
         db: AsyncSession,
         phone: str,
         code_type: str = "register",
+        ip: str | None = None,
     ) -> None:
         # 检查冷却期
         cooldown_time = datetime.utcnow() - timedelta(
@@ -191,7 +216,7 @@ class AuthService:
                 f"发送过于频繁，请{settings.VERIFICATION_CODE_COOLDOWN}秒后重试",
             )
 
-        # 检查每小时上限
+        # 检查每手机号每小时上限
         hour_ago = datetime.utcnow() - timedelta(hours=1)
         hourly_count = await db.execute(
             select(func.count()).select_from(VerificationCode).where(
@@ -204,7 +229,21 @@ class AuthService:
                 ErrorCode.BAD_REQUEST, "发送次数已达每小时上限"
             )
 
-        code = str(uuid4().int)[:6]
+        # 检查每 IP 每小时上限（防遍历手机号批量触发短信 / 薅短信费用）
+        if ip:
+            ip_count = await db.execute(
+                select(func.count()).select_from(VerificationCode).where(
+                    VerificationCode.ip == ip,
+                    VerificationCode.created_at >= hour_ago,
+                )
+            )
+            if (ip_count.scalar() or 0) >= settings.VERIFICATION_CODE_MAX_PER_IP_HOUR:
+                raise BusinessException(
+                    ErrorCode.BAD_REQUEST, "操作过于频繁，请稍后再试"
+                )
+
+        # 6 位数字验证码（secrets 均匀分布，避免 uuid4 首位仅 1-3 的弱熵）
+        code = f"{secrets.randbelow(1_000_000):06d}"
         expires_at = datetime.utcnow() + timedelta(
             minutes=settings.VERIFICATION_CODE_EXPIRE_MINUTES
         )
@@ -214,6 +253,7 @@ class AuthService:
             code=code,
             code_type=code_type,
             expires_at=expires_at,
+            ip=ip,
         )
         db.add(vc)
         await db.flush()
@@ -227,21 +267,21 @@ class AuthService:
         code: str,
         code_type: str = "register",
     ) -> User | None:
+        # 原子消费：UPDATE ... WHERE used_at IS NULL，以 rowcount 判定成功，
+        # 避免并发下"读取-置位"两步操作导致同一验证码被重复使用。
         result = await db.execute(
-            select(VerificationCode).where(
+            update(VerificationCode)
+            .where(
                 VerificationCode.phone == phone,
                 VerificationCode.code == code,
                 VerificationCode.code_type == code_type,
                 VerificationCode.used_at.is_(None),
                 VerificationCode.expires_at > datetime.utcnow(),
-            ).order_by(VerificationCode.created_at.desc()).limit(1)
+            )
+            .values(used_at=datetime.utcnow())
         )
-        vc = result.scalar_one_or_none()
-        if not vc:
+        if result.rowcount == 0:
             raise BusinessException(ErrorCode.BAD_REQUEST, "验证码无效或已过期")
-
-        vc.used_at = datetime.utcnow()
-        await db.flush()
 
         user_result = await db.execute(
             select(User).where(User.phone == phone)
@@ -252,12 +292,13 @@ class AuthService:
     async def request_password_reset(
         db: AsyncSession,
         phone: str,
+        ip: str | None = None,
     ) -> None:
         result = await db.execute(select(User).where(User.phone == phone))
         if not result.scalar_one_or_none():
             raise BusinessException(ErrorCode.USER_NOT_FOUND, "该手机号未注册")
 
-        await AuthService.send_verification_code(db, phone, "reset_password")
+        await AuthService.send_verification_code(db, phone, "reset_password", ip)
 
     @staticmethod
     async def reset_password(
@@ -275,6 +316,72 @@ class AuthService:
 
         user.password_hash = hash_password(new_password)
         await db.flush()
+
+    @staticmethod
+    async def _create_user(
+        db: AsyncSession,
+        phone: str,
+        password_hash: str,
+        name: str | None,
+        is_verified: bool,
+        ip: str | None = None,
+        user_agent: str | None = None,
+        audit_action: str = "register",
+    ) -> User:
+        """创建用户 + 默认设置 + 审计日志（register 与 sms 自动注册共用，避免漂移）。"""
+        user = User(
+            phone=phone,
+            password_hash=password_hash,
+            name=name,
+            is_active=True,
+            is_verified=is_verified,
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+        db.add(UserSettings(user_id=user.id))
+        await db.flush()
+
+        AuthService._log_audit(db, user.id, audit_action, ip, user_agent)
+        return user
+
+    @staticmethod
+    async def _finalize_login(
+        db: AsyncSession,
+        user: User,
+        phone: str,
+        ip: str | None = None,
+        user_agent: str | None = None,
+        action: str = "login",
+        mark_verified: bool = False,
+    ) -> None:
+        """登录成功收尾：状态校验 + 更新登录信息 + 审计（login 与 sms_login 共用，避免漂移）。"""
+        if not user.is_active:
+            raise BusinessException(ErrorCode.FORBIDDEN, "账号已被禁用")
+
+        if user.deleted_at:
+            raise BusinessException(ErrorCode.USER_NOT_FOUND, "用户不存在")
+
+        if mark_verified:
+            user.is_verified = True
+        user.last_login_at = datetime.utcnow()
+        user.last_login_ip = ip
+        await db.flush()
+
+        AuthService._log_login_attempt(db, user.id, phone, True, ip)
+        AuthService._log_audit(db, user.id, action, ip, user_agent)
+
+    @staticmethod
+    async def _record_failed_attempt(
+        db: AsyncSession,
+        user_id: UUID | None,
+        phone: str,
+        ip: str | None = None,
+    ) -> None:
+        """记录失败登录并立即提交，确保锁定机制可见（异常会回滚事务，须单独提交）。"""
+        AuthService._log_login_attempt(db, user_id, phone, False, ip)
+        await db.commit()
 
     @staticmethod
     def _generate_tokens(user_id: UUID) -> TokenPair:

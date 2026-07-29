@@ -40,12 +40,21 @@ class Settings(BaseSettings):
     ALIBABA_CLOUD_SMS_SIGN_NAME: str = ""
     ALIBABA_CLOUD_SMS_TEMPLATE_CODE: str = ""
 
+    # ---------- 阿里云 OSS 对象存储 ----------
+    OSS_ACCESS_KEY_ID: str = ""
+    OSS_ACCESS_KEY_SECRET: str = ""
+    OSS_ENDPOINT: str = "oss-cn-hangzhou.aliyuncs.com"
+    OSS_BUCKET_NAME: str = ""
+    # 签名 URL 有效期（秒）。长期 AccessKey 签名无硬性上限，默认约 100 年即长期有效
+    OSS_SIGN_URL_EXPIRES: int = 100 * 365 * 24 * 3600
+
     # ---------- 安全策略 ----------
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCK_MINUTES: int = 15
     VERIFICATION_CODE_EXPIRE_MINUTES: int = 5
     VERIFICATION_CODE_COOLDOWN: int = 60
     VERIFICATION_CODE_MAX_PER_HOUR: int = 5
+    VERIFICATION_CODE_MAX_PER_IP_HOUR: int = 10
 
     # ---------- 种子管理员（首次启动自动创建） ----------
     SEED_ADMIN_PHONE: str = ""

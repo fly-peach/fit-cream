@@ -27,6 +27,7 @@ from src.fitme.schemas.chat import (
     ThreadTitleIn,
 )
 from src.fitme.schemas.common import ResponseModel
+from utils.oss import is_oss_configured, upload_chat_image
 
 logger = logging.getLogger("fitcream.chat")
 
@@ -377,14 +378,21 @@ ALLOWED_IMAGE_TYPES = {
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
 
+def _to_data_url(content: bytes, mime: str) -> str:
+    """将图片字节转为 base64 data URL（OSS 未配置时的开发模式回退）。"""
+    b64 = base64.b64encode(content).decode("utf-8")
+    return f"data:{mime};base64,{b64}"
+
+
 @router.post("/upload-image", response_model=ResponseModel[dict])
 async def upload_image(
     file: UploadFile = File(..., description="图片文件（jpg/png/webp/gif，最大 10MB）"),
     user: User = Depends(get_current_user),
 ):
     """
-    上传图片，返回 base64 data URL 供 ChatRequest.images 使用。
+    上传图片到阿里云 OSS（私有路径），返回长期有效签名的 URL 供 ChatRequest.images 使用。
 
+    OSS 未配置时（开发模式）回退为 base64 data URL。
     前端上传图片后，将返回的 url 放入 ChatRequest.images 数组即可发送多模态消息。
     """
     # 校验文件类型
@@ -397,15 +405,22 @@ async def upload_image(
     if len(content) > MAX_IMAGE_SIZE:
         return ResponseModel(code=400, message=f"图片大小超过限制（最大 {MAX_IMAGE_SIZE // 1024 // 1024}MB）")
 
-    # 转换为 base64 data URL
     mime = file.content_type or "image/jpeg"
-    b64 = base64.b64encode(content).decode("utf-8")
-    data_url = f"data:{mime};base64,{b64}"
+
+    # 优先上传 OSS 返回签名 URL；未配置或上传失败时回退 base64 data URL
+    if is_oss_configured():
+        try:
+            url = upload_chat_image(content, user.id, content_type=mime)
+        except Exception:
+            logger.exception("OSS 上传失败，回退 base64 data URL")
+            url = _to_data_url(content, mime)
+    else:
+        url = _to_data_url(content, mime)
 
     return ResponseModel(
         message="上传成功",
         data={
-            "url": data_url,
+            "url": url,
             "filename": file.filename or "upload.jpg",
             "size": len(content),
             "mime_type": mime,

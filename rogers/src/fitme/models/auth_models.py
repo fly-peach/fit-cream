@@ -11,7 +11,7 @@ from typing import Optional
 from uuid import UUID as PyUUID
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -73,6 +73,7 @@ class VerificationCode(Base):
     )
     phone: Mapped[Optional[str]] = mapped_column(String(20), index=True)
     email: Mapped[Optional[str]] = mapped_column(String(255))
+    ip: Mapped[Optional[str]] = mapped_column(String(50), index=True)
     code: Mapped[str] = mapped_column(String(10), nullable=False)
     code_type: Mapped[str] = mapped_column(
         String(20), nullable=False

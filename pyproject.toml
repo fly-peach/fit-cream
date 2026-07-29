@@ -32,6 +32,11 @@ dependencies = [
     "passlib[bcrypt]>=1.7.4",
     # HTTP client
     "httpx>=0.28.0",
+    # 阿里云 SMS
+    "alibabacloud_dysmsapi20170525>=3.0.0",
+    "alibabacloud_tea_openapi>=0.3.0",
+    # 阿里云 OSS
+    "oss2>=2.18.0",
     # MCP
     "fastapi-mcp>=0.4.0",
     # 文档解析（unstructured 多格式：Markdown/Excel/CSV/HTML/纯文本）

@@ -18,6 +18,7 @@ from src.auth.auth import (
     RequestPasswordResetRequest,
     ResetPasswordRequest,
     SendVerificationCodeRequest,
+    SmsLoginRequest,
     TokenPair,
     VerifyCodeRequest,
 )
@@ -82,6 +83,26 @@ async def login(
     )
 
 
+@router.post("/sms-login", response_model=ResponseModel[AuthResponseData])
+async def sms_login(
+    data: SmsLoginRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    user, tokens = await AuthService.sms_login(
+        db, data.phone, data.code,
+        ip=_get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await db.commit()
+    return ResponseModel(
+        data=AuthResponseData(
+            user=UserOut.model_validate(user),
+            tokens=tokens,
+        )
+    )
+
+
 @router.post("/refresh", response_model=ResponseModel[TokenPair])
 async def refresh(
     data: RefreshRequest,
@@ -120,9 +141,12 @@ async def logout(
 @router.post("/send-verification-code", response_model=ResponseModel[None])
 async def send_verification_code(
     data: SendVerificationCodeRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    await AuthService.send_verification_code(db, data.phone, data.code_type)
+    await AuthService.send_verification_code(
+        db, data.phone, data.code_type, ip=_get_client_ip(request)
+    )
     await db.commit()
     return ResponseModel(message="验证码已发送")
 
@@ -140,9 +164,12 @@ async def verify_code(
 @router.post("/request-password-reset", response_model=ResponseModel[None])
 async def request_password_reset(
     data: RequestPasswordResetRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    await AuthService.request_password_reset(db, data.phone)
+    await AuthService.request_password_reset(
+        db, data.phone, ip=_get_client_ip(request)
+    )
     await db.commit()
     return ResponseModel(message="验证码已发送至您的手机")
 

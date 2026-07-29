@@ -60,7 +60,7 @@ import { AppLayout } from "@/components/app-layout";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { checkAuthEnvelope } from "@/lib/api";
+import { api, checkAuthEnvelope } from "@/lib/api";
 import {
   PlusIcon,
   BotMessageSquareIcon,
@@ -248,6 +248,36 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 /** 最多同时上传图片数量：与后端 ChatRequest.images 限制一致 */
 const MAX_IMAGE_FILES = 10;
 
+/** content_type -> 上传文件名后缀 */
+const MIME_EXT: Record<string, string> = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "image/gif": ".gif",
+};
+
+/**
+ * 将附件图片上传到后端 /chat/upload-image（转存阿里云 OSS），返回可访问 URL。
+ *
+ * 附件在提交时已被转为 base64 data URL，这里还原为 Blob 以 multipart 上传；
+ * 后端优先返回 OSS 签名 URL（未配置 OSS 时回退 base64）。上传失败时抛错，
+ * 由调用方决定是否回退到原始 data URL。
+ */
+async function uploadAttachmentImage(file: {
+  url: string;
+  mediaType?: string;
+  filename?: string;
+}): Promise<string> {
+  const blob = await (await fetch(file.url)).blob();
+  const mime = file.mediaType || blob.type || "image/jpeg";
+  const ext = MIME_EXT[mime] ?? ".jpg";
+  const filename = file.filename || `upload${ext}`;
+  const fd = new FormData();
+  fd.append("file", blob, filename);
+  const data = await api.upload<{ url: string }>("/chat/upload-image", fd);
+  return data.url;
+}
+
 /** 单个附件项（memo 优化重渲染，参考 ai-elements prompt-input 示例） */
 interface AttachmentItemProps {
   attachment: {
@@ -386,14 +416,27 @@ export default function ChatPage() {
     clearMessages();
   };
 
-  // 发送消息：支持文本 + 图片（图片以 base64 data URL 形式提交，后端走 image_analysis 意图链路）
+  // 发送消息：支持文本 + 图片。图片先经后端转存阿里云 OSS（返回签名 URL），
+  // 再以 URL 形式提交，后端走 image_analysis 意图链路（DashScope Qwen-VL）。
   const handleSend = useCallback(
     async ({ text, files }: PromptInputMessage) => {
-      const images = files
-        .map((f) => f.url)
-        .filter((u): u is string => typeof u === "string" && u.length > 0);
+      const attachments = files.filter(
+        (f) => typeof f.url === "string" && f.url.length > 0
+      );
       const hasText = text.trim().length > 0;
-      if (!hasText && images.length === 0) return;
+      if (!hasText && attachments.length === 0) return;
+
+      // 逐张上传至 OSS；单张失败回退原始 data URL，保证消息仍可发送
+      const images = await Promise.all(
+        attachments.map(async (f) => {
+          try {
+            return await uploadAttachmentImage(f);
+          } catch {
+            return f.url;
+          }
+        })
+      );
+
       sendMessage(text, images);
     },
     [sendMessage]
