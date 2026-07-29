@@ -37,7 +37,7 @@
 - [x] auth router 新增 POST /change-password 端点
 - [x] auth router 新增 POST /logout 端点
 - [x] 创建 auth schemas（SendVerificationCodeIn/VerifyCodeIn/RequestPasswordResetIn/ResetPasswordIn/ChangePasswordIn/LogoutIn）
-- [ ] 更新 Database-01-用户表.md 文档
-- [ ] 更新 Overview-01-认证与授权.md 文档
-- [ ] 更新 Services-01-用户服务.md 文档
-- [ ] 更新 Endpoints-01-认证与用户.md 文档
+- [x] 更新 Database-01-用户表.md 文档
+- [x] 更新 Overview-01-认证与授权.md 文档
+- [x] 更新 Services-01-用户服务.md 文档
+- [x] 更新 Endpoints-01-认证与用户.md 文档

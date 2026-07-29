@@ -7,36 +7,44 @@ FitCream 使用手机号 + 密码登录，基于 JWT（HS256）实现无状态�
 ### 注册/登录流程
 
 ```
-客户端 → POST /api/auth/register {phone, password, name?}
-       → AuthService.register()
-         → 校验手机号唯一性
-         → bcrypt 哈希密码（12 轮）
-         → 创建 User 记录
-         → 生成 TokenPair（access_token + refresh_token）
-       → 返回 UserOut + TokenPair
+客户端 -> POST /api/auth/register {phone, password, name?}
+       -> AuthService.register()
+         -> 校验手机号唯一性
+         -> bcrypt 哈希密码（12 轮）
+         -> 创建 User 记录（is_active=True, is_verified=False）
+         -> 创建 UserSettings
+         -> 记录审计日志（register）
+         -> 生成 TokenPair（access_token + refresh_token）
+       -> 返回 UserOut + TokenPair
 
-客户端 → POST /api/auth/login {phone, password}
-       → AuthService.login()
-         → 查询用户（按 phone）
-         → bcrypt 验证密码
-         → 生成 TokenPair
-       → 返回 UserOut + TokenPair
+客户端 -> POST /api/auth/login {phone, password}
+       -> AuthService.login()
+         -> 检查登录锁定（连续 5 次失败锁 15 分钟）
+         -> 查询用户（按 phone）
+         -> bcrypt 验证密码
+         -> 检查 is_active / deleted_at
+         -> 更新 last_login_at / last_login_ip
+         -> 记录登录尝试（LoginAttempt）
+         -> 记录审计日志（login）
+         -> 生成 TokenPair
+       -> 返回 UserOut + TokenPair
 ```
 
 ### 令牌刷新
 
 ```
-客户端 → POST /api/auth/refresh {refresh_token}
-       → AuthService.refresh_token()
-         → verify_refresh_token() 解码 JWT
-         → 校验 type == "refresh"
-         → 提取 sub（user_id）
-         → 确认用户存在
-         → 生成全新的 TokenPair（令牌轮换）
-       → 返回 TokenPair
+客户端 -> POST /api/auth/refresh {refresh_token}
+       -> AuthService.refresh_token()
+         -> verify_refresh_token() 解码 JWT
+         -> 校验 type == "refresh"
+         -> 检查 jti 是否在黑名单（RefreshTokenBlacklist）
+         -> 提取 sub（user_id）
+         -> 确认用户存在且 is_active
+         -> 生成全新的 TokenPair（令牌轮换）
+       -> 返回 TokenPair
 ```
 
-刷新时生成全新的 access_token 和 refresh_token。旧的 refresh_token **不失效**（无黑名单机制）。
+刷新时生成全新的 access_token 和 refresh_token。旧 refresh_token 可通过 logout 主动加入黑名单失效。
 
 ## JWT 设计
 
@@ -53,9 +61,8 @@ Token 字段含 `jti`（JWT ID）和 `iat`（签发时间）。
 ### 安全说明
 
 - 密钥 hardcoded 默认值（`your-super-secret-key-change-in-production-min-32-chars`）**必须**在 `.env` 中覆盖
-- Access Token 有效期 7 天在生产环境中偏长
-- Refresh Token 无撤销机制，有效期 30 天不可注销
-- 无登录失败锁定机制
+- Access Token 有效期 7 天；如需更短可在 `ACCESS_TOKEN_EXPIRE_MINUTES` 配置
+- 以下安全特性已通过安全增强实现（详见下方「安全增强」）
 
 ### 安全增强
 

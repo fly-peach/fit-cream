@@ -1,131 +1,10 @@
 # 文档维护规范
 
-## 文档结构
+## 更新需求目录
 
-每个模块目录包含三类文档和一个 `update/` 更新计划目录。三类文档因模块类型而异：
+每个顶层模块目录（`rogers/`、`routers/`、`frontend/`）下设置一个 `update/` 目录，统一存放该模块所有子功能的更新计划。不在子功能目录内单独配置 `update/`。
 
-- 后端模块（rogers/）：Overview / Database / Services
-- 接口模块（routers/）：Overview / Endpoints
-- 前端模块（frontend/）：Overview / Pages / Components / Services
-
-```
-docs/
-├── agent.md                         # 本文件 — 文档维护规范
-│
-├── rogers/                          # 后端模块
-│   ├── agent/
-│   │   ├── Overview-01-架构.md
-│   │   ├── Overview-02-模型层.md
-│   │   ├── Overview-03-中间件管道.md
-│   │   ├── Overview-04-Prompt系统.md
-│   │   ├── Services-01-工具系统.md
-│   │   ├── Services-02-Memory系统.md
-│   │   └── update/                  # agent 模块的更新计划
-│   ├── auth/
-│   │   ├── Overview-01-认证与授权.md
-│   │   ├── Database-01-用户表.md
-│   │   ├── Services-01-用户服务.md
-│   │   └── update/                  # auth 模块的更新计划
-│   ├── fitme/
-│   │   ├── Overview-01-Router与认证.md
-│   │   ├── Database-01-训练计划数据表.md
-│   │   ├── Database-02-饮食计划数据表.md
-│   │   ├── Services-01-Service层.md
-│   │   └── update/                  # fitme 模块的更新计划
-│   └── knowledgebase/
-│       ├── Overview-01-Agent集成与MCP.md
-│       ├── Database-01-数据表.md
-│       ├── Services-01-文档处理管道.md
-│       ├── Services-02-搜索系统.md
-│       └── update/                  # knowledgebase 模块的更新计划
-│
-├── routers/                         # API 路由文档
-│   ├── Overview-01-路由总览.md        # 路由注册、响应信封、错误码、认证依赖、中间件
-│   ├── Endpoints-01-认证与用户.md     # auth + users
-│   ├── Endpoints-02-聊天.md          # chat（SSE 流式）
-│   ├── Endpoints-03-训练计划.md       # plans + exercises
-│   ├── Endpoints-04-饮食计划.md       # diet_plans
-│   ├── Endpoints-05-打卡与统计.md     # checkins + stats
-│   ├── Endpoints-06-知识库.md         # knowledge_bases（含 MCP）
-│   └── update/                      # routers 模块的更新计划
-│
-└── frontend/                        # 前端文档
-    ├── Overview-01-架构.md           # 技术栈、项目结构、构建配置、样式系统
-    ├── Overview-02-路由与状态.md       # 路由表、zustand 状态、认证流程
-    ├── Pages-01-页面.md              # 10 个页面描述（路径/守卫/API 依赖/Hook 依赖）
-    ├── Components-01-组件.md          # 组件层级（UI 基件/App 组件/ai-elements）
-    ├── Services-01-服务层.md          # API 客户端、知识库 API、SSE 客户端、Hooks
-    └── update/                      # frontend 模块的更新计划
-```
-
-### 文件功能与源码映射
-
-#### rogers/ — 后端
-
-##### agent/ — Agent 系统
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-架构.md | Agent 整体架构、LangGraph 流程、Agent 注册机制、生命周期 | `rogers/src/agent/graph.py`, `rogers/src/agent/registry.py`, `rogers/src/agent/nodes/` |
-| Overview-02-模型层.md | LLM 模型配置、Provider 抽象、token 统计、模型路由 | `rogers/src/agent/models.py`, `rogers/src/agent/providers/` |
-| Overview-03-中间件管道.md | 请求中间件链、上下文注入、限流、错误处理 | `rogers/src/agent/middleware.py`, `rogers/src/middleware/` |
-| Overview-04-Prompt系统.md | System prompt 组装、动态上下文构建、模板管理 | `rogers/src/agent/prompts.py`, `rogers/src/agent/context.py` |
-| Services-01-工具系统.md | Agent Tool 定义、工具注册、参数 schema、调用流程 | `rogers/src/agent/tools/`, `rogers/src/agent/tool_registry.py` |
-| Services-02-Memory系统.md | 记忆检索、语义向量存储、短期/长期记忆管理 | `rogers/src/agent/memory/`, `rogers/src/agent/vector_store.py` |
-
-##### auth/ — 用户管理与认证
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-认证与授权.md | 注册/登录流程、JWT 签发与校验、Token 刷新机制、权限模型 | `rogers/src/auth/router.py`, `rogers/src/auth/jwt.py`, `rogers/src/auth/dependencies.py` (deprecated → `rogers/app/routers/auth.py`, `rogers/utils/security.py`, `rogers/app/dependencies.py`) |
-| Database-01-用户表.md | User 表字段设计、索引策略、扩展字段说明 | `rogers/src/fitme/models/user.py`, `rogers/src/auth/models.py` |
-| Services-01-用户服务.md | AuthService、UserService 方法说明、业务规则、集成关系 | `rogers/src/fitme/services/auth_service.py`, `rogers/src/fitme/services/user_service.py` |
-
-##### fitme/ — FitMe 健身业务
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-Router与认证.md | API 路由总览、端点清单、响应格式、认证依赖 | `rogers/app/routers/`, `rogers/src/fitme/schemas/` |
-| Database-01-训练计划数据表.md | 用户/训练计划/动作库/打卡/对话数据表设计、设计原则 | `rogers/src/fitme/models/user.py`, `rogers/src/fitme/models/plan.py`, `rogers/src/fitme/models/exercise.py`, `rogers/src/fitme/models/checkin.py`, `rogers/src/fitme/models/conversation.py`, `rogers/src/fitme/models/thread_*.py` |
-| Database-02-饮食计划数据表.md | 饮食计划/饮食日/餐食数据表设计、生成逻辑 | `rogers/src/fitme/models/diet_plan.py` |
-| Services-01-Service层.md | 多个 Service 类方法说明、业务逻辑、服务间依赖关系 | `rogers/src/fitme/services/` |
-
-##### knowledgebase/ — 知识库
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-Agent集成与MCP.md | MCP 协议集成、知识库与 Agent 的协作流程、触发条件 | `rogers/src/knowledge_base/agent.py`, `rogers/src/knowledge_base/mcp/` |
-| Database-01-数据表.md | 知识库表设计 | `rogers/src/knowledge_base/models/` |
-| Services-01-文档处理管道.md | 文档上传 → 解析 → 分块 → 向量化管道 | `rogers/src/knowledge_base/pipeline/`, `rogers/src/knowledge_base/parser.py` |
-| Services-02-搜索系统.md | 混合搜索（向量 + 关键词）、重排序、过滤 | `rogers/src/knowledge_base/search.py`, `rogers/src/knowledge_base/rerank.py` |
-
-#### routers/ — API 接口文档
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-路由总览.md | 路由注册方式、ResponseModel 信封、ErrorCode 枚举、认证依赖链、全局异常处理器 | `rogers/app/routers/__init__.py`, `rogers/app/main.py`, `rogers/app/dependencies.py`, `rogers/utils/exceptions.py`, `rogers/app/config.py` |
-| Endpoints-01-认证与用户.md | 注册/登录/刷新 Token、用户资料获取/更新 | `rogers/app/routers/auth.py`, `rogers/app/routers/users.py`, `rogers/src/fitme/schemas/user.py` |
-| Endpoints-02-聊天.md | 流式对话、停止生成、图片上传、线程 CRUD、历史清空 | `rogers/app/routers/chat.py`, `rogers/src/fitme/schemas/chat.py` |
-| Endpoints-03-训练计划.md | 训练计划 CRUD、训练日/动作管理、动作库查询 | `rogers/app/routers/plans.py`, `rogers/app/routers/exercises.py`, `rogers/src/fitme/schemas/plan.py` |
-| Endpoints-04-饮食计划.md | 饮食计划 CRUD、饮食日/餐食管理 | `rogers/app/routers/diet_plans.py`, `rogers/src/fitme/schemas/diet_plan.py` |
-| Endpoints-05-打卡与统计.md | 打卡 CRUD、连续天数、周/月/身体/概览统计 | `rogers/app/routers/checkins.py`, `rogers/app/routers/stats.py`, `rogers/src/fitme/schemas/checkin.py` |
-| Endpoints-06-知识库.md | 知识库 CRUD、文档 CRUD（上传/分块/索引）、搜索、图谱、Token 管理、MCP 集成 | `rogers/app/routers/knowledge_bases.py`, `rogers/src/knowledge_base/` |
-
-#### frontend/ — 前端
-
-| 文档 | 功能 | 对应源码 |
-|------|------|----------|
-| Overview-01-架构.md | 技术栈（React 19 + Vite 8 + Tailwind 4 + TS 6）、项目目录结构、构建配置、样式系统 | `frontend/package.json`, `frontend/vite.config.ts`, `frontend/src/index.css`, `frontend/tsconfig*.json` |
-| Overview-02-路由与状态.md | 路由定义、路由守卫、zustand 状态管理、认证流程 | `frontend/src/App.tsx`, `frontend/src/stores/auth-store.ts`, `frontend/src/stores/chat-store.ts` |
-| Pages-01-页面.md | 10 个页面描述（路径/守卫/API 依赖/Hook 依赖） | `frontend/src/pages/` |
-| Components-01-组件.md | 组件层级、UI 基件/App 组件/ai-elements 说明 | `frontend/src/components/` |
-| Services-01-服务层.md | API 客户端、知识库 API、SSE 客户端、Hooks | `frontend/src/lib/api.ts`, `frontend/src/lib/kb-api.ts`, `frontend/src/lib/sse-client.ts`, `frontend/src/hooks/` |
-
----
-
-### 更新需求目录
-
-每个模块的 `update/` 目录存放该模块的更新计划，命名规则为 `{状态}-需求-{简述}.md`：
+命名规则为 `{状态}-需求-{子模块}-{简述}.md`：
 
 | 状态前缀 | 含义 |
 |----------|------|
@@ -136,7 +15,7 @@ docs/
 需求文档内容结构：
 
 ```
-# {模块名} {简述}
+# {子模块} {简述}
 
 日期：YYYY-MM-DD
 来源：代码审查 / Bug 反馈 / 需求变更 等
@@ -156,7 +35,7 @@ docs/
 
 ### 步骤 1：编写需求
 
-在对应模块的 `docs/{module}/update/` 目录下创建需求文档，文件名格式 `undo-需求-{简述}.md`，包含日期、来源、详情和待办。
+在对应顶层模块的 `docs/{module}/update/` 目录下创建需求文档，文件名格式 `undo-需求-{子模块}-{简述}.md`，包含日期、来源、详情和待办。
 
 ### 步骤 2：逐条执行
 

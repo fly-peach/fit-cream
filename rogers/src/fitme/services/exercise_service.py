@@ -54,6 +54,8 @@ class ExerciseService:
         keyword: Optional[str] = None,
         difficulty: Optional[str] = None,
         category: Optional[str] = None,
+        body_part: Optional[str] = None,
+        target: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> List[Exercise]:
@@ -69,11 +71,17 @@ class ExerciseService:
             query = query.where(Exercise.difficulty == difficulty)
         if category:
             query = query.where(Exercise.category == category)
+        if body_part:
+            query = query.where(Exercise.body_part == body_part)
+        if target:
+            query = query.where(Exercise.target == target)
         if keyword:
+            # 关键词 OR 匹配 name/description/instructions，使中文查询（如「深蹲」）能命中英文动作
             query = query.where(
                 or_(
                     Exercise.name.ilike(f"%{keyword}%"),
                     Exercise.description.ilike(f"%{keyword}%"),
+                    Exercise.instructions.ilike(f"%{keyword}%"),
                 )
             )
 
@@ -144,6 +152,8 @@ class ExerciseService:
         difficulty: Optional[str] = None,
         category: Optional[str] = None,
         keyword: Optional[str] = None,
+        body_part: Optional[str] = None,
+        target: Optional[str] = None,
     ) -> int:
         from sqlalchemy import or_
 
@@ -156,11 +166,16 @@ class ExerciseService:
             query = query.where(Exercise.difficulty == difficulty)
         if category:
             query = query.where(Exercise.category == category)
+        if body_part:
+            query = query.where(Exercise.body_part == body_part)
+        if target:
+            query = query.where(Exercise.target == target)
         if keyword:
             query = query.where(
                 or_(
                     Exercise.name.ilike(f"%{keyword}%"),
                     Exercise.description.ilike(f"%{keyword}%"),
+                    Exercise.instructions.ilike(f"%{keyword}%"),
                 )
             )
         result = await db.execute(query)
@@ -183,5 +198,16 @@ class ExerciseService:
             .where(Exercise.muscle_group.isnot(None))
             .group_by(Exercise.muscle_group)
             .order_by(Exercise.muscle_group)
+        )
+        return [{"name": row[0], "count": row[1]} for row in result.all()]
+
+    @staticmethod
+    async def list_equipments(db: AsyncSession) -> List[Dict[str, object]]:
+        """按器械分组统计（dataset 含 28 种器械值，前端筛选取动态值）。"""
+        result = await db.execute(
+            select(Exercise.equipment, func.count(Exercise.id))
+            .where(Exercise.equipment.isnot(None))
+            .group_by(Exercise.equipment)
+            .order_by(Exercise.equipment)
         )
         return [{"name": row[0], "count": row[1]} for row in result.all()]

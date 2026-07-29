@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import Checkin, CheckinExercise
 from src.fitme.models.diet_meal import DailyDietSummary
+from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.user import User
 from src.fitme.services.checkin_service import CheckinService
 from utils.exceptions import NotFoundException
@@ -231,12 +232,33 @@ class StatsService:
         if not user:
             raise NotFoundException("用户不存在")
 
-        current_weight = float(user.weight_kg) if user.weight_kg else None
+        # 体重/身高已迁移至 HealthMetric，取最新一条记录
+        latest_result = await db.execute(
+            select(HealthMetric)
+            .where(HealthMetric.user_id == user_id)
+            .order_by(HealthMetric.measure_date.desc())
+            .limit(1)
+        )
+        latest_metric = latest_result.scalar_one_or_none()
+
+        current_weight = (
+            float(latest_metric.weight_kg)
+            if latest_metric and latest_metric.weight_kg
+            else None
+        )
+        height_cm = (
+            float(latest_metric.height_cm)
+            if latest_metric and latest_metric.height_cm
+            else None
+        )
+
+        # 健身目标已迁移至 UserSettings（selectin 已加载）
+        goal = user.settings.goal if user.settings else None
 
         return {
             "current_weight_kg": current_weight,
-            "height_cm": float(user.height_cm) if user.height_cm else None,
-            "goal": user.goal,
+            "height_cm": height_cm,
+            "goal": goal,
         }
 
     @staticmethod

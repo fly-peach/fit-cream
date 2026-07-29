@@ -11,6 +11,7 @@ from src.fitme.models.user import User
 from src.fitme.schemas.common import ResponseModel
 from src.fitme.schemas.exercise import (
     CategoryStats,
+    EquipmentStats,
     ExerciseCreate,
     ExerciseOut,
     ExerciseUpdate,
@@ -28,6 +29,8 @@ async def list_exercises(
     equipment: Optional[str] = Query(None),
     difficulty: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
+    body_part: Optional[str] = Query(None),
+    target: Optional[str] = Query(None),
     keyword: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -41,6 +44,8 @@ async def list_exercises(
         keyword=keyword,
         difficulty=difficulty,
         category=category,
+        body_part=body_part,
+        target=target,
         limit=limit,
         offset=offset,
     )
@@ -51,6 +56,8 @@ async def list_exercises(
         difficulty=difficulty,
         category=category,
         keyword=keyword,
+        body_part=body_part,
+        target=target,
     )
     return ResponseModel(data=[ExerciseOut.model_validate(e) for e in exercises],
                          message=f"共 {total} 个动作")
@@ -72,6 +79,16 @@ async def list_muscle_groups(
 ):
     data = await ExerciseService.list_muscle_groups(db)
     return ResponseModel(data=[MuscleGroupStats(**d) for d in data])
+
+
+@router.get("/equipments", response_model=ResponseModel[list[EquipmentStats]])
+async def list_equipments(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按器械分组统计（dataset 含 28 种器械值，前端筛选取动态值）。"""
+    data = await ExerciseService.list_equipments(db)
+    return ResponseModel(data=[EquipmentStats(**d) for d in data])
 
 
 @router.get("/{exercise_id}", response_model=ResponseModel[ExerciseOut])

@@ -23,23 +23,32 @@
 
 1. 检查 `phone` 是否已存在（存在则抛 40001）
 2. `hash_password(password)` bcrypt 12 轮
-3. 创建 `User(password_hash=hashed, phone=phone, name=name)`
-4. `db.flush()` + `db.refresh(user)`（不 commit，交给 `get_db()` 依赖）
-5. 生成并返回 TokenPair
+3. 创建 `User`（含 `is_active=True`、`is_verified=False`）
+4. 创建 `UserSettings`（默认值）
+5. 记录审计日志（`UserAuditLog` action="register"）
+6. 生成并返回 TokenPair
 
 ### 登录逻辑
 
-1. 按 phone 查询 `User`（不存在抛 40103）
-2. `verify_password(password, user.password_hash)`（不匹配抛 40103）
-3. 生成并返回 TokenPair
+1. 检查登录锁定（`_check_login_lock`：最近 15 分钟内失败 >= 5 次则抛 40300）
+2. 按 phone 查询 `User`（不存在抛 40103）
+3. `verify_password(password, user.password_hash)`（不匹配抛 40103）
+4. 检查 `is_active`（禁用则抛 40300）和 `deleted_at`（已删除则抛 40100）
+5. 更新 `last_login_at` / `last_login_ip`
+6. 记录登录尝试（`_log_login_attempt` success=True）
+7. 记录审计日志（`_log_audit` action="login"）
+8. 生成并返回 TokenPair
+
+> 失败路径：步骤 2/3 失败时同样记录登录尝试（success=False）并记录审计日志。
 
 ### 刷新令牌逻辑
 
 1. `verify_refresh_token(token)` 解码 JWT
 2. 校验 `type == "refresh"`
-3. 提取 `sub = UUID(user_id)`
-4. 查询 User 是否存在（不存在抛 40401）
-5. 生成**全新的** TokenPair（令牌轮换）
+3. 检查 `jti` 是否在 `RefreshTokenBlacklist` 中（已注销则抛 40100）
+4. 提取 `sub = UUID(user_id)`
+5. 查询 User 是否存在且 `is_active`（不存在抛 40401，禁用抛 40300）
+6. 生成**全新的** TokenPair（令牌轮换）
 
 ## UserService
 

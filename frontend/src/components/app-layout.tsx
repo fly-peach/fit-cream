@@ -15,9 +15,11 @@ import {
   XIcon,
   BookOpenIcon,
   ShieldIcon,
+  LanguagesIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
+import { useLanguage } from "@/lib/language-context";
 
 /**
  * 全局导航项
@@ -34,6 +36,7 @@ function useNavItems() {
     { to: "/dashboard", label: "今日", icon: SunIcon },
     { to: "/chat", label: "AI 教练", icon: MessageSquareIcon },
     { to: "/plans", label: "训练计划", icon: ClipboardListIcon },
+    { to: "/exercises", label: "动作库", icon: DumbbellIcon },
     { to: "/knowledge-bases", label: "知识库", icon: BookOpenIcon },
     { to: "/profile", label: "我的", icon: UserIcon },
   ];
@@ -59,6 +62,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout } = useAuthStore();
+  const { toggleLang, isZh } = useLanguage();
   const navItems = useNavItems();
   const bottomNavItems = useBottomNavItems();
 
@@ -127,6 +131,19 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
               "w-full text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800",
               collapsed ? "justify-center px-2" : "justify-start"
             )}
+            onClick={toggleLang}
+            title={isZh ? "Switch to English" : "切换为中文"}
+          >
+            <LanguagesIcon className="size-4" />
+            {!collapsed && <span className="ml-2 text-xs">{isZh ? "EN" : "中文"}</span>}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={cn(
+              "w-full text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800",
+              collapsed ? "justify-center px-2" : "justify-start"
+            )}
             onClick={() => setCollapsed(!collapsed)}
           >
             {collapsed ? (
@@ -179,7 +196,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
             variant="ghost"
             size="icon"
             className="size-8 text-emerald-700"
-            onClick={closeMobileMenu}
+            onClick={() => closeMobileMenu()}
           >
             <XIcon className="size-4" />
           </Button>
@@ -218,8 +235,17 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
         )}
         {!sidebarExtra && <div className="flex-1" />}
 
-        {/* 退出登录 */}
-        <div className="border-t border-emerald-100 p-2">
+        {/* 语言切换 + 退出登录 */}
+        <div className="space-y-1 border-t border-emerald-100 p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800"
+            onClick={toggleLang}
+          >
+            <LanguagesIcon className="size-4" />
+            <span className="ml-2 text-xs">{isZh ? "Switch to English" : "切换为中文"}</span>
+          </Button>
           <Button
             variant="ghost"
             size="sm"

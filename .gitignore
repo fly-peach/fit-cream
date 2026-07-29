@@ -135,3 +135,4 @@ rogers/static/
 ehthumbs.db
 Desktop.ini
 uv.lock
+.playwright-mcp/

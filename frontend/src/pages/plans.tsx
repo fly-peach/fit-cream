@@ -11,9 +11,9 @@ import {
   startOfWeek,
   endOfWeek,
   isToday,
-  isBefore,
 } from "date-fns";
 import { zhCN } from "date-fns/locale";
+import { useNavigate, useParams } from "react-router-dom";
 import { AppLayout } from "@/components/app-layout";
 import { MetadataEditor, MetadataPreview } from "@/components/metadata-editor";
 import { toMetaRows, toMetaDict, type MetaRow } from "@/lib/meta-utils";
@@ -37,27 +37,23 @@ import {
   Clock,
   ChevronRight,
   ChevronLeft,
-  Sparkles,
   Flame,
   UtensilsCrossed,
   Pencil,
   Plus,
   CheckCircle,
   Search,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  muscleGroupLabels,
+  equipmentLabels,
+} from "@/lib/exercise-labels";
+import type { Exercise, ExerciseBrief } from "@/types/exercise";
 
 // ============ Types ============
-
-interface ExerciseBrief {
-  name: string;
-  name_en?: string | null;
-  muscle_group?: string | null;
-  equipment?: string | null;
-  difficulty?: string | null;
-  description?: string | null;
-}
 
 interface PlanExercise {
   id: string;
@@ -89,15 +85,6 @@ interface PlanDetail {
   weeks: number | null;
   status: string;
   days: PlanDay[];
-}
-
-interface PlanListItem {
-  id: string;
-  name: string;
-  goal: string | null;
-  difficulty: string | null;
-  weeks: number | null;
-  status: string;
 }
 
 interface CheckinItem {
@@ -140,44 +127,6 @@ interface DietPlanDetail {
 
 const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
 
-const goalLabels: Record<string, string> = {
-  lose_fat: "减脂塑形",
-  gain_muscle: "增肌增重",
-  maintain: "保持健康",
-  improve_health: "改善体质",
-};
-
-const difficultyLabels: Record<string, string> = {
-  beginner: "入门",
-  intermediate: "进阶",
-  advanced: "高级",
-};
-
-const statusLabels: Record<string, string> = {
-  active: "进行中",
-  archived: "已归档",
-  completed: "已完成",
-};
-
-const muscleGroupLabels: Record<string, string> = {
-  chest: "胸部",
-  back: "背部",
-  legs: "腿部",
-  shoulders: "肩部",
-  arms: "手臂",
-  core: "核心",
-  full_body: "全身",
-};
-
-const equipmentLabels: Record<string, string> = {
-  barbell: "杠铃",
-  dumbbell: "哑铃",
-  machine: "器械",
-  bodyweight: "自重",
-  cable: "绳索",
-  kettlebell: "壶铃",
-};
-
 const mealTypeLabels: Record<string, string> = {
   breakfast: "早餐",
   lunch: "午餐",
@@ -192,18 +141,50 @@ const mealTypeColors: Record<string, string> = {
   snack: "bg-purple-100 text-purple-700",
 };
 
-// ============ 打卡日历组件 ============
+// ============ 日期/路由辅助 ============
+
+type CalMode = "exercise" | "diet";
+
+// 解析 yyyy-MM-dd 为本地日期（避免 UTC 偏移）
+function parseDateLocal(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+// 日期 -> 周几（周一=1 ... 周日=7），与计划 day_of_week 对齐
+function dateToDow(d: Date): number {
+  return ((d.getDay() + 6) % 7) + 1;
+}
+
+// ============ 日历组件（锻炼/饮食切换） ============
 
 function CheckinCalendar({
+  mode,
+  onModeChange,
+  selectedDate,
+  onPickDate,
   checkinDates,
   streak,
+  dietDayCalories,
+  dietTargetCalories,
 }: {
+  mode: CalMode;
+  onModeChange: (m: CalMode) => void;
+  selectedDate: Date;
+  onPickDate: (d: Date) => void;
   checkinDates: Set<string>;
   streak: number;
+  dietDayCalories: number;
+  dietTargetCalories: number | null;
 }) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const today = new Date();
+  const [currentMonth, setCurrentMonth] = useState(selectedDate);
+  const [syncMode, setSyncMode] = useState(mode);
+
+  // 切换 tab 时跳转到对应选中日期所在月份（渲染期同步，避免 effect 内 setState）
+  if (mode !== syncMode) {
+    setSyncMode(mode);
+    setCurrentMonth(selectedDate);
+  }
 
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -215,20 +196,55 @@ function CheckinCalendar({
 
   const monthCheckins = useMemo(() => {
     return calendarDays.filter(
-      (d) => isSameMonth(d, currentMonth) && checkinDates.has(format(d, "yyyy-MM-dd"))
+      (d) => isSameMonth(d, currentMonth) && checkinDates.has(format(d, "yyyy-MM-dd")),
     ).length;
   }, [calendarDays, currentMonth, checkinDates]);
 
   const selectedChecked = checkinDates.has(format(selectedDate, "yyyy-MM-dd"));
+  const isExercise = mode === "exercise";
 
   return (
     <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
             <CalendarDays className="size-4 text-emerald-500" />
-            打卡日历
+            {isExercise ? "锻炼日历" : "饮食日历"}
           </CardTitle>
+          {/* 锻炼 / 饮食 tab */}
+          <div className="flex items-center gap-1 rounded-lg bg-emerald-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => onModeChange("exercise")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                isExercise
+                  ? "bg-white text-emerald-700 shadow-sm"
+                  : "text-emerald-600/60 hover:text-emerald-700",
+              )}
+            >
+              <Dumbbell className="size-3.5" />
+              锻炼
+            </button>
+            <button
+              type="button"
+              onClick={() => onModeChange("diet")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                !isExercise
+                  ? "bg-white text-orange-700 shadow-sm"
+                  : "text-orange-600/60 hover:text-orange-700",
+              )}
+            >
+              <UtensilsCrossed className="size-3.5" />
+              饮食
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-emerald-600/70">
+            选中 {format(selectedDate, "yyyy年M月d日", { locale: zhCN })}
+          </span>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -266,24 +282,22 @@ function CheckinCalendar({
             const checked = checkinDates.has(dateStr);
             const inMonth = isSameMonth(day, currentMonth);
             const isSelected = isSameDay(day, selectedDate);
-            const isFuture = isBefore(today, day) && !isSameDay(day, today);
 
             return (
               <button
                 key={dateStr}
-                onClick={() => setSelectedDate(day)}
+                onClick={() => onPickDate(day)}
                 className={cn(
                   "relative flex size-9 items-center justify-center rounded-lg text-sm transition-all duration-150",
                   !inMonth && "text-emerald-200",
-                  inMonth && !checked && !isSelected && "text-emerald-800 hover:bg-emerald-50",
-                  checked && "bg-emerald-100 font-medium text-emerald-700 hover:bg-emerald-200",
-                  isSelected && "ring-2 ring-emerald-400",
+                  inMonth && !isSelected && "text-emerald-800 hover:bg-emerald-50",
+                  isExercise && checked && "bg-emerald-100 font-medium text-emerald-700 hover:bg-emerald-200",
+                  isSelected && (isExercise ? "ring-2 ring-emerald-400" : "ring-2 ring-orange-400"),
                   isToday(day) && "font-bold text-emerald-950",
-                  isFuture && "opacity-40"
                 )}
               >
                 {format(day, "d")}
-                {checked && (
+                {isExercise && checked && (
                   <span className="absolute bottom-1 size-1 rounded-full bg-emerald-500" />
                 )}
               </button>
@@ -291,32 +305,205 @@ function CheckinCalendar({
           })}
         </div>
         <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
-            <span className="text-xs text-emerald-700">
-              {format(selectedDate, "M月d日", { locale: zhCN })}
-              {selectedChecked ? (
-                <span className="ml-2 font-medium text-emerald-600">✓ 已打卡</span>
-              ) : (
-                <span className="ml-2 text-emerald-400">未打卡</span>
-              )}
-            </span>
-            <span className="text-xs text-emerald-700">
-              本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
-            </span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
-            <span className="flex items-center gap-1.5 text-xs text-orange-600">
-              <Flame className="size-3.5 text-orange-500" />
-              当前连续打卡
-            </span>
-            <span className="text-sm font-bold text-orange-600">
-              {streak}
-              <span className="ml-0.5 text-xs font-normal">天</span>
-            </span>
-          </div>
+          {isExercise ? (
+            <>
+              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+                <span className="text-xs text-emerald-700">
+                  {format(selectedDate, "M月d日", { locale: zhCN })}
+                  {selectedChecked ? (
+                    <span className="ml-2 font-medium text-emerald-600">✓ 已打卡</span>
+                  ) : (
+                    <span className="ml-2 text-emerald-400">未打卡</span>
+                  )}
+                </span>
+                <span className="text-xs text-emerald-700">
+                  本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+                <span className="flex items-center gap-1.5 text-xs text-orange-600">
+                  <Flame className="size-3.5 text-orange-500" />
+                  当前连续打卡
+                </span>
+                <span className="text-sm font-bold text-orange-600">
+                  {streak}
+                  <span className="ml-0.5 text-xs font-normal">天</span>
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+              <span className="flex items-center gap-1.5 text-xs text-orange-600">
+                <Flame className="size-3.5 text-orange-500" />
+                当日热量
+              </span>
+              <span className="text-sm font-bold text-orange-600">
+                {dietDayCalories}
+                <span className="ml-0.5 text-xs font-normal">
+                  kcal{dietTargetCalories ? ` / ${dietTargetCalories}` : ""}
+                </span>
+              </span>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ============ 动作内联搜索（计划编辑用，轻量选择） ============
+
+function ExerciseSearchInline({
+  onPick,
+  onResultsChange,
+}: {
+  onPick: (ex: Exercise) => Promise<void> | void;
+  onResultsChange?: (hasResults: boolean) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [committed, setCommitted] = useState("");
+  const [results, setResults] = useState<Exercise[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const term = committed.trim();
+    if (!term) {
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    api
+      .get<Exercise[]>(`/exercises?keyword=${encodeURIComponent(term)}&limit=12`)
+      .then((list) => {
+        if (!cancelled) setResults(list ?? []);
+      })
+      .catch((e) => {
+        if (!cancelled) setError((e as Error).message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [committed]);
+
+  useEffect(() => {
+    onResultsChange?.(results.length > 0);
+  }, [results, onResultsChange]);
+
+  const submit = () => setCommitted(q.trim());
+
+  const pick = async (ex: Exercise) => {
+    setAdding(ex.id);
+    try {
+      await onPick(ex);
+      setQ("");
+      setCommitted("");
+      setResults([]);
+    } finally {
+      setAdding(null);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/40 p-2">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-emerald-400" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="搜索动作名称/说明（如 卧推 / 深蹲）"
+            className="h-9 rounded-lg border-emerald-200 bg-white/70 pl-9"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-emerald-200 text-emerald-700"
+          onClick={submit}
+        >
+          搜索
+        </Button>
+      </div>
+      {loading && (
+        <div className="flex justify-center py-2">
+          <Loader2 className="size-4 animate-spin text-emerald-500" />
+        </div>
+      )}
+      {error && <p className="px-1 text-xs text-red-500">{error}</p>}
+      {!loading && committed && results.length === 0 && (
+        <p className="py-2 text-center text-xs text-emerald-600/50">无匹配动作</p>
+      )}
+      {results.length > 0 && (
+        <div className="max-h-56 space-y-1 overflow-y-auto">
+          {results.map((ex) => (
+            <div
+              key={ex.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => pick(ex)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  pick(ex);
+                }
+              }}
+              aria-disabled={adding === ex.id}
+              className={cn(
+                "flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-emerald-100/70",
+                adding === ex.id && "cursor-wait opacity-60",
+              )}
+            >
+              {adding === ex.id ? (
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-emerald-500" />
+              ) : (
+                <Plus className="size-3.5 shrink-0 text-emerald-400" />
+              )}
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-emerald-950">
+                {ex.name}
+              </span>
+              {ex.muscle_group && (
+                <Badge
+                  variant="outline"
+                  className="h-5 shrink-0 border-emerald-200 px-1.5 text-[10px] text-emerald-600"
+                >
+                  {muscleGroupLabels[ex.muscle_group] ?? ex.muscle_group}
+                </Badge>
+              )}
+              {ex.equipment && (
+                <Badge
+                  variant="outline"
+                  className="h-5 shrink-0 border-sky-200 bg-sky-50 px-1.5 text-[10px] text-sky-600"
+                >
+                  {equipmentLabels[ex.equipment] ?? ex.equipment}
+                </Badge>
+              )}
+              <a
+                href={`/exercises/${ex.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="在新页面查看动作详情"
+                onClick={(e) => e.stopPropagation()}
+                className="flex size-6 shrink-0 items-center justify-center rounded-md text-emerald-400 transition-colors hover:bg-emerald-200 hover:text-emerald-600"
+              >
+                <ExternalLink className="size-3.5" />
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -347,12 +534,7 @@ function DayDetailDialog({
   const [dayRest, setDayRest] = useState(60);
   const [dayMeta, setDayMeta] = useState<MetaRow[]>([]);
   const [dayInfoSaving, setDayInfoSaving] = useState(false);
-
-  // 添加动作：搜索与结果
-  const [exKeyword, setExKeyword] = useState("");
-  const [exResults, setExResults] = useState<(ExerciseBrief & { id: string })[]>([]);
-  const [exSearching, setExSearching] = useState(false);
-  const [addingExId, setAddingExId] = useState<string | null>(null);
+  const [searchHasResults, setSearchHasResults] = useState(false);
 
   // 渲染期同步：切换训练日时重置表单（避免在 effect 内 setState）
   if (day && day.id !== dayInfoSync) {
@@ -361,8 +543,7 @@ function DayDetailDialog({
     setDayRest(day.rest_seconds);
     setDayMeta(toMetaRows(day.metadata_));
     setEditingId(null);
-    setExKeyword("");
-    setExResults([]);
+    setSearchHasResults(false);
   }
 
   if (!day) return null;
@@ -421,43 +602,35 @@ function DayDetailDialog({
     }
   };
 
-  const searchExercises = async () => {
-    setExSearching(true);
-    try {
-      const kw = exKeyword.trim();
-      const list = await api.get<(ExerciseBrief & { id: string })[]>(
-        `/exercises?limit=20${kw ? `&keyword=${encodeURIComponent(kw)}` : ""}`
-      );
-      setExResults(list || []);
-    } catch (e) {
-      alert((e as Error).message);
-    } finally {
-      setExSearching(false);
-    }
+  const addExerciseToDay = async (ex: Exercise) => {
+    await api.post(`/plans/days/${day.id}/exercises`, {
+      exercise_id: ex.id,
+      sets: 3,
+      reps: 12,
+      weight_kg: null,
+      sort_order: day.exercises.length,
+      notes: null,
+    });
+    onUpdated();
   };
 
-  const addExerciseToDay = async (ex: ExerciseBrief & { id: string }) => {
-    setAddingExId(ex.id);
+  // 选择动作后添加到当日
+  const handlePickExercise = async (ex: Exercise) => {
     try {
-      await api.post(`/plans/days/${day.id}/exercises`, {
-        exercise_id: ex.id,
-        sets: 3,
-        reps: 12,
-        weight_kg: null,
-        sort_order: day.exercises.length,
-        notes: null,
-      });
-      onUpdated();
+      await addExerciseToDay(ex);
     } catch (e) {
       alert((e as Error).message);
-    } finally {
-      setAddingExId(null);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent
+        className={cn(
+          "plan-day-dialog max-h-[85vh] overflow-y-auto transition-[max-width] duration-200",
+          searchHasResults ? "sm:max-w-5xl" : "sm:max-w-3xl",
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-950">
             <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
@@ -466,7 +639,7 @@ function DayDetailDialog({
             {day.focus || "综合训练"}
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           {/* 训练日信息编辑 */}
           <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
             <div className="flex items-center gap-2">
@@ -500,60 +673,15 @@ function DayDetailDialog({
             </div>
           </div>
 
-          {/* 添加动作 */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-emerald-700">添加动作</p>
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-emerald-400" />
-                <Input
-                  value={exKeyword}
-                  onChange={(e) => setExKeyword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      searchExercises();
-                    }
-                  }}
-                  placeholder="搜索动作名称（如 卧推 / 深蹲）"
-                  className="h-8 pl-7 text-sm"
-                />
-              </div>
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={searchExercises} disabled={exSearching}>
-                {exSearching ? "搜索中..." : "搜索"}
-              </Button>
-            </div>
-            {exResults.length > 0 && (
-              <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-emerald-100 p-1">
-                {exResults.map((ex) => (
-                  <button
-                    key={ex.id}
-                    type="button"
-                    disabled={addingExId === ex.id}
-                    onClick={() => addExerciseToDay(ex)}
-                    className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-emerald-50 disabled:opacity-50"
-                  >
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate font-medium text-emerald-900">{ex.name}</span>
-                      {ex.muscle_group && (
-                        <Badge variant="outline" className="h-4 shrink-0 border-emerald-200 px-1 text-[9px] text-emerald-600">
-                          {muscleGroupLabels[ex.muscle_group] ?? ex.muscle_group}
-                        </Badge>
-                      )}
-                    </span>
-                    <Plus className="size-3.5 shrink-0 text-emerald-500" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* 添加动作：内联关键词搜索 */}
+          <ExerciseSearchInline onPick={handlePickExercise} onResultsChange={setSearchHasResults} />
 
           {/* 当日动作列表 */}
           <p className="text-xs font-medium text-emerald-700">
             当日动作（{day.exercises.length}）
           </p>
           {day.exercises.length === 0 ? (
-            <p className="py-4 text-center text-sm text-emerald-600/50">暂无动作，在上方搜索并添加</p>
+            <p className="py-4 text-center text-sm text-emerald-600/50">暂无动作，在上方搜索添加</p>
           ) : (
             <div className="space-y-2">
               {[...day.exercises]
@@ -671,6 +799,15 @@ function DayDetailDialog({
                           </div>
                         </div>
                         <div className="flex shrink-0 flex-col gap-1">
+                          <a
+                            href={`/exercises/${ex.exercise_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="查看动作详情"
+                            className="flex size-7 items-center justify-center rounded-md text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </a>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -692,7 +829,7 @@ function DayDetailDialog({
                     )}
                   </div>
                 ))}
-            </div>
+              </div>
           )}
         </div>
         <DialogFooter>
@@ -709,12 +846,15 @@ function DayDetailDialog({
 
 function DietPlanCard({
   dietPlan,
+  dayOfWeek,
+  selectedDateLabel,
   onUpdated,
 }: {
   dietPlan: DietPlanDetail | null;
+  dayOfWeek: number;
+  selectedDateLabel: string;
   onUpdated: () => void;
 }) {
-  const [selectedDay, setSelectedDay] = useState<number>(1);
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [editFood, setEditFood] = useState("");
   const [editCalories, setEditCalories] = useState("");
@@ -741,7 +881,7 @@ function DietPlanCard({
     );
   }
 
-  const currentDay = dietPlan.days.find((d) => d.day_of_week === selectedDay);
+  const currentDay = dietPlan.days.find((d) => d.day_of_week === dayOfWeek);
   const totalCalories = currentDay?.meals.reduce((sum, m) => sum + (m.calories ?? 0), 0) ?? 0;
 
   const startEditMeal = (meal: DietMeal) => {
@@ -812,10 +952,16 @@ function DietPlanCard({
     <Card className="border-orange-100 bg-white/80 shadow-sm backdrop-blur">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold text-orange-950">
-            <UtensilsCrossed className="size-4 text-orange-500" />
-            {dietPlan.name}
-          </CardTitle>
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base font-semibold text-orange-950">
+              <UtensilsCrossed className="size-4 text-orange-500" />
+              当日饮食
+            </CardTitle>
+            <p className="mt-1 text-xs text-orange-600/70">
+              {selectedDateLabel}
+              {dietPlan.name ? ` · ${dietPlan.name}` : ""}
+            </p>
+          </div>
           {dietPlan.target_calories && (
             <Badge className="border-orange-200 bg-orange-50 text-orange-700">
               {dietPlan.target_calories} kcal/天
@@ -824,29 +970,6 @@ function DietPlanCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* 星期选择器 */}
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {dayNames.map((name, idx) => {
-            const dayNum = idx + 1;
-            const hasMeals = dietPlan.days.some((d) => d.day_of_week === dayNum && d.meals.length > 0);
-            return (
-              <button
-                key={dayNum}
-                onClick={() => setSelectedDay(dayNum)}
-                className={cn(
-                  "flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-                  selectedDay === dayNum
-                    ? "bg-orange-500 text-white shadow-sm"
-                    : hasMeals
-                      ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                      : "bg-gray-100 text-gray-400"
-                )}
-              >
-                {name}
-              </button>
-            );
-          })}
-        </div>
 
         {/* 当日餐食 */}
         {currentDay && currentDay.meals.length > 0 ? (
@@ -1028,39 +1151,51 @@ function DietPlanCard({
 // ============ 主页面 ============
 
 export default function PlansPage() {
-  const [plans, setPlans] = useState<PlanListItem[]>([]);
+  const navigate = useNavigate();
+  const { exSegment, dtSegment } = useParams();
+
+  // 解析 URL 中的日期：/plans/exercise-plan-date=yyyy-MM-dd/diet-plan-date=yyyy-MM-dd
+  const exParam = exSegment?.startsWith("exercise-plan-date=")
+    ? exSegment.slice("exercise-plan-date=".length)
+    : undefined;
+  const dietParam = dtSegment?.startsWith("diet-plan-date=")
+    ? dtSegment.slice("diet-plan-date=".length)
+    : undefined;
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const exDateStr = exParam ?? todayStr;
+  const dietDateStr = dietParam ?? todayStr;
+  const exDate = parseDateLocal(exDateStr);
+  const dietDate = parseDateLocal(dietDateStr);
+
   const [activePlan, setActivePlan] = useState<PlanDetail | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<PlanDetail | null>(null);
   const [checkins, setCheckins] = useState<CheckinItem[]>([]);
   const [streak, setStreak] = useState(0);
   const [dietPlan, setDietPlan] = useState<DietPlanDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [dayDialogOpen, setDayDialogOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [planToDeleteId, setPlanToDeleteId] = useState<string | null>(null);
   const [checkinLoading, setCheckinLoading] = useState<string | null>(null);
+  const [calMode, setCalMode] = useState<CalMode>("exercise");
 
-  const loadPlans = async () => {
-    try {
-      const res = await api.get<{ items: PlanListItem[] }>("/plans");
-      setPlans(res.items || []);
-    } catch (e) {
-      setError((e as Error).message);
+  // 首次访问 /plans（无日期参数）时补齐为带今日日期的 URL，保证可分享/刷新
+  useEffect(() => {
+    if (!exParam || !dietParam) {
+      const t = format(new Date(), "yyyy-MM-dd");
+      navigate(
+        `/plans/exercise-plan-date=${exParam ?? t}/diet-plan-date=${dietParam ?? t}`,
+        { replace: true },
+      );
     }
-  };
+  }, [exParam, dietParam, navigate]);
 
   useEffect(() => {
     Promise.all([
       api.get<PlanDetail | null>("/plans/active").catch(() => null),
-      loadPlans(),
       api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
       api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
       api.get<DietPlanDetail | null>("/diet-plans/active").catch(() => null),
     ])
-      .then(([active, , checkinRes, streakRes, diet]) => {
+      .then(([active, checkinRes, streakRes, diet]) => {
         setActivePlan(active);
         if (checkinRes?.items) setCheckins(checkinRes.items);
         if (streakRes) setStreak(streakRes.current_streak);
@@ -1071,38 +1206,12 @@ export default function PlansPage() {
 
   const checkinDates = useMemo(() => new Set(checkins.map((c) => c.date)), [checkins]);
 
-  const openPlan = async (id: string) => {
-    setSelectedId(id);
-    try {
-      const detail = await api.get<PlanDetail>(`/plans/${id}`);
-      setSelectedPlan(detail);
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
-  const requestDelete = (id: string) => {
-    setPlanToDeleteId(id);
-    setDeleteDialogOpen(true);
-  };
-
-  const executeDelete = async () => {
-    if (!planToDeleteId) return;
-    try {
-      await api.delete(`/plans/${planToDeleteId}`);
-      setPlans((prev) => prev.filter((p) => p.id !== planToDeleteId));
-      if (selectedId === planToDeleteId) {
-        setSelectedId(null);
-        setSelectedPlan(null);
-      }
-      if (activePlan?.id === planToDeleteId) setActivePlan(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setDeleteDialogOpen(false);
-      setPlanToDeleteId(null);
-    }
-  };
+  // 选中日期对应的星期（周一=1 ... 周日=7），与计划 day_of_week 对齐
+  const exDow = dateToDow(exDate);
+  const dietDow = dateToDow(dietDate);
+  const exDay = activePlan?.days.find((d) => d.day_of_week === exDow) ?? null;
+  const dietDay = dietPlan?.days.find((d) => d.day_of_week === dietDow) ?? null;
+  const dietDayCalories = dietDay?.meals.reduce((s, m) => s + (m.calories ?? 0), 0) ?? 0;
 
   const openDayDetail = (day: PlanDay) => {
     setSelectedDay(day);
@@ -1113,37 +1222,24 @@ export default function PlansPage() {
     if (!confirm("确定删除该训练日？")) return;
     try {
       await api.delete(`/plans/days/${dayId}`);
-      const planId = selectedId ?? activePlan?.id;
-      if (planId) {
-        const detail = await api.get<PlanDetail>(`/plans/${planId}`);
-        setSelectedPlan(detail);
-        if (activePlan?.id === planId) setActivePlan(detail);
+      if (activePlan?.id) {
+        setActivePlan(await api.get<PlanDetail>(`/plans/${activePlan.id}`));
       }
     } catch (e) {
       alert((e as Error).message);
     }
   };
 
-  const addTrainingDay = async () => {
-    const planId = selectedId ?? activePlan?.id;
-    if (!planId) return;
-    const displayDays = selectedPlan?.days ?? activePlan?.days ?? [];
-    const usedDays = new Set(displayDays.map((d) => d.day_of_week));
-    const nextDay = [1, 2, 3, 4, 5, 6, 7].find((d) => !usedDays.has(d));
-    if (!nextDay) {
-      alert("已存在周一到周日的训练日，无法再添加");
-      return;
-    }
+  const addTrainingDayFor = async (dow: number) => {
+    if (!activePlan?.id) return;
     try {
-      await api.post(`/plans/${planId}/days`, {
-        day_of_week: nextDay,
-        focus: `训练日 ${dayNames[nextDay - 1]}`,
+      await api.post(`/plans/${activePlan.id}/days`, {
+        day_of_week: dow,
+        focus: `${dayNames[dow - 1]}训练`,
         rest_seconds: 60,
         exercises: [],
       });
-      const detail = await api.get<PlanDetail>(`/plans/${planId}`);
-      setSelectedPlan(detail);
-      if (activePlan?.id === planId) setActivePlan(detail);
+      setActivePlan(await api.get<PlanDetail>(`/plans/${activePlan.id}`));
     } catch (e) {
       alert((e as Error).message);
     }
@@ -1165,7 +1261,15 @@ export default function PlansPage() {
     }
   };
 
-  const displayPlan = selectedPlan ?? activePlan;
+  const pickExerciseDate = (d: Date) => {
+    navigate(`/plans/exercise-plan-date=${format(d, "yyyy-MM-dd")}/diet-plan-date=${dietDateStr}`);
+  };
+  const pickDietDate = (d: Date) => {
+    navigate(`/plans/exercise-plan-date=${exDateStr}/diet-plan-date=${format(d, "yyyy-MM-dd")}`);
+  };
+
+  const exDateLabel = `${format(exDate, "M月d日", { locale: zhCN })} · ${dayNames[exDow - 1]}`;
+  const dietDateLabel = `${format(dietDate, "M月d日", { locale: zhCN })} · ${dayNames[dietDow - 1]}`;
 
   return (
     <AppLayout>
@@ -1177,15 +1281,9 @@ export default function PlansPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-emerald-950">训练与饮食计划</h1>
-              <p className="text-sm text-emerald-600/60">查看与管理你的专属训练和饮食计划</p>
+              <p className="text-sm text-emerald-600/60">按日期查看与管理你的训练和饮食安排</p>
             </div>
           </header>
-
-          {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-600">
-              {error}
-            </div>
-          )}
 
           {loading ? (
             <div className="flex items-center justify-center py-20 text-emerald-500">
@@ -1193,233 +1291,154 @@ export default function PlansPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {/* 顶部：打卡日历 + 全部计划 */}
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="lg:col-span-1">
-                  <CheckinCalendar checkinDates={checkinDates} streak={streak} />
-                </div>
-                <div className="lg:col-span-2">
-
-                <div className="space-y-3">
-                  <h2 className="text-sm font-semibold text-emerald-800">全部计划</h2>
-                  {plans.length === 0 && (
-                    <Card className="border-dashed border-emerald-200">
-                      <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-                        <Sparkles className="size-6 text-emerald-300" />
-                        <p className="text-sm text-emerald-600/60">
-                          暂无计划，去 AI 教练处生成一个吧
-                        </p>
-                      </CardContent>
-                    </Card>
-                  )}
-                  {plans.map((plan) => (
-                    <Card
-                      key={plan.id}
-                      onClick={() => openPlan(plan.id)}
-                      className={cn(
-                        "cursor-pointer border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-sm",
-                        (selectedId === plan.id ||
-                          (!selectedId && activePlan?.id === plan.id)) &&
-                          "border-emerald-400 ring-1 ring-emerald-300"
-                      )}
-                    >
-                      <CardContent className="flex items-center justify-between p-4">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate font-medium text-emerald-950">{plan.name}</p>
-                            {activePlan?.id === plan.id && (
-                              <Badge className="border-emerald-200 bg-emerald-100 text-emerald-700">
-                                进行中
-                              </Badge>
-                            )}
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-1.5 text-xs text-emerald-600/60">
-                            {plan.goal && <span>{goalLabels[plan.goal] ?? plan.goal}</span>}
-                            {plan.difficulty && (
-                              <span>· {difficultyLabels[plan.difficulty] ?? plan.difficulty}</span>
-                            )}
-                            {plan.weeks && <span>· {plan.weeks} 周</span>}
-                          </div>
-                        </div>
-                        <ChevronRight className="size-4 shrink-0 text-emerald-300" />
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-                </div>
+              {/* 日历：锻炼/饮食切换 */}
+              <div className="mx-auto max-w-md">
+                <CheckinCalendar
+                  mode={calMode}
+                  onModeChange={setCalMode}
+                  selectedDate={calMode === "exercise" ? exDate : dietDate}
+                  onPickDate={calMode === "exercise" ? pickExerciseDate : pickDietDate}
+                  checkinDates={checkinDates}
+                  streak={streak}
+                  dietDayCalories={dietDayCalories}
+                  dietTargetCalories={dietPlan?.target_calories ?? null}
+                />
               </div>
 
-              {/* 底部：训练计划 + 饮食计划 两列 */}
+              {/* 当日训练 + 当日饮食 */}
               <div className="grid gap-6 lg:grid-cols-2">
-                {/* 训练计划详情 */}
-                <div>
-                {displayPlan ? (
-                  <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-                    <CardHeader>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <CardTitle className="text-lg font-semibold text-emerald-950">
-                            {displayPlan.name}
-                          </CardTitle>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {displayPlan.goal && (
-                              <Badge
-                                variant="secondary"
-                                className="border-emerald-200 bg-emerald-50 text-emerald-700"
-                              >
-                                {goalLabels[displayPlan.goal] ?? displayPlan.goal}
-                              </Badge>
-                            )}
-                            {displayPlan.difficulty && (
-                              <Badge
-                                variant="secondary"
-                                className="border-amber-200 bg-amber-50 text-amber-700"
-                              >
-                                {difficultyLabels[displayPlan.difficulty] ?? displayPlan.difficulty}
-                              </Badge>
-                            )}
-                            <Badge variant="secondary" className="border-sky-200 bg-sky-50 text-sky-700">
-                              {statusLabels[displayPlan.status] ?? displayPlan.status}
-                            </Badge>
-                          </div>
-                        </div>
+                {/* 当日训练 */}
+                <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <CardTitle className="text-lg font-semibold text-emerald-950">
+                          当日训练
+                        </CardTitle>
+                        <p className="mt-1 text-xs text-emerald-600/70">
+                          {exDateLabel}
+                          {activePlan ? ` · ${activePlan.name}` : ""}
+                        </p>
+                      </div>
+                      {exDay && (
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="text-emerald-400 hover:bg-red-100 hover:text-red-600"
-                          onClick={() => requestDelete(displayPlan.id)}
+                          title="编辑训练日"
+                          className="text-emerald-400 hover:text-emerald-600"
+                          onClick={() => openDayDetail(exDay)}
                         >
-                          <Trash2 className="size-4" />
+                          <Pencil className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {!activePlan ? (
+                      <p className="py-6 text-center text-sm text-emerald-600/60">
+                        暂无训练计划，让 AI 教练为你生成
+                      </p>
+                    ) : !exDay ? (
+                      <div className="flex flex-col items-center gap-2 py-6 text-center">
+                        <p className="text-sm text-emerald-600/60">
+                          {dayNames[exDow - 1]}暂无训练安排
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-200 text-emerald-700"
+                          onClick={() => addTrainingDayFor(exDow)}
+                        >
+                          <Plus className="mr-1 size-4" />
+                          添加{dayNames[exDow - 1]}训练日
                         </Button>
                       </div>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {displayPlan.days.length === 0 && (
-                        <p className="py-6 text-center text-sm text-emerald-600/60">
-                          该计划暂无训练日安排
-                        </p>
-                      )}
-                      {[...displayPlan.days]
-                        .sort((a, b) => a.day_of_week - b.day_of_week)
-                        .map((day) => (
-                          <div
-                            key={day.id}
-                            className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4 transition-all hover:border-emerald-300 hover:shadow-sm"
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
+                            {dayNames[exDay.day_of_week - 1]}
+                          </span>
+                          <span className="font-medium text-emerald-900">
+                            {exDay.focus || "综合训练"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-emerald-600/60">
+                          <Clock className="size-3" />
+                          休息 {exDay.rest_seconds}s
+                        </div>
+                        <MetadataPreview value={exDay.metadata_} />
+                        <div className="space-y-1.5">
+                          {exDay.exercises.length === 0 ? (
+                            <p className="text-xs text-emerald-600/50">暂无动作，点击编辑添加</p>
+                          ) : (
+                            [...exDay.exercises]
+                              .sort((a, b) => a.sort_order - b.sort_order)
+                              .map((ex) => (
+                                <div
+                                  key={ex.id}
+                                  className="flex items-center justify-between rounded-lg bg-emerald-50/40 px-3 py-2 text-sm"
+                                >
+                                  <span className="font-medium text-emerald-900">
+                                    {ex.exercise_name ?? "未知动作"}
+                                  </span>
+                                  <span className="tabular-nums text-emerald-600/70">
+                                    {ex.sets} 组 × {ex.reps} 次
+                                    {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
+                                  </span>
+                                </div>
+                              ))
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-emerald-200 text-emerald-700"
+                            onClick={() => openDayDetail(exDay)}
                           >
-                              <>
-                                <div className="mb-2 flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
-                                      {dayNames[day.day_of_week - 1]}
-                                    </span>
-                                    <span className="font-medium text-emerald-900">
-                                      {day.focus || "综合训练"}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-0.5">
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="编辑"
-                                      className="size-7 text-emerald-400 hover:text-emerald-600"
-                                      onClick={() => openDayDetail(day)}
-                                    >
-                                      <Pencil className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="打卡"
-                                      className="size-7 text-emerald-400 hover:text-orange-600"
-                                      onClick={() => checkinDay(day)}
-                                      disabled={checkinLoading === day.id}
-                                    >
-                                      <CheckCircle className="size-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      title="删除"
-                                      className="size-7 text-emerald-400 hover:text-red-600"
-                                      onClick={() => deleteTrainingDay(day.id)}
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                <div className="mb-2 flex items-center gap-1 text-xs text-emerald-600/60">
-                                  <Clock className="size-3" />
-                                  休息 {day.rest_seconds}s
-                                </div>
-                                <div className="mb-2">
-                                  <MetadataPreview value={day.metadata_} />
-                                </div>
-                                <div onClick={() => openDayDetail(day)} className="cursor-pointer">
-                                  {day.exercises.length === 0 ? (
-                                    <p className="text-xs text-emerald-600/50">暂无动作，点击编辑添加</p>
-                                  ) : (
-                                    <div className="space-y-1.5">
-                                      {[...day.exercises]
-                                        .sort((a, b) => a.sort_order - b.sort_order)
-                                        .slice(0, 3)
-                                        .map((ex) => (
-                                          <div
-                                            key={ex.id}
-                                            className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm"
-                                          >
-                                            <span className="font-medium text-emerald-900">
-                                              {ex.exercise_name ?? "未知动作"}
-                                            </span>
-                                            <span className="tabular-nums text-emerald-600/70">
-                                              {ex.sets} 组 × {ex.reps} 次
-                                              {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
-                                            </span>
-                                          </div>
-                                        ))}
-                                      {day.exercises.length > 3 && (
-                                        <p className="text-center text-xs text-emerald-500">
-                                          +{day.exercises.length - 3} 个动作，点击查看详情
-                                        </p>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              </>
-                          </div>
-                        ))}
-                      <Button
-                        variant="outline"
-                        className="w-full border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                        onClick={addTrainingDay}
-                      >
-                        <Plus className="mr-1 size-4" />
-                        添加训练日
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card className="flex h-full min-h-64 items-center justify-center border-dashed border-emerald-200">
-                    <CardContent className="flex flex-col items-center gap-3 text-center">
-                      <CalendarDays className="size-8 text-emerald-300" />
-                      <p className="text-sm text-emerald-600/60">
-                        选择左侧计划查看详情，或让 AI 教练为你生成计划
-                      </p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
+                            <Pencil className="mr-1 size-3.5" />
+                            编辑动作
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-emerald-600 hover:bg-orange-50 hover:text-orange-600"
+                            onClick={() => checkinDay(exDay)}
+                            disabled={checkinLoading === exDay.id}
+                          >
+                            {checkinLoading === exDay.id ? (
+                              <Loader2 className="mr-1 size-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle className="mr-1 size-3.5" />
+                            )}
+                            打卡
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="ml-auto text-red-300 hover:text-red-600"
+                            onClick={() => deleteTrainingDay(exDay.id)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
 
-                {/* 饮食计划 */}
-                <div>
+                {/* 当日饮食 */}
                 <DietPlanCard
                   dietPlan={dietPlan}
+                  dayOfWeek={dietDow}
+                  selectedDateLabel={dietDateLabel}
                   onUpdated={() => {
                     api.get<DietPlanDetail | null>("/diet-plans/active").then((diet) => {
                       setDietPlan(diet);
                     });
                   }}
                 />
-                </div>
               </div>
             </div>
           )}
@@ -1432,57 +1451,15 @@ export default function PlansPage() {
         open={dayDialogOpen}
         onClose={() => setDayDialogOpen(false)}
         onUpdated={() => {
-          // 重新加载当前计划详情
-          const planId = selectedId ?? activePlan?.id;
-          if (planId) {
-            api.get<PlanDetail>(`/plans/${planId}`).then((detail) => {
-              setSelectedPlan(detail);
-              // 更新 selectedDay 以反映最新数据
+          if (activePlan?.id) {
+            api.get<PlanDetail>(`/plans/${activePlan.id}`).then((detail) => {
+              setActivePlan(detail);
               const updatedDay = detail.days.find((d) => d.id === selectedDay?.id);
               if (updatedDay) setSelectedDay(updatedDay);
             });
           }
         }}
       />
-
-      {/* 删除训练计划确认弹窗 */}
-      <Dialog
-        open={deleteDialogOpen}
-        onOpenChange={(open) => {
-          setDeleteDialogOpen(open);
-          if (!open) setPlanToDeleteId(null);
-        }}
-      >
-        <DialogContent className="max-w-sm border-emerald-100 bg-white/95 backdrop-blur">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-emerald-950">
-              <Trash2 className="size-4 text-red-500" />
-              删除训练计划
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <p className="text-sm text-emerald-700/80">
-              确定删除训练计划「{plans.find((p) => p.id === planToDeleteId)?.name ?? ""}」？删除后将无法恢复。
-            </p>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialogOpen(false)}
-              className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-            >
-              取消
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={executeDelete}
-              className="bg-red-500 text-white hover:bg-red-600"
-            >
-              删除
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }

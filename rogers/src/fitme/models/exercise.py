@@ -4,14 +4,29 @@
 存储健身动作的基础数据（名称、肌群、器械、难度、描述），
 供训练计划编排和 Agent 动作推荐查询使用。
 """
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Boolean, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+
+
+# dataset body_part -> 我们稳定的 7 值 muscle_group（粗分类，零改动 agent/plan 消费方）
+MUSCLE_GROUP_COARSENING = {
+    "chest": "chest",
+    "back": "back",
+    "shoulders": "shoulders",
+    "neck": "shoulders",
+    "upper arms": "arms",
+    "lower arms": "arms",
+    "upper legs": "legs",
+    "lower legs": "legs",
+    "waist": "core",
+    "cardio": "full_body",
+}
 
 
 class Exercise(Base):
@@ -40,3 +55,20 @@ class Exercise(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     instructions: Mapped[Optional[str]] = mapped_column(Text)
     tips: Mapped[Optional[str]] = mapped_column(Text)
+
+    # ---- 以下为导入 exercises-dataset 新增列（均 nullable，由 init_db 自动 ALTER）----
+    body_part: Mapped[Optional[str]] = mapped_column(String(50), index=True)
+    body_part_zh: Mapped[Optional[str]] = mapped_column(String(50))
+    target: Mapped[Optional[str]] = mapped_column(String(50), index=True)
+    target_zh: Mapped[Optional[str]] = mapped_column(String(50))
+    secondary_muscles: Mapped[Optional[List[str]]] = mapped_column(JSONB)
+    secondary_muscles_zh: Mapped[Optional[List[str]]] = mapped_column(JSONB)
+    instruction_steps: Mapped[Optional[List[str]]] = mapped_column(JSONB)
+    instruction_steps_en: Mapped[Optional[List[str]]] = mapped_column(JSONB)
+    instructions_en: Mapped[Optional[str]] = mapped_column(Text)
+    equipment_zh: Mapped[Optional[str]] = mapped_column(String(100))
+    muscle_subgroup_zh: Mapped[Optional[str]] = mapped_column(String(50))
+    media_id: Mapped[Optional[str]] = mapped_column(String(100))
+    image: Mapped[Optional[str]] = mapped_column(String(255))
+    gif_url: Mapped[Optional[str]] = mapped_column(String(255))
+    attribution: Mapped[Optional[str]] = mapped_column(String(255))

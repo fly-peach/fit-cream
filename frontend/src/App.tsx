@@ -1,9 +1,12 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
 import { AdminRoute } from "@/components/admin-route";
+import { LanguageProvider } from "@/lib/language-context";
 import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
 import DocumentViewerPage from "@/pages/document-viewer";
+import ExercisesPage from "@/pages/exercises";
+import ExerciseDetailPage from "@/pages/exercise-detail";
 import KnowledgeBasesPage from "@/pages/knowledge-bases";
 import KnowledgeBaseDetailPage from "@/pages/knowledge-base-detail";
 import LoginPage from "@/pages/login";
@@ -23,8 +26,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 export function App() {
   return (
-    <BrowserRouter>
-      <Routes>
+    <LanguageProvider>
+      <BrowserRouter>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
@@ -50,6 +54,30 @@ export function App() {
           element={
             <ProtectedRoute>
               <PlansPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/plans/:exSegment/:dtSegment"
+          element={
+            <ProtectedRoute>
+              <PlansPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/exercises"
+          element={
+            <ProtectedRoute>
+              <ExercisesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/exercises/:id"
+          element={
+            <ProtectedRoute>
+              <ExerciseDetailPage />
             </ProtectedRoute>
           }
         />
@@ -103,8 +131,9 @@ export function App() {
             </AdminRoute>
           }
         />
-      </Routes>
-    </BrowserRouter>
+        </Routes>
+      </BrowserRouter>
+    </LanguageProvider>
   );
 }
 

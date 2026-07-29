@@ -66,10 +66,20 @@ def main():
         sys.exit(1)
 
     print("\n[2/3] 复制构建产物到 rogers/static/ ...")
+    # 保留 exercises/ 目录（由 scripts/copy_exercise_media.py 单独复制），
+    # 只清理前端构建产物后合并复制
     if static_dir.exists():
-        shutil.rmtree(static_dir)
-        print(f"  - 清理旧目录: {static_dir.name}")
-    shutil.copytree(dist_dir, static_dir)
+        for item in static_dir.iterdir():
+            if item.name == "exercises":
+                continue
+            if item.is_dir():
+                shutil.rmtree(item)
+            else:
+                item.unlink()
+            print(f"  - 清理: {item.name}")
+    else:
+        static_dir.mkdir(parents=True)
+    shutil.copytree(dist_dir, static_dir, dirs_exist_ok=True)
     print(f"  ✓ 已复制到: {static_dir}")
 
     print("\n" + "=" * 50)

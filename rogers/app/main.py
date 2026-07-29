@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
-    logger.info(f"FitCream ready: http://localhost:8000")
+    logger.info("FitCream ready: http://localhost:8000")
 
     yield
 
@@ -138,9 +138,21 @@ if STATIC_DIR.exists():
     if assets_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
+    # 托管动作库媒体（© Gym visual）：图片 + 动图，需在 SPA catch-all 之前挂载
+    exercises_media_dir = STATIC_DIR / "exercises"
+    if exercises_media_dir.exists():
+        app.mount(
+            "/static/exercises",
+            StaticFiles(directory=str(exercises_media_dir)),
+            name="exercises-media",
+        )
+
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
         """SPA fallback: 非 API / 非静态文件请求返回 index.html"""
+        # API 路径未匹配时返回 JSON 404，不返回 HTML
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
         # 尝试精确匹配静态文件（favicon.ico, robots.txt 等）
         file_path = STATIC_DIR / full_path
         if full_path and file_path.exists() and file_path.is_file():
@@ -149,4 +161,4 @@ if STATIC_DIR.exists():
         index = STATIC_DIR / "index.html"
         if index.exists():
             return FileResponse(str(index))
-        return JSONResponse({"detail": "Frontend not built. Run: python build_console.py"}, status_code=404)
+        return JSONResponse({"detail": "Frontend not built. Run: python build_web.py"}, status_code=404)

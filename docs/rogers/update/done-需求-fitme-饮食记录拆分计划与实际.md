@@ -16,7 +16,7 @@
 - [x] 创建 diet router（独立于 diet_plans）
 - [ ] 更新 StatsService，集成饮食统计
 - [ ] 更新 Agent 工具，支持记录饮食
-- [ ] 更新 Database-02-饮食计划数据表.md 文档
-- [ ] 更新 Services-01-Service层.md 文档
+- [x] 更新 Database-02-饮食计划数据表.md 文档
+- [x] 更新 Services-01-Service层.md 文档
 - [x] 更新 routers/Overview-01-路由总览.md 文档
-- [ ] 创建 Endpoints-07-饮食记录.md 文档
+- [x] 创建 Endpoints-07-饮食记录.md 文档

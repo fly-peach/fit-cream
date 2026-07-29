@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     DASHSCOPE_ENABLE_THINKING: bool = True
 
     # ---------- CORS ----------
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"]
 
     # ---------- 限流 ----------
     AGENT_RATE_LIMIT: int = 10
