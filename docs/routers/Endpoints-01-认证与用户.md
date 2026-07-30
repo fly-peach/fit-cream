@@ -17,6 +17,7 @@
 | phone | str | 11-20 字符 | 手机号 |
 | password | str | 6-128 字符 | 密码（bcrypt 12 轮哈希） |
 | name | Optional[str] | 最多 100 字符 | 显示名称 |
+| verification_code | Optional[str] | 4-10 字符 | 短信验证码（阿里云 SMS 已配置且传入时校验，通过则标记 is_verified=True） |
 
 **响应：`ResponseModel[AuthResponseData]`**
 
@@ -36,9 +37,9 @@ TokenPair：
 | token_type | str |
 | expires_in | int |
 
-错误：手机号重复 → 40001
+错误：手机号重复 -> 40001
 
-逻辑：注册时自动创建默认用户设置。
+逻辑：注册时自动创建默认用户设置；传入 verification_code 且阿里云 SMS 已配置时，注册阶段即校验验证码并标记手机号已验证。
 
 ### 登录
 
@@ -58,6 +59,32 @@ TokenPair：
 **响应：`ResponseModel[AuthResponseData]`**
 
 错误：密码或用户不存在 → 40103
+
+### 短信验证码登录
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/api/auth/sms-login` |
+| 认证 | 无 |
+
+**请求体：SmsLoginRequest**
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| phone | str | 11-20 字符 |
+| code | str | 4-10 字符 |
+
+**响应：`ResponseModel[AuthResponseData]`**
+
+逻辑：
+1. 检查登录失败锁定（与密码登录共用，防验证码暴力破解）
+2. 校验验证码（code_type="login"，原子消费）
+3. 手机号未注册时自动注册（随机密码哈希、name="用户+手机尾号"、is_verified=True）
+4. 手机号已注册时完成登录收尾（更新登录信息 + 审计日志 action="login_sms"）
+5. 生成 TokenPair
+
+错误：验证码无效或已过期 -> 40000；账号被禁用 -> 40300；连续失败锁定 -> 40300
 
 ### 刷新令牌
 
@@ -127,7 +154,7 @@ TokenPair：
 | phone | str | 11-20 字符 |
 | code_type | str | register / login / reset_password，默认 register |
 
-逻辑：检查冷却期（60秒）→ 检查每小时上限（5次）→ 生成 6 位验证码 → 阿里云 SMS 发送（未配置则开发日志输出替代）。
+逻辑：检查冷却期（60秒）→ 检查每手机号每小时上限（5次）→ 检查每 IP 每小时上限（10次，防遍历手机号薅短信）→ secrets 生成 6 位验证码 → 持久化（记录 ip）→ 阿里云 SMS 发送（未配置则开发日志输出替代）。
 
 ### 验证验证码
 
@@ -145,7 +172,7 @@ TokenPair：
 | code | str | 4-10 字符 |
 | code_type | str | register / login / reset_password，默认 register |
 
-逻辑：按 phone + code + code_type 查询 → 校验未使用且未过期 → 标记 used_at。
+逻辑：原子消费（UPDATE ... WHERE used_at IS NULL，以 rowcount 判定成功，防并发重复使用）→ 校验未使用且未过期 → 标记 used_at → 返回对应 User（供短信登录自动注册判断）。
 
 ### 请求密码重置
 

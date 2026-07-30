@@ -220,3 +220,24 @@
 - [x] 删除旧的 Database-01-数据表.md
 - [x] 更新字段定义：exercise 新增 equipment/difficulty 索引，conversation 新增 GIN 索引，thread 表标注 ThreadBase 混入，checkin 移除冗余索引
 - [x] agent.md 更新文件结构和源码映射表
+
+### 2026-07-30 - 短信验证码登录 + 聊天图片转存阿里云 OSS
+
+- [x] 新增 `POST /auth/sms-login`（未注册手机号自动注册），复用登录失败锁定
+- [x] 抽取 `_create_user` / `_finalize_login` / `_record_failed_attempt` 共用逻辑，修复失败 attempt 未持久化导致锁定失效
+- [x] 验证码原子消费 + `secrets.randbelow` 均匀生成 + 每 IP 限频（VERIFICATION_CODE_MAX_PER_IP_HOUR）
+- [x] VerificationCode 模型新增 ip 字段；RegisterRequest 新增可选 verification_code
+- [x] 新增 `utils/oss.py`：聊天图片转存 OSS 私有路径，返回长期签名 URL，未配置回退 base64
+- [x] `/chat/upload-image` 响应 url 改为 OSS 签名 URL
+- [x] config / .env.example 同步 OSS 与验证码 IP 限频配置
+- [x] 前端登录页重构为四模式（验证码/密码/注册/重置）+ 分格验证码 + 品牌面板
+- [x] 文档同步：Endpoints-01、auth/Overview、auth/Database、auth/Services、Endpoints-02、routers/Overview、fitme/Services、frontend/Pages
+
+### 2026-07-30 - 动作库 dataset 文档补全
+
+- [x] 新建 Endpoints-08-动作库.md（exercises 路由 8 端点：列表/分类/肌群/器械统计/详情/创建/更新/删除）
+- [x] fitme/Database-01 exercises 表补全 dataset 双语字段（body_part/target/secondary_muscles/instruction_steps/gif_url 等 15 列）+ 粗分类映射说明
+- [x] fitme/Services ExerciseService 补 list_equipments 方法 + 更新说明（1324 条中英双语 dataset）
+- [x] routers/Overview exercises 描述补器械统计与 dataset 规模
+- [x] frontend/Overview 架构补 exercises/exercise-detail 页面、language-context、exercise-labels、types/exercise
+- [x] frontend/Pages 补 ExercisesPage / ExerciseDetailPage

@@ -2,7 +2,7 @@
 
 ## 认证体系
 
-FitCream 使用手机号 + 密码登录，基于 JWT（HS256）实现无状态认证。
+FitCream 支持手机号 + 密码登录与手机号 + 短信验证码登录，基于 JWT（HS256）实现无状态认证。短信验证码登录对未注册手机号自动注册。
 
 ### 注册/登录流程
 
@@ -10,6 +10,7 @@ FitCream 使用手机号 + 密码登录，基于 JWT（HS256）实现无状态�
 客户端 -> POST /api/auth/register {phone, password, name?}
        -> AuthService.register()
          -> 校验手机号唯一性
+         -> （可选）短信验证码校验（传入 verification_code 且阿里云 SMS 已配置时）-> 通过则 is_verified=True
          -> bcrypt 哈希密码（12 轮）
          -> 创建 User 记录（is_active=True, is_verified=False）
          -> 创建 UserSettings
@@ -29,6 +30,22 @@ FitCream 使用手机号 + 密码登录，基于 JWT（HS256）实现无状态�
          -> 生成 TokenPair
        -> 返回 UserOut + TokenPair
 ```
+
+### 短信验证码登录
+
+```
+客户端 -> POST /api/auth/sms-login {phone, code}
+       -> AuthService.sms_login()
+         -> 检查登录锁定（与密码登录共用，防验证码暴力破解）
+         -> 校验验证码（code_type="login"，原子消费 UPDATE）
+            -> 验证失败：记录失败 attempt（单独提交）-> 抛 40000
+         -> 手机号已注册 -> _finalize_login（状态校验 + 标记 is_verified + 更新登录信息 + 审计 action="login_sms"）
+         -> 手机号未注册 -> _create_user（随机密码哈希、name="用户+尾号"、is_verified=True、审计 action="register_sms"）
+         -> 生成 TokenPair
+       -> 返回 UserOut + TokenPair
+```
+
+说明：sms_login 与 login 共用 `_check_login_lock` / `_finalize_login` / `_create_user`，避免逻辑漂移；验证码错误同样计入失败次数，触发锁定。
 
 ### 令牌刷新
 
@@ -70,7 +87,7 @@ Token 字段含 `jti`（JWT ID）和 `iat`（签发时间）。
 - **登录锁定**：连续 5 次登录失败自动锁定 15 分钟（`LOGIN_MAX_ATTEMPTS` / `LOGIN_LOCK_MINUTES` 可配置），使用 `LoginAttempt` 表持久化
 - **令牌黑名单**：logout 时将 refresh_token 的 jti 写入 `RefreshTokenBlacklist`，refresh 时检查黑名单拒绝已注销令牌
 - **审计日志**：register/login/change_password 等敏感操作通过 `UserAuditLog` 记录（用户/操作/IP/UA）
-- **短信验证码**：集成阿里云 SMS（`ALIBABA_CLOUD_*` 环境变量），支持注册/登录/密码重置场景发送验证码；未配置时开发环境跳过
+- **短信验证码**：集成阿里云 SMS（`ALIBABA_CLOUD_*` 环境变量），支持注册/登录/密码重置场景发送验证码；未配置时开发环境跳过。验证码安全：`secrets.randbelow` 均匀生成 6 位码（避免 uuid4 首位弱熵）；原子消费（`UPDATE ... WHERE used_at IS NULL` 以 rowcount 判定，防并发重复使用）；双重限频（每手机号每小时 5 次 + 每 IP 每小时 10 次，防遍历手机号薅短信费用）；持久化记录 IP
 - **密码管理**：新增 change_password（需旧密码验证）和 reset_password（验证码后重置）端点
 - **手机验证**：`is_verified` 标志记录手机号验证状态
 

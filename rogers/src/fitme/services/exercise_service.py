@@ -1,8 +1,8 @@
 """动作库服务"""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import CheckinExercise
@@ -47,22 +47,17 @@ class ExerciseService:
         return list(result.scalars().all())
 
     @staticmethod
-    async def search(
-        db: AsyncSession,
+    def _apply_exercise_filters(
+        query,
         muscle_group: Optional[str] = None,
         equipment: Optional[str] = None,
-        keyword: Optional[str] = None,
         difficulty: Optional[str] = None,
         category: Optional[str] = None,
         body_part: Optional[str] = None,
         target: Optional[str] = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> List[Exercise]:
-        from sqlalchemy import or_
-
-        query = select(Exercise)
-
+        keyword: Optional[str] = None,
+    ):
+        """统一构建动作筛选 WHERE 子句（search 与 count 共享，避免逻辑重复）。"""
         if muscle_group:
             query = query.where(Exercise.muscle_group == muscle_group)
         if equipment:
@@ -76,18 +71,81 @@ class ExerciseService:
         if target:
             query = query.where(Exercise.target == target)
         if keyword:
-            # 关键词 OR 匹配 name/description/instructions，使中文查询（如「深蹲」）能命中英文动作
+            # 关键词 OR 匹配 name/name_en/description/instructions：
+            # 中文查询（如「深蹲」）与英文查询（如 Barbell）均可命中
             query = query.where(
                 or_(
                     Exercise.name.ilike(f"%{keyword}%"),
+                    Exercise.name_en.ilike(f"%{keyword}%"),
                     Exercise.description.ilike(f"%{keyword}%"),
                     Exercise.instructions.ilike(f"%{keyword}%"),
                 )
             )
+        return query
 
-        query = query.order_by(Exercise.name).offset(offset).limit(limit)
+    @staticmethod
+    async def search(
+        db: AsyncSession,
+        muscle_group: Optional[str] = None,
+        equipment: Optional[str] = None,
+        keyword: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        category: Optional[str] = None,
+        body_part: Optional[str] = None,
+        target: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[Exercise]:
+        query = ExerciseService._apply_exercise_filters(
+            select(Exercise),
+            muscle_group=muscle_group,
+            equipment=equipment,
+            difficulty=difficulty,
+            category=category,
+            body_part=body_part,
+            target=target,
+            keyword=keyword,
+        ).order_by(Exercise.name).offset(offset).limit(limit)
         result = await db.execute(query)
         return list(result.scalars().all())
+
+    @staticmethod
+    async def search_with_count(
+        db: AsyncSession,
+        muscle_group: Optional[str] = None,
+        equipment: Optional[str] = None,
+        keyword: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        category: Optional[str] = None,
+        body_part: Optional[str] = None,
+        target: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> Tuple[List[Exercise], int]:
+        """单次筛选构建、两条 SQL：返回 (items, total)，filter 逻辑只写一处。"""
+        items_query = ExerciseService._apply_exercise_filters(
+            select(Exercise),
+            muscle_group=muscle_group,
+            equipment=equipment,
+            difficulty=difficulty,
+            category=category,
+            body_part=body_part,
+            target=target,
+            keyword=keyword,
+        ).order_by(Exercise.name).offset(offset).limit(limit)
+        count_query = ExerciseService._apply_exercise_filters(
+            select(func.count()).select_from(Exercise),
+            muscle_group=muscle_group,
+            equipment=equipment,
+            difficulty=difficulty,
+            category=category,
+            body_part=body_part,
+            target=target,
+            keyword=keyword,
+        )
+        items_result = await db.execute(items_query)
+        count_result = await db.execute(count_query)
+        return list(items_result.scalars().all()), count_result.scalar() or 0
 
     @staticmethod
     async def search_by_name(
@@ -155,29 +213,16 @@ class ExerciseService:
         body_part: Optional[str] = None,
         target: Optional[str] = None,
     ) -> int:
-        from sqlalchemy import or_
-
-        query = select(func.count()).select_from(Exercise)
-        if muscle_group:
-            query = query.where(Exercise.muscle_group == muscle_group)
-        if equipment:
-            query = query.where(Exercise.equipment == equipment)
-        if difficulty:
-            query = query.where(Exercise.difficulty == difficulty)
-        if category:
-            query = query.where(Exercise.category == category)
-        if body_part:
-            query = query.where(Exercise.body_part == body_part)
-        if target:
-            query = query.where(Exercise.target == target)
-        if keyword:
-            query = query.where(
-                or_(
-                    Exercise.name.ilike(f"%{keyword}%"),
-                    Exercise.description.ilike(f"%{keyword}%"),
-                    Exercise.instructions.ilike(f"%{keyword}%"),
-                )
-            )
+        query = ExerciseService._apply_exercise_filters(
+            select(func.count()).select_from(Exercise),
+            muscle_group=muscle_group,
+            equipment=equipment,
+            difficulty=difficulty,
+            category=category,
+            body_part=body_part,
+            target=target,
+            keyword=keyword,
+        )
         result = await db.execute(query)
         return result.scalar() or 0
 

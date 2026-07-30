@@ -29,7 +29,7 @@ class GetExercisesInput(BaseModel):
         default=None,
         description=(
             "器械类型筛选。可选值：barbell(杠铃)、dumbbell(哑铃)、"
-            "machine(器械)、bodyweight(自重)、cable(绳索)、kettlebell(壶铃)。"
+            "machine(器械)、bodyweight(自重)、cable(绳索)、kettlebell(壶铃)、band(弹力带)。"
             "不填则不限制器械。"
         ),
     )
@@ -77,10 +77,19 @@ async def get_exercises_tool(
                 {
                     "id": str(ex.id),
                     "name": ex.name,
+                    "name_en": ex.name_en,
                     "muscle_group": ex.muscle_group,
+                    "target": ex.target,
+                    "target_zh": ex.target_zh,
                     "equipment": ex.equipment,
+                    "equipment_zh": ex.equipment_zh,
                     "difficulty": ex.difficulty,
+                    "category": ex.category,
+                    "is_compound": ex.is_compound,
                     "description": ex.description,
+                    "instruction_steps": ex.instruction_steps,
+                    "image": ex.image,
+                    "gif_url": ex.gif_url,
                 }
                 for ex in exercises
             ]

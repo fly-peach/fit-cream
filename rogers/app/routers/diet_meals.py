@@ -20,6 +20,7 @@ from src.fitme.schemas.diet import (
     CustomFoodItemOut,
     CustomFoodItemUpdate,
     DailyDietSummaryOut,
+    DietMealBatchCreate,
     DietMealCreate,
     DietMealOut,
     DietMealUpdate,
@@ -134,6 +135,20 @@ async def delete_custom_food(
     await CustomFoodItemService.delete(db, food_id, user.id)
     await db.commit()
     return ResponseModel(message="食物已删除")
+
+
+# ---- Batch create (before /{meal_id} to avoid path conflicts) ----
+@router.post("/batch", response_model=ResponseModel[list[DietMealOut]])
+async def batch_create_meals(
+    data: DietMealBatchCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    meals = await DietMealService.batch_create_meals(
+        db, user.id, [m.model_dump() for m in data.meals]
+    )
+    await db.commit()
+    return ResponseModel(data=[DietMealOut.model_validate(m) for m in meals])
 
 
 # ---- DietMeal by ID endpoints (after static/named routes) ----

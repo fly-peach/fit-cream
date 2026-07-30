@@ -8,6 +8,6 @@ Agent Harness 模块
 - memory: 分层认知记忆架构（情景/语义/程序性记忆）
 """
 
-from src.agents.harness.prompts import SYSTEM_PROMPT, build_system_prompt
+from src.agents.harness.orchestration.prompts import SYSTEM_PROMPT, build_system_prompt
 
 __all__ = ["SYSTEM_PROMPT", "build_system_prompt"]

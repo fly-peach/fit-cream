@@ -122,10 +122,27 @@ FitCream 使用 PostgreSQL 数据库，通过 SQLAlchemy ORM 管理。本文件�
 | category | VARCHAR(50) | nullable, 索引 | compound / isolation / cardio / mobility |
 | is_compound | Boolean | default=False | 是否复合动作 |
 | muscle_subgroup | VARCHAR(50) | nullable | 细分肌群（upper_chest/middle_chest/lower_chest/lats/middle_back/lower_back 等） |
+| muscle_subgroup_zh | VARCHAR(50) | nullable | 细分肌群（中文） |
 | calories_per_min | NUMERIC(6,1) | nullable | 每分钟消耗热量估算(kcal) |
-| instructions | Text | nullable | 分步骤动作执行说明 |
+| instructions | Text | nullable | 执行步骤说明 |
 | tips | Text | nullable | 注意事项/常见错误 |
 | description | Text | nullable | 动作说明 |
+| body_part | VARCHAR(50) | nullable, 索引 | dataset 原始身体部位（细分） |
+| body_part_zh | VARCHAR(50) | nullable | 原始身体部位（中文） |
+| target | VARCHAR(50) | nullable, 索引 | 目标肌群（英文） |
+| target_zh | VARCHAR(50) | nullable | 目标肌群（中文） |
+| secondary_muscles | JSONB | nullable | 次要肌群（英文） |
+| secondary_muscles_zh | JSONB | nullable | 次要肌群（中文） |
+| instruction_steps | JSONB | nullable | 编号步骤（中文） |
+| instruction_steps_en | JSONB | nullable | 编号步骤（英文） |
+| instructions_en | Text | nullable | 英文执行说明 |
+| equipment_zh | VARCHAR(100) | nullable | 器械（中文） |
+| media_id | VARCHAR(100) | nullable | 媒体库 ID（Gym Visual） |
+| image | VARCHAR(255) | nullable | 静态缩略图 URL |
+| gif_url | VARCHAR(255) | nullable | 动图演示 URL |
+| attribution | VARCHAR(255) | nullable | 媒体署名 |
+
+说明：动作库含 1324 条 dataset 导入动作，中英双语字段成对存储；`muscle_group` 为 7 值粗分类，由 dataset 的 `body_part` 经 `MUSCLE_GROUP_COARSENING` 映射归并而来，保持 Agent/Plan 消费方零改动。dataset 新增列均 nullable，由 `init_db` 自动 ALTER 补齐。
 
 ## 打卡体系
 

@@ -76,10 +76,12 @@ prefix: `/chat`
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| url | str | data:base64 URL |
+| url | str | OSS 签名 URL（长期有效，约 100 年）；OSS 未配置或上传失败时回退为 base64 data URL |
 | filename | str | 文件名 |
 | size | int | 文件大小 |
 | mime_type | str | MIME 类型 |
+
+逻辑：图片涉及用户隐私，上传至 OSS 私有路径 `chat/{user_id}/{uuid}.{ext}`，ACL 设为私有，返回长期有效签名 URL（`OSS_SIGN_URL_EXPIRES` 控制，默认约 100 年）。该 URL 可直接嵌入前端或传给 DashScope 多模态接口。OSS 未配置（缺 AccessKey 等）或上传异常时回退 base64 data URL（开发模式）。
 
 ## 线程列表
 

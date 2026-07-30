@@ -37,7 +37,7 @@ async def list_exercises(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    exercises = await ExerciseService.search(
+    exercises, total = await ExerciseService.search_with_count(
         db,
         muscle_group=muscle_group,
         equipment=equipment,
@@ -48,16 +48,6 @@ async def list_exercises(
         target=target,
         limit=limit,
         offset=offset,
-    )
-    total = await ExerciseService.count(
-        db,
-        muscle_group=muscle_group,
-        equipment=equipment,
-        difficulty=difficulty,
-        category=category,
-        keyword=keyword,
-        body_part=body_part,
-        target=target,
     )
     return ResponseModel(data=[ExerciseOut.model_validate(e) for e in exercises],
                          message=f"共 {total} 个动作")

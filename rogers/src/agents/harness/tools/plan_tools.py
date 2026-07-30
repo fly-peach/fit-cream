@@ -11,11 +11,24 @@ from uuid import UUID
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.plan_service import PlanService
 from src.fitme.services.user_service import UserService
+
+
+async def _build_user_body_data(db: AsyncSession, uid: UUID) -> dict:
+    """构建用户身体数据（身高/体重取最新 HealthMetric，年龄/性别取 User）。"""
+    user = await UserService.get_by_id(db, uid)
+    latest = await UserService.get_latest_health_metric(db, uid)
+    return {
+        "height_cm": float(latest.height_cm) if latest and latest.height_cm else None,
+        "weight_kg": float(latest.weight_kg) if latest and latest.weight_kg else None,
+        "age": user.age,
+        "gender": user.gender,
+    }
 
 
 @tool
@@ -132,16 +145,8 @@ async def create_plan_tool(
         try:
             uid = UUID(user_id)
 
-            # 获取用户信息
-            user = await UserService.get_by_id(db, uid)
-            user_data = None
-            if user:
-                user_data = {
-                    "height_cm": float(user.height_cm) if user.height_cm else None,
-                    "weight_kg": float(user.weight_kg) if user.weight_kg else None,
-                    "age": user.age,
-                    "gender": user.gender,
-                }
+            # 身高/体重已迁移到 HealthMetric
+            user_data = await _build_user_body_data(db, uid)
 
             # 生成计划
             plan = await PlanService.generate_plan_from_goal(
@@ -253,27 +258,19 @@ async def create_diet_plan_tool(
         try:
             uid = UUID(user_id)
 
-            # 获取用户信息以计算热量
-            user = await UserService.get_by_id(db, uid)
-            user_data = None
+            # 身高/体重已迁移到 HealthMetric
+            user_data = await _build_user_body_data(db, uid)
             calculated_calories = target_calories or 2000
 
-            if user:
-                user_data = {
-                    "height_cm": float(user.height_cm) if user.height_cm else None,
-                    "weight_kg": float(user.weight_kg) if user.weight_kg else None,
-                    "age": user.age,
-                    "gender": user.gender,
-                }
-                # 如果没有指定热量，根据用户数据估算
-                if not target_calories and user_data["weight_kg"]:
-                    weight = user_data["weight_kg"]
-                    if goal == "lose_fat":
-                        calculated_calories = int(weight * 22)  # 减脂：体重×22
-                    elif goal == "gain_muscle":
-                        calculated_calories = int(weight * 33)  # 增肌：体重×33
-                    else:
-                        calculated_calories = int(weight * 28)  # 维持：体重×28
+            # 如果没有指定热量，根据用户数据估算
+            if not target_calories and user_data["weight_kg"]:
+                weight = user_data["weight_kg"]
+                if goal == "lose_fat":
+                    calculated_calories = int(weight * 22)  # 减脂：体重×22
+                elif goal == "gain_muscle":
+                    calculated_calories = int(weight * 33)  # 增肌：体重×33
+                else:
+                    calculated_calories = int(weight * 28)  # 维持：体重×28
 
             # 生成饮食计划
             diet_plan = await DietPlanService.generate_diet_plan_from_goal(

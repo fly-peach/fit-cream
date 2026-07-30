@@ -8,9 +8,9 @@
 | 守卫 | 无 |
 | 认证状态 | 不支持已登录用户显示 |
 
-登录/注册切换式页面（手机号 + 密码）。支持密码显隐切换，装饰性动画背景。登录成功根据 `user.role` 分别重定向到知识库门户或管理后台。
+登录页四模式切换：密码登录、短信验证码登录、注册、重置密码。支持分格验证码输入、密码显隐切换、装饰性动画背景与左侧品牌面板。登录成功根据 `user.role` 分别重定向到知识库门户或管理后台。
 
-**API 调用：** `POST /api/auth/login`、`POST /api/auth/register`
+**API 调用：** `POST /api/auth/login`、`POST /api/auth/sms-login`、`POST /api/auth/register`、`POST /api/auth/send-verification-code`、`POST /api/auth/verify-code`、`POST /api/auth/request-password-reset`、`POST /api/auth/reset-password`
 
 **依赖：** useAuthStore（setAuth, logoutReason, clearLogoutReason）
 
@@ -36,7 +36,7 @@
 | 路径 | `/chat` |
 | 守卫 | ProtectedRoute |
 
-AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、工具调用块渲染、图片附件（相册 + 摄像头）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
+AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、工具调用块渲染、图片附件（相册 + 摄像头，发送前自动上传 OSS 获取签名 URL 再提交）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
 
 **子组件：** ToolBlock、InterleavedReasoning、MessageItem、AttachmentItem、ChatPromptInner
 
@@ -60,6 +60,32 @@ AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Though
 **自定义组件：** MetadataEditor / MetadataPreview（元数据键值编辑）
 
 **API 调用：** `GET /api/plans`、`GET /api/plans/active`、`GET /api/plans/{id}`、`DELETE /api/plans/{id}`、`POST /api/plans/{id}/days`、`PUT /api/plans/days/{id}`、`DELETE /api/plans/days/{id}`、`PUT /api/plans/exercises/{id}`、`DELETE /api/plans/exercises/{id}`、`POST /api/plans/days/{id}/exercises`、`GET /api/exercises?limit=20&keyword=`、`POST /api/checkins`、`GET /api/checkins/streak`、`GET /api/checkins?limit=200`、`GET /api/diet-plans/active`、`PUT /api/diet-plans/meals/{id}`、`DELETE /api/diet-plans/meals/{id}`、`PUT /api/diet-plans/days/{id}`（约 18 个端点）
+
+## ExercisesPage
+
+| 项目 | 值 |
+|------|-----|
+| 路径 | `/exercises` |
+| 守卫 | ProtectedRoute |
+
+动作库浏览页。多条件筛选（肌群/身体部位/器械/难度/目标）+ 关键词搜索 + 卡片网格（缩略图 hover 切换动图 GIF 演示）+ 加载更多分页；点击卡片跳转详情页。页脚保留 Gym Visual 媒体署名。中英文标签随全局语言切换。
+
+**API 调用：** `GET /api/exercises?...&limit=&offset=`、`GET /api/exercises/muscle-groups`、`GET /api/exercises/equipments`、`GET /api/exercises/categories`
+
+**依赖：** useLanguage（中英切换）、exercise-labels（肌群/器械/难度/目标中文标签映射）
+
+## ExerciseDetailPage
+
+| 项目 | 值 |
+|------|-----|
+| 路径 | `/exercises/:id` |
+| 守卫 | ProtectedRoute |
+
+动作详情页。展示动图 GIF + 中英文名称 + 全标签（肌群/细分肌群/器械/难度/分类/目标）+ 描述 + 编号执行步骤 + 折叠的英文说明 + 每分钟消耗热量 + 媒体署名。
+
+**API 调用：** `GET /api/exercises/{id}`
+
+**依赖：** useLanguage、exercise-labels
 
 ## ProfilePage
 

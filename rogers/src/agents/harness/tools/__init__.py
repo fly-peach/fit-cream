@@ -26,6 +26,12 @@ from src.agents.harness.tools.stats_tools import query_stats_tool
 from src.agents.harness.tools.exercise_tools import get_exercises_tool
 from src.agents.harness.tools.user_tools import get_user_profile_tool, update_user_profile_tool
 from src.agents.harness.tools.knowledge_tools import search_knowledge_base, read_kb_document
+from src.agents.harness.tools.diet_tools import (
+    record_meal_tool,
+    query_diet_summary_tool,
+    manage_meal_tool,
+    set_nutrition_goals_tool,
+)
 
 __all__ = [
     "create_plan_tool",
@@ -40,4 +46,8 @@ __all__ = [
     "update_user_profile_tool",
     "search_knowledge_base",
     "read_kb_document",
+    "record_meal_tool",
+    "query_diet_summary_tool",
+    "manage_meal_tool",
+    "set_nutrition_goals_tool",
 ]

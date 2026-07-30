@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import {
@@ -32,6 +33,23 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 // ============ 数据类型 ============
+
+interface DietMealRecord {
+  id: string;
+  meal_type: string;
+  food_name: string;
+  calories: number;
+  protein_g: number | null;
+  carbs_g: number | null;
+  fat_g: number | null;
+}
+
+interface UserSettings {
+  calorie_goal: number;
+  protein_goal_g: number;
+  carbs_goal_g: number;
+  fat_goal_g: number;
+}
 
 interface OverviewStats {
   total_workouts: number;
@@ -150,10 +168,67 @@ function TodayTraining({ checkin }: { checkin: CheckinItem | null }) {
 // ============ 饮食卡路里卡片 ============
 
 function NutritionCard() {
-  // 由于后端暂无饮食记录接口，这里展示目标卡路里和简单提示
-  const targetCalories = 2000;
-  const consumedCalories = 0; // 暂无数据
-  const percent = Math.min(100, Math.round((consumedCalories / targetCalories) * 100));
+  const [totals, setTotals] = useState<{
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  } | null>(null);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
+
+  useEffect(() => {
+    const today = format(new Date(), "yyyy-MM-dd");
+    Promise.all([
+      api.get<UserSettings>("/users/settings").catch(() => null),
+      api
+        .get<{ items: DietMealRecord[] }>(
+          `/diet-meals?start=${today}&end=${today}&size=100`,
+        )
+        .catch(() => null),
+    ]).then(([s, mealRes]) => {
+      if (s) setSettings(s);
+      const items = mealRes?.items ?? [];
+      setTotals(
+        items.reduce(
+          (acc, m) => ({
+            calories: acc.calories + (m.calories || 0),
+            protein: acc.protein + (m.protein_g || 0),
+            carbs: acc.carbs + (m.carbs_g || 0),
+            fat: acc.fat + (m.fat_g || 0),
+          }),
+          { calories: 0, protein: 0, carbs: 0, fat: 0 },
+        ),
+      );
+    });
+  }, []);
+
+  const targetCalories = settings?.calorie_goal ?? 2000;
+  const consumedCalories = totals?.calories ?? 0;
+  const percent =
+    targetCalories > 0
+      ? Math.min(100, Math.round((consumedCalories / targetCalories) * 100))
+      : 0;
+
+  const macros = [
+    {
+      label: "蛋白质",
+      value: totals?.protein ?? 0,
+      target: settings?.protein_goal_g ?? 0,
+      color: "bg-emerald-500",
+    },
+    {
+      label: "碳水",
+      value: totals?.carbs ?? 0,
+      target: settings?.carbs_goal_g ?? 0,
+      color: "bg-amber-500",
+    },
+    {
+      label: "脂肪",
+      value: totals?.fat ?? 0,
+      target: settings?.fat_goal_g ?? 0,
+      color: "bg-sky-500",
+    },
+  ];
 
   return (
     <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
@@ -178,29 +253,41 @@ function NutritionCard() {
             </RadialBarChart>
           </ResponsiveContainer>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-2xl font-bold tabular-nums text-emerald-950">{consumedCalories}</span>
+            <span className="text-2xl font-bold tabular-nums text-emerald-950">
+              {consumedCalories}
+            </span>
             <span className="text-xs text-emerald-600/60">/ {targetCalories} kcal</span>
           </div>
         </div>
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center justify-between rounded-lg bg-amber-50/60 px-4 py-3">
-            <span className="flex items-center gap-2 text-sm text-amber-700">
-              <Utensils className="size-4 text-amber-500" />
-              目标摄入
-            </span>
-            <span className="text-lg font-bold text-amber-950">{targetCalories} kcal</span>
-          </div>
-          <div className="flex items-center justify-between rounded-lg bg-emerald-50/60 px-4 py-3">
-            <span className="flex items-center gap-2 text-sm text-emerald-700">
-              <Flame className="size-4 text-emerald-500" />
-              已摄入
-            </span>
-            <span className="text-lg font-bold text-emerald-950">{consumedCalories} kcal</span>
-          </div>
+        <div className="mt-4 space-y-2.5">
+          {macros.map((m) => {
+            const pct =
+              m.target > 0 ? Math.min(100, Math.round((m.value / m.target) * 100)) : 0;
+            return (
+              <div key={m.label}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="font-medium text-emerald-800">{m.label}</span>
+                  <span className="tabular-nums text-emerald-600/70">
+                    {Math.round(m.value * 10) / 10} / {m.target} g
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-emerald-100/70">
+                  <div
+                    className={cn("h-full rounded-full transition-all", m.color)}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
-        <p className="mt-3 text-center text-xs text-emerald-500/50">
-          饮食记录功能开发中，可通过 AI 教练获取饮食建议
-        </p>
+        <Link
+          to="/diet"
+          className="mt-4 flex items-center justify-center gap-1 rounded-lg bg-orange-50 py-2 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-100"
+        >
+          <Utensils className="size-3.5" />
+          去饮食记录
+        </Link>
       </CardContent>
     </Card>
   );

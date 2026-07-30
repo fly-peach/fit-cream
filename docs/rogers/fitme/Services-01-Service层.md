@@ -111,12 +111,15 @@ generate_plan_from_goal 流程：
 | count | 动作总数（带过滤条件） | user |
 | list_categories | 返回所有分类及数量 | user |
 | list_muscle_groups | 返回所有肌群及数量 | user |
+| list_equipments | 返回所有器械及数量（dataset 约 28 种） | user |
 
 说明：
-- 动作库新增 6 个字段：category（分类）、is_compound（复合）、muscle_subgroup（细分肌群）、calories_per_min（热量）、instructions（执行步骤）、tips（注意事项）
+- 动作库含 1324 条 dataset 导入动作，中英双语字段成对存储（name/name_en、equipment/equipment_zh、body_part/body_part_zh、target/target_zh、secondary_muscles/secondary_muscles_zh、instruction_steps/instruction_steps_en 等）
+- `muscle_group` 为 7 值粗分类，由 dataset body_part 经 MUSCLE_GROUP_COARSENING 映射归并而来
+- 新增字段：category（分类）、is_compound（复合）、muscle_subgroup（细分肌群）、calories_per_min（热量）、instructions（执行步骤）、tips（注意事项）、动图 gif_url 等
 - delete_exercise 删除前检查 PlanDayExercise 和 CheckinExercise 中的引用，有引用则拒绝删除
-- search 新增 category 过滤参数
-- 启动时自动种子 40 个常见健身动作（exercise_seed.py）
+- search 支持肌群/器械/难度/分类/身体部位/目标/关键词多条件过滤 + offset 分页；keyword 对 name/description/instructions 做 OR 模糊匹配（中文查询可命中英文动作）
+- 启动时自动种子动作库（exercise_seed.py，支持 dataset 与 40 个常见动作）
 
 ## DietMealService
 
@@ -160,7 +163,10 @@ generate_plan_from_goal 流程：
 |------|------|------|
 | register | 用户注册 | 检查手机号唯一性 → bcrypt 哈希密码 → 创建用户 → 创建默认设置 → 生成 JWT 对 |
 | login | 用户登录 | 校验凭据 → 生成 JWT 对 |
+| sms_login | 短信验证码登录 | 校验验证码 → 未注册自动注册 → 生成 JWT 对 |
 | refresh_token | 刷新令牌 | 验证 refresh_token → 校验用户存在 → 生成新 JWT 对 |
+
+> 完整方法列表（含 change_password/logout/验证码/密码重置/_create_user/_finalize_login 等）见 `auth/Services-01-用户服务.md`。
 
 JWT 配置：
 - Access Token：7 天有效期，HS256 签名

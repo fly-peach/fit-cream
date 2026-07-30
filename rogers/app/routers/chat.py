@@ -5,21 +5,21 @@ import json
 import logging
 from datetime import date
 from typing import Dict, Optional
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory, get_db
 from app.dependencies import get_current_user
-from src.fitme.models.conversation import Conversation
-from src.fitme.models.thread_meta import ThreadMeta
-from src.fitme.models.thread_usage import ThreadUsage
+from src.agents.harness.runtime.conversation_service import ConversationService
+from src.agents.models.thread_meta import ThreadMeta
+from src.agents.models.thread_usage import ThreadUsage
 from src.fitme.models.user import User
-from src.fitme.schemas.chat import (
+from src.agents.schemas.chat import (
     ChatRequest,
     MessageOut,
     ThreadMessagesOut,
@@ -85,27 +85,6 @@ async def _build_user_context(user: User) -> str:
     return "# 当前对话上下文\n" + "\n".join(parts)
 
 
-async def _save_message(
-    db: AsyncSession,
-    user_id: UUID,
-    thread_id: str,
-    role: str,
-    content: str,
-    metadata: Optional[dict] = None,
-) -> Conversation:
-    msg = Conversation(
-        id=uuid4(),
-        user_id=user_id,
-        thread_id=thread_id,
-        role=role,
-        content=content,
-        metadata_json=metadata,
-    )
-    db.add(msg)
-    await db.commit()
-    return msg
-
-
 def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -142,7 +121,7 @@ async def send_message(
     # 保存用户消息（文本内容 + 图片数量记录到 metadata）
     user_msg_text = req.message or "[图片消息]"
     user_msg_metadata = {"images": len(req.images)} if req.images else None
-    await _save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
+    await ConversationService.save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
 
     agent = _get_agent()
     config = {
@@ -185,8 +164,11 @@ async def send_message(
         full_thinking = ""     # 累积思考内容（reasoning_content）
         tool_calls = []         # 完整工具调用记录 [{id, name, input, output, status}]
         _current_tool: Optional[dict] = None
-        # Token 使用量追踪（部分模型仅在最终 chunk 返回 usage_metadata）
+        # Token 使用量追踪：按 LLM 调用（run_id）聚合后累加。
+        # ReAct 多轮会触发多次 on_chat_model_end，旧实现用 max() 只保留最大那次调用会少计 token。
         usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        # 单次调用内 usage（流式 chunk 单调递增取最终值），调用结束累加到 usage
+        run_usage: dict[str, dict[str, int]] = {}
 
         # 使用独立 session，避免请求级 session 在流式响应期间被关闭
         async with async_session_factory() as stream_db:
@@ -195,7 +177,7 @@ async def send_message(
                     # 检查是否需要停止
                     if stop_event.is_set():
                         if full_content or full_thinking:
-                            await _save_message(
+                            await ConversationService.save_message(
                                 stream_db, user.id, thread_id, "assistant", full_content,
                                 metadata={
                                     "thinking": full_thinking or None,
@@ -217,36 +199,28 @@ async def send_message(
                         if chunk.content:
                             full_content += chunk.content
                             yield _sse_event("token", {"content": chunk.content})
-                        # 累积 token 使用量（部分模型仅在最终 chunk 返回 usage_metadata）
+                        # 单次调用内 usage（流式 chunk 单调递增，取最终值，按 run_id 隔离）
                         chunk_usage = getattr(chunk, "usage_metadata", None) or {}
                         if chunk_usage:
-                            usage["input_tokens"] = max(
-                                usage["input_tokens"], chunk_usage.get("input_tokens", 0) or 0
+                            cur = run_usage.setdefault(
+                                event.get("run_id", "_"),
+                                {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                             )
-                            usage["output_tokens"] = max(
-                                usage["output_tokens"], chunk_usage.get("output_tokens", 0) or 0
-                            )
-                            usage["total_tokens"] = max(
-                                usage["total_tokens"], chunk_usage.get("total_tokens", 0) or 0
-                            )
+                            cur["input_tokens"] = max(cur["input_tokens"], chunk_usage.get("input_tokens", 0) or 0)
+                            cur["output_tokens"] = max(cur["output_tokens"], chunk_usage.get("output_tokens", 0) or 0)
+                            cur["total_tokens"] = max(cur["total_tokens"], chunk_usage.get("total_tokens", 0) or 0)
 
                     elif kind == "on_chat_model_end":
-                        # 部分模型仅在 end 事件的 output 中返回 usage_metadata
+                        # 每次调用结束累加到总量：优先 end 的最终 usage，回退 stream 累积值
+                        run_id = event.get("run_id", "_")
                         output = event.get("data", {}).get("output")
                         end_usage = getattr(output, "usage_metadata", None) if output else None
-                        if end_usage:
-                            usage["input_tokens"] = max(
-                                usage["input_tokens"],
-                                end_usage.get("input_tokens", 0) or 0,
-                            )
-                            usage["output_tokens"] = max(
-                                usage["output_tokens"],
-                                end_usage.get("output_tokens", 0) or 0,
-                            )
-                            usage["total_tokens"] = max(
-                                usage["total_tokens"],
-                                end_usage.get("total_tokens", 0) or 0,
-                            )
+                        stream_usage = run_usage.pop(run_id, None)
+                        final = end_usage or stream_usage
+                        if final:
+                            usage["input_tokens"] += final.get("input_tokens", 0) or 0
+                            usage["output_tokens"] += final.get("output_tokens", 0) or 0
+                            usage["total_tokens"] += final.get("total_tokens", 0) or 0
 
                     elif kind == "on_tool_start":
                         tool_name = event["name"]
@@ -296,7 +270,7 @@ async def send_message(
                         })
 
                 if full_content or full_thinking:
-                    await _save_message(
+                    await ConversationService.save_message(
                         stream_db, user.id, thread_id, "assistant", full_content,
                         metadata={
                             "thinking": full_thinking or None,
@@ -436,28 +410,7 @@ async def list_threads(
     db: AsyncSession = Depends(get_db),
 ):
     """获取当前用户的对话线程列表"""
-    # 子查询：按 thread_id 聚合消息数和最新时间
-    subq = (
-        select(
-            Conversation.thread_id,
-            func.count(Conversation.id).label("message_count"),
-            func.max(Conversation.created_at).label("updated_at"),
-            func.min(Conversation.created_at).label("created_at"),
-        )
-        .where(Conversation.user_id == user.id)
-        .where(Conversation.thread_id.isnot(None))
-        .group_by(Conversation.thread_id)
-        .subquery()
-    )
-
-    stmt = (
-        select(subq)
-        .order_by(subq.c.updated_at.desc())
-        .offset((page - 1) * size)
-        .limit(size)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
+    rows = await ConversationService.aggregate_threads(db, user.id, page, size)
 
     # 批量查询 thread_usage
     thread_ids = [row.thread_id for row in rows]
@@ -480,16 +433,9 @@ async def list_threads(
 
     threads = []
     for row in rows:
-        last_msg_stmt = (
-            select(Conversation.content)
-            .where(Conversation.user_id == user.id)
-            .where(Conversation.thread_id == row.thread_id)
-            .where(Conversation.role == "assistant")
-            .order_by(Conversation.created_at.desc())
-            .limit(1)
+        last_content = await ConversationService.get_last_assistant_content(
+            db, user.id, row.thread_id
         )
-        last_result = await db.execute(last_msg_stmt)
-        last_content = last_result.scalar_one_or_none()
 
         threads.append(ThreadOut(
             thread_id=row.thread_id,
@@ -513,23 +459,9 @@ async def get_thread_messages(
     db: AsyncSession = Depends(get_db),
 ):
     """获取指定线程的消息列表"""
-    base_filter = [
-        Conversation.user_id == user.id,
-        Conversation.thread_id == thread_id,
-    ]
-
-    count_stmt = select(func.count(Conversation.id)).where(*base_filter)
-    total = (await db.execute(count_stmt)).scalar() or 0
-
-    stmt = (
-        select(Conversation)
-        .where(*base_filter)
-        .order_by(Conversation.created_at.asc())
-        .offset((page - 1) * size)
-        .limit(size)
+    messages, total = await ConversationService.get_messages(
+        db, user.id, thread_id, page, size
     )
-    result = await db.execute(stmt)
-    messages = result.scalars().all()
 
     return ResponseModel(data=ThreadMessagesOut(
         thread_id=thread_id,
@@ -552,14 +484,7 @@ async def update_thread_title(
     仅允许线程所有者操作；线程需归属当前用户（校验存在至少一条消息）。
     """
     # 校验线程归属当前用户
-    owns = (
-        await db.execute(
-            select(func.count(Conversation.id)).where(
-                Conversation.user_id == user.id,
-                Conversation.thread_id == thread_id,
-            )
-        )
-    ).scalar() or 0
+    owns = await ConversationService.count_thread_messages(db, user.id, thread_id)
     if owns == 0:
         return ResponseModel(code=404, message="线程不存在")
 
@@ -597,21 +522,17 @@ async def delete_thread(
     db: AsyncSession = Depends(get_db),
 ):
     """删除指定线程的所有消息"""
-    stmt = delete(Conversation).where(
-        Conversation.user_id == user.id,
-        Conversation.thread_id == thread_id,
-    )
-    result = await db.execute(stmt)
+    deleted = await ConversationService.delete_by_thread(db, user.id, thread_id)
     # 同步清理线程元信息（标题），避免残留孤立记录
     await db.execute(
         delete(ThreadMeta).where(ThreadMeta.thread_id == thread_id)
     )
     await db.commit()
 
-    if result.rowcount == 0:
+    if deleted == 0:
         return ResponseModel(code=404, message="线程不存在")
 
-    return ResponseModel(message=f"已删除 {result.rowcount} 条消息")
+    return ResponseModel(message=f"已删除 {deleted} 条消息")
 
 @router.delete("/history", response_model=ResponseModel[None])
 async def clear_history(
@@ -619,12 +540,11 @@ async def clear_history(
     db: AsyncSession = Depends(get_db),
 ):
     """清空当前用户的所有对话历史"""
-    stmt = delete(Conversation).where(Conversation.user_id == user.id)
-    result = await db.execute(stmt)
+    deleted = await ConversationService.clear_by_user(db, user.id)
     # 同步清理该用户所有线程元信息
     await db.execute(
         delete(ThreadMeta).where(ThreadMeta.user_id == user.id)
     )
     await db.commit()
 
-    return ResponseModel(message=f"已清空 {result.rowcount} 条消息")
+    return ResponseModel(message=f"已清空 {deleted} 条消息")

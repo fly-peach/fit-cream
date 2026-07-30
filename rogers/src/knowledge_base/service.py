@@ -299,6 +299,23 @@ class KnowledgeBaseService:
         return doc
 
     @staticmethod
+    async def get_document_for_user(
+        db: AsyncSession, doc_id: UUID, user_id: UUID
+    ) -> KBDocument:
+        """获取文档并校验访问权限（KB 所有者或已订阅者）。
+
+        未授权时不暴露文档存在性（统一抛 NotFoundException）。
+        """
+        doc = await KnowledgeBaseService.get_document(db, doc_id)
+        kb = await KnowledgeBaseService.get_kb(db, doc.kb_id)
+        if kb.owner_id == user_id:
+            return doc
+        subscribed = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+        if doc.kb_id not in subscribed:
+            raise NotFoundException("文档不存在")
+        return doc
+
+    @staticmethod
     async def list_documents(
         db: AsyncSession,
         kb_id: UUID,

@@ -19,7 +19,6 @@ from src.fitme.schemas.plan import (
     PlanDayCreate,
     PlanDayUpdate,
     PlanExerciseCreate,
-    PlanExerciseOut,
     PlanExerciseUpdate,
     PlanListOut,
     PlanOut,
@@ -127,16 +126,17 @@ async def add_plan_day(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.delete("/days/{day_id}", response_model=ResponseModel[None])
+@router.delete("/days/{day_id}", response_model=ResponseModel[PlanOut])
 async def delete_plan_day(
     day_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """删除训练日"""
-    await PlanService.delete_plan_day(db, day_id, user.id)
+    _, plan = await PlanService.delete_plan_day(db, day_id, user.id)
     await db.commit()
-    return ResponseModel(message="训练日已删除")
+    updated = await PlanService.get_plan_detail(db, plan.id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(updated))
 
 
 @router.put("/days/{day_id}", response_model=ResponseModel[PlanOut])
@@ -154,7 +154,7 @@ async def update_plan_day(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanExerciseOut])
+@router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanOut])
 async def add_exercise_to_day(
     day_id: UUID,
     data: PlanExerciseCreate,
@@ -162,13 +162,13 @@ async def add_exercise_to_day(
     db: AsyncSession = Depends(get_db),
 ):
     """为训练日添加动作"""
-    exercise = await PlanService.add_exercise_to_day(db, day_id, user.id, data)
+    _, plan = await PlanService.add_exercise_to_day(db, day_id, user.id, data)
     await db.commit()
-    await db.refresh(exercise)
-    return ResponseModel(data=PlanExerciseOut.model_validate(exercise))
+    updated = await PlanService.get_plan_detail(db, plan.id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(updated))
 
 
-@router.put("/exercises/{exercise_id}", response_model=ResponseModel[PlanExerciseOut])
+@router.put("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut])
 async def update_exercise(
     exercise_id: UUID,
     data: PlanExerciseUpdate,
@@ -176,19 +176,20 @@ async def update_exercise(
     db: AsyncSession = Depends(get_db),
 ):
     """更新训练动作（组数、次数、重量）"""
-    exercise = await PlanService.update_exercise(db, exercise_id, user.id, data)
+    _, plan = await PlanService.update_exercise(db, exercise_id, user.id, data)
     await db.commit()
-    await db.refresh(exercise)
-    return ResponseModel(data=PlanExerciseOut.model_validate(exercise))
+    updated = await PlanService.get_plan_detail(db, plan.id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(updated))
 
 
-@router.delete("/exercises/{exercise_id}", response_model=ResponseModel[None])
+@router.delete("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut])
 async def delete_exercise(
     exercise_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """删除训练动作"""
-    await PlanService.delete_exercise(db, exercise_id, user.id)
+    _, plan = await PlanService.delete_exercise(db, exercise_id, user.id)
     await db.commit()
-    return ResponseModel(message="动作已删除")
+    updated = await PlanService.get_plan_detail(db, plan.id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(updated))

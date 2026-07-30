@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.diet_meal import CustomFoodItem, DailyDietSummary, DietMeal
+from src.fitme.models.user_settings import UserSettings
 from utils.exceptions import ForbiddenException, NotFoundException
 
 
@@ -25,6 +26,23 @@ class DietMealService:
         await db.refresh(meal)
         await DietMealService._recalc_summary(db, user_id, meal.meal_date)
         return meal
+
+    @staticmethod
+    async def batch_create_meals(
+        db: AsyncSession, user_id: UUID, meals_data: List[dict]
+    ) -> List[DietMeal]:
+        created = []
+        dates_to_recalc = set()
+        for data in meals_data:
+            meal = DietMeal(user_id=user_id, **data)
+            db.add(meal)
+            await db.flush()
+            await db.refresh(meal)
+            created.append(meal)
+            dates_to_recalc.add(meal.meal_date)
+        for d in dates_to_recalc:
+            await DietMealService._recalc_summary(db, user_id, d)
+        return created
 
     @staticmethod
     async def get_by_id(db: AsyncSession, meal_id: UUID, user_id: UUID) -> DietMeal:
@@ -141,6 +159,15 @@ class DietMealService:
         total_carbs = sum(m.carbs_g or 0 for m in meals)
         total_fat = sum(m.fat_g or 0 for m in meals)
 
+        settings_result = await db.execute(
+            select(UserSettings).where(UserSettings.user_id == user_id)
+        )
+        settings = settings_result.scalar_one_or_none()
+
+        protein_met = total_protein >= settings.protein_goal_g if settings else False
+        carbs_met = total_carbs >= settings.carbs_goal_g if settings else False
+        fat_met = total_fat >= settings.fat_goal_g if settings else False
+
         result = await db.execute(
             select(DailyDietSummary).where(
                 DailyDietSummary.user_id == user_id,
@@ -154,6 +181,9 @@ class DietMealService:
             summary.total_protein_g = total_protein
             summary.total_carbs_g = total_carbs
             summary.total_fat_g = total_fat
+            summary.protein_goal_met = protein_met
+            summary.carbs_goal_met = carbs_met
+            summary.fat_goal_met = fat_met
             summary.meal_count = len(meals)
         else:
             summary = DailyDietSummary(
@@ -163,6 +193,9 @@ class DietMealService:
                 total_protein_g=total_protein,
                 total_carbs_g=total_carbs,
                 total_fat_g=total_fat,
+                protein_goal_met=protein_met,
+                carbs_goal_met=carbs_met,
+                fat_goal_met=fat_met,
                 meal_count=len(meals),
             )
             db.add(summary)

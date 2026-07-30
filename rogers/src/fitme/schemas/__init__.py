@@ -6,6 +6,7 @@ Pydantic v2 Schemas 包
 - user: 用户信息输出/更新
 - plan: 训练计划 CRUD
 - checkin: 打卡记录 CRUD
-- chat: 对话线程/消息
 - common: 统一响应格式（ResponseModel / PaginatedResponse）
+
+注：对话线程/消息相关 schemas 已迁至 src/agents/schemas/chat。
 """

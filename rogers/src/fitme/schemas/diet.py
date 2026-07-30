@@ -27,6 +27,10 @@ class DietMealCreate(BaseModel):
     custom_food_item_id: Optional[UUID] = None
 
 
+class DietMealBatchCreate(BaseModel):
+    meals: List[DietMealCreate] = Field(min_length=1, max_length=20)
+
+
 class DietMealUpdate(BaseModel):
     """更新餐食记录"""
     meal_type: Optional[str] = Field(default=None, pattern="^(breakfast|lunch|dinner|snack)$")

@@ -58,15 +58,25 @@ async def lifespan(app: FastAPI):
 
     from app.database import async_session_factory
     from src.auth.seed_service import seed_admin
-    from src.fitme.services.exercise_seed import seed_exercises
+    from src.fitme.services.exercise_seed import (
+        normalize_exercise_equipment,
+        seed_exercises,
+    )
     async with async_session_factory() as session:
         await seed_admin(session)
         await seed_exercises(session)
+        await normalize_exercise_equipment(session)
         await session.commit()
 
     try:
         from src.agents.agent_graph import init_agent
         await init_agent()
+    except Exception:
+        pass
+
+    try:
+        from src.agents.harness.runtime.memory.store import init_memory_store
+        await init_memory_store()
     except Exception:
         pass
 
@@ -78,6 +88,13 @@ async def lifespan(app: FastAPI):
     try:
         from src.agents.agent_graph import shutdown_agent
         await shutdown_agent()
+    except Exception:
+        pass
+
+    # 释放记忆系统独立连接池
+    try:
+        from src.agents.harness.runtime.memory.store import shutdown_memory_store
+        await shutdown_memory_store()
     except Exception:
         pass
 

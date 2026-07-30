@@ -8,6 +8,7 @@
 直接调用 UserService（同进程融合，不走 HTTP）。
 """
 
+from datetime import date
 from typing import Optional
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.database import async_session_factory
-from src.fitme.schemas.user import UserUpdate
+from src.fitme.schemas.user import HealthMetricCreate, UserSettingsUpdate, UserUpdate
 from src.fitme.services.user_service import UserService
 
 
@@ -45,26 +46,33 @@ async def get_user_profile_tool(config: RunnableConfig) -> dict:
         return {"success": False, "error": "无法获取用户信息（未登录或会话无效）"}
 
     async with async_session_factory() as db:
-        user = await UserService.get_by_id(db, user_id)
+        try:
+            uid = UUID(user_id)
+            user = await UserService.get_by_id(db, uid)
 
-        if not user:
-            return {"success": False, "error": "用户不存在"}
+            if not user:
+                return {"success": False, "error": "用户不存在"}
 
-        height = float(user.height_cm) if user.height_cm else None
-        weight = float(user.weight_kg) if user.weight_kg else None
+            # 身高/体重已迁移到 HealthMetric，目标已迁移到 UserSettings
+            latest = await UserService.get_latest_health_metric(db, uid)
+            height = float(latest.height_cm) if latest and latest.height_cm else None
+            weight = float(latest.weight_kg) if latest and latest.weight_kg else None
+            goal = user.settings.goal if user.settings else None
 
-        return {
-            "success": True,
-            "profile": {
-                "name": user.name,
-                "height_cm": height,
-                "weight_kg": weight,
-                "age": user.age,
-                "gender": user.gender,
-                "goal": user.goal,
-                "bmi": _calculate_bmi(height, weight),
-            },
-        }
+            return {
+                "success": True,
+                "profile": {
+                    "name": user.name,
+                    "height_cm": height,
+                    "weight_kg": weight,
+                    "age": user.age,
+                    "gender": user.gender,
+                    "goal": goal,
+                    "bmi": _calculate_bmi(height, weight),
+                },
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 
 class UpdateUserProfileInput(BaseModel):
@@ -120,20 +128,55 @@ async def update_user_profile_tool(
         try:
             uid = UUID(user_id)
 
-            update_data = UserUpdate(
-                name=name,
-                height_cm=height_cm,
-                weight_kg=weight_kg,
-                age=age,
-                gender=gender,
-                goal=goal,
-            )
+            # name/age/gender 属于 User 模型（仅更新传入字段，避免空值覆盖）
+            user_updates: dict = {}
+            if name is not None:
+                user_updates["name"] = name
+            if age is not None:
+                user_updates["age"] = age
+            if gender is not None:
+                user_updates["gender"] = gender
+            if user_updates:
+                user = await UserService.update_profile(
+                    db, uid, UserUpdate(**user_updates)
+                )
+            else:
+                user = await UserService.get_by_id(db, uid)
 
-            user = await UserService.update_profile(db, uid, update_data)
+            # height_cm/weight_kg 已迁移到 HealthMetric（作为时序记录）
+            if height_cm is not None or weight_kg is not None:
+                latest = await UserService.get_latest_health_metric(db, uid)
+                await UserService.create_health_metric(
+                    db,
+                    uid,
+                    HealthMetricCreate(
+                        measure_date=date.today(),
+                        height_cm=(
+                            height_cm if height_cm is not None
+                            else (latest.height_cm if latest else None)
+                        ),
+                        weight_kg=(
+                            weight_kg if weight_kg is not None
+                            else (latest.weight_kg if latest else None)
+                        ),
+                    ),
+                )
+
+            # goal 已迁移到 UserSettings
+            if goal is not None:
+                await UserService.update_user_settings(
+                    db, uid, UserSettingsUpdate(goal=goal)
+                )
+
             await db.commit()
 
-            height = float(user.height_cm) if user.height_cm else None
-            weight = float(user.weight_kg) if user.weight_kg else None
+            # 读取最新数据返回
+            latest = await UserService.get_latest_health_metric(db, uid)
+            height = float(latest.height_cm) if latest and latest.height_cm else None
+            weight = float(latest.weight_kg) if latest and latest.weight_kg else None
+            user_goal = goal if goal is not None else (
+                user.settings.goal if user.settings else None
+            )
 
             return {
                 "success": True,
@@ -143,7 +186,7 @@ async def update_user_profile_tool(
                     "weight_kg": weight,
                     "age": user.age,
                     "gender": user.gender,
-                    "goal": user.goal,
+                    "goal": user_goal,
                     "bmi": _calculate_bmi(height, weight),
                 },
                 "message": "用户资料已更新。",

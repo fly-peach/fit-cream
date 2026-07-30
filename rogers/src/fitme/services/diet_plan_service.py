@@ -15,6 +15,7 @@ from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from src.fitme.schemas.diet_plan import (
     DietDayCreate,
     DietDayUpdate,
+    DietMealCreate,
     DietMealUpdate,
     DietPlanCreate,
     DietPlanUpdate,
@@ -30,16 +31,15 @@ class DietPlanService:
         user_id: UUID,
     ) -> Tuple[DietPlanDay, DietPlan]:
         """验证饮食日归属，返回 (diet_day, diet_plan)"""
-        day_result = await db.execute(
-            select(DietPlanDay).where(DietPlanDay.id == diet_day_id)
+        result = await db.execute(
+            select(DietPlanDay, DietPlan)
+            .join(DietPlan, DietPlanDay.diet_plan_id == DietPlan.id)
+            .where(DietPlanDay.id == diet_day_id)
         )
-        diet_day = day_result.scalar_one_or_none()
-        if not diet_day:
+        row = result.one_or_none()
+        if not row:
             raise NotFoundException("饮食日不存在")
-        plan_result = await db.execute(
-            select(DietPlan).where(DietPlan.id == diet_day.diet_plan_id)
-        )
-        diet_plan = plan_result.scalar_one()
+        diet_day, diet_plan = row
         if diet_plan.user_id != user_id:
             raise ForbiddenException("无权操作此饮食日")
         return diet_day, diet_plan
@@ -52,14 +52,17 @@ class DietPlanService:
     ) -> Tuple[DietPlanMeal, DietPlanDay, DietPlan]:
         """验证餐食归属，返回 (meal, diet_day, diet_plan)"""
         result = await db.execute(
-            select(DietPlanMeal).where(DietPlanMeal.id == meal_id)
+            select(DietPlanMeal, DietPlanDay, DietPlan)
+            .join(DietPlanDay, DietPlanMeal.diet_plan_day_id == DietPlanDay.id)
+            .join(DietPlan, DietPlanDay.diet_plan_id == DietPlan.id)
+            .where(DietPlanMeal.id == meal_id)
         )
-        meal = result.scalar_one_or_none()
-        if not meal:
+        row = result.one_or_none()
+        if not row:
             raise NotFoundException("餐食不存在")
-        diet_day, diet_plan = await DietPlanService._verify_diet_day_ownership(
-            db, meal.diet_plan_day_id, user_id
-        )
+        meal, diet_day, diet_plan = row
+        if diet_plan.user_id != user_id:
+            raise ForbiddenException("无权操作此餐食")
         return meal, diet_day, diet_plan
 
     @staticmethod
@@ -247,14 +250,42 @@ class DietPlanService:
         return diet_day
 
     @staticmethod
+    async def add_meal(
+        db: AsyncSession,
+        diet_day_id: UUID,
+        user_id: UUID,
+        data: DietMealCreate,
+    ) -> Tuple[DietPlanMeal, DietPlan]:
+        """为饮食日添加餐食，返回 (meal, diet_plan)"""
+        _, diet_plan = await DietPlanService._verify_diet_day_ownership(db, diet_day_id, user_id)
+
+        meal = DietPlanMeal(
+            id=uuid4(),
+            diet_plan_day_id=diet_day_id,
+            meal_type=data.meal_type,
+            food_name=data.food_name,
+            calories=data.calories,
+            protein_g=data.protein_g,
+            carbs_g=data.carbs_g,
+            fat_g=data.fat_g,
+            portion=data.portion,
+            sort_order=data.sort_order,
+            metadata_=data.metadata_ or {},
+        )
+        db.add(meal)
+        await db.flush()
+        await db.refresh(meal)
+        return meal, diet_plan
+
+    @staticmethod
     async def update_meal(
         db: AsyncSession,
         meal_id: UUID,
         user_id: UUID,
         data: DietMealUpdate,
-    ) -> DietPlanMeal:
-        """更新餐食"""
-        meal, _, _ = await DietPlanService._verify_meal_ownership(
+    ) -> Tuple[DietPlanMeal, DietPlan]:
+        """更新餐食，返回 (meal, diet_plan)"""
+        meal, _, diet_plan = await DietPlanService._verify_meal_ownership(
             db, meal_id, user_id
         )
 
@@ -264,21 +295,22 @@ class DietPlanService:
 
         await db.flush()
         await db.refresh(meal)
-        return meal
+        return meal, diet_plan
 
     @staticmethod
     async def delete_meal(
         db: AsyncSession,
         meal_id: UUID,
         user_id: UUID,
-    ) -> None:
-        """删除餐食"""
-        meal, _, _ = await DietPlanService._verify_meal_ownership(
+    ) -> Tuple[DietPlanMeal, DietPlan]:
+        """删除餐食，返回 (meal, diet_plan)"""
+        meal, _, diet_plan = await DietPlanService._verify_meal_ownership(
             db, meal_id, user_id
         )
 
         await db.delete(meal)
         await db.flush()
+        return meal, diet_plan
 
     @staticmethod
     async def generate_diet_plan_from_goal(

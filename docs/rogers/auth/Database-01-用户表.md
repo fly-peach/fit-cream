@@ -98,7 +98,7 @@
 |------|------|------|------|
 | id | UUID | PK, default uuid4 | 主键 |
 | user_id | UUID | FK->users.id CASCADE, NOT NULL, 索引 | 用户 ID |
-| action | VARCHAR(50) | NOT NULL | 操作类型（register/login/change_password/logout） |
+| action | VARCHAR(50) | NOT NULL | 操作类型（register/register_sms/login/login_sms/change_password） |
 | ip | VARCHAR(50) | nullable | 客户端 IP |
 | user_agent | VARCHAR(500) | nullable | User-Agent |
 | detail | Text | nullable | 操作详情 |
@@ -112,13 +112,14 @@
 | user_id | UUID | FK->users.id SET NULL, nullable, 索引 | 用户 ID |
 | phone | VARCHAR(20) | nullable, 索引 | 手机号 |
 | email | VARCHAR(255) | nullable | 邮箱 |
+| ip | VARCHAR(50) | nullable, 索引 | 发送方 IP（用于每 IP 限频） |
 | code | VARCHAR(10) | NOT NULL | 验证码 |
 | code_type | VARCHAR(20) | NOT NULL | register / login / reset_password |
 | expires_at | TIMESTAMPTZ | NOT NULL | 过期时间 |
-| used_at | TIMESTAMPTZ | nullable | 使用时间 |
+| used_at | TIMESTAMPTZ | nullable | 使用时间（原子消费置位） |
 | created_at | TIMESTAMPTZ | server_default=now() | 创建时间 |
 
-说明：支持短信和邮箱验证码。发送前检查冷却期（60秒）和每小时上限（5次），验证后设置 used_at。
+说明：支持短信和邮箱验证码。发送前检查冷却期（60秒）、每手机号每小时上限（5次）和每 IP 每小时上限（10次）；验证采用原子 UPDATE 消费，防并发重复使用。
 
 ## diet_meals — 每餐记录表
 

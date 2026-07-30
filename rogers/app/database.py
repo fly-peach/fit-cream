@@ -107,7 +107,7 @@ async def init_db() -> None:
     if not settings.DEBUG:
         return
 
-    import src.fitme.models  # noqa: F401 导入所有 model
+    import app.models  # noqa: F401 导入所有 model（注册到 Base.metadata）
 
     async with engine.begin() as conn:
         existing = await conn.run_sync(
@@ -126,3 +126,27 @@ async def init_db() -> None:
         added_columns = await conn.run_sync(_add_missing_columns)
         if added_columns:
             logger.info(f"数据库补列完成: {', '.join(added_columns)}")
+
+        # pg_trgm 扩展 + GIN trigram 索引：加速 exercises 的中文/英文 ilike 关键词搜索
+        # CREATE EXTENSION 在托管 PG 上可能需 superuser 权限，失败时兜底降级为全表扫
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_exercises_name_trgm"
+                " ON exercises USING gin (name gin_trgm_ops)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_exercises_name_en_trgm"
+                " ON exercises USING gin (name_en gin_trgm_ops)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_exercises_desc_trgm"
+                " ON exercises USING gin (description gin_trgm_ops)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_exercises_instr_trgm"
+                " ON exercises USING gin (instructions gin_trgm_ops)"
+            ))
+            logger.info("pg_trgm 扩展与 GIN 索引就绪")
+        except Exception as e:
+            logger.warning(f"pg_trgm 索引创建失败（搜索将退化为全表扫）: {e}")

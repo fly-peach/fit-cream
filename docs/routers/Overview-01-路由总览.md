@@ -6,7 +6,7 @@
 
 | 序号 | 路由模块 | 前缀 | 标签 | 说明 |
 |------|---------|------|------|------|
-| 1 | auth | `/auth` | auth | 注册/登录/刷新Token/验证码/密码管理 |
+| 1 | auth | `/auth` | auth | 注册/密码登录/短信验证码登录/刷新Token/验证码/密码管理 |
 | 2 | users | `/users` | users | 用户资料 CRUD + 健康指标 |
 | 3 | chat | `/chat` | chat | AI 对话（SSE 流式）+ 线程管理 |
 | 4 | plans | `/plans` | plans | 训练计划 CRUD |
@@ -14,7 +14,7 @@
 | 6 | diet_meals | `/diet-meals` | diet-meals | 每餐记录 CRUD + 每日营养汇总 + 自定义食物 |
 | 7 | checkins | `/checkins` | checkins | 打卡记录 CRUD + 连续打卡统计 |
 | 8 | stats | `/stats` | stats | 训练统计 + 饮食趋势 |
-| 9 | exercises | `/exercises` | exercises | 动作库查询 + 管理 CRUD + 分类/肌群统计 |
+| 9 | exercises | `/exercises` | exercises | 动作库查询 + 管理 CRUD + 分类/肌群/器械统计（1324 条中英双语 dataset） |
 | 10 | knowledge_bases | `/knowledge-bases` | knowledge-bases | 知识库管理 |
 
 ## 响应格式
@@ -112,3 +112,14 @@
 | ACCESS_TOKEN_EXPIRE_MINUTES | 10080 (7天) | Access Token 有效期 |
 | REFRESH_TOKEN_EXPIRE_DAYS | 30 | Refresh Token 有效期 |
 | CORS_ORIGINS | ["http://localhost:3000", "http://localhost:5173"] | 跨域允许来源 |
+| ALIBABA_CLOUD_ACCESS_KEY_ID | "" | 阿里云 AccessKey（SMS + OSS 共用） |
+| ALIBABA_CLOUD_SMS_SIGN_NAME | "" | 短信签名（未配置则开发日志输出验证码） |
+| ALIBABA_CLOUD_SMS_TEMPLATE_CODE | "" | 短信模板 Code |
+| OSS_ENDPOINT | oss-cn-hangzhou.aliyuncs.com | OSS 接入点 |
+| OSS_BUCKET_NAME | "" | OSS Bucket（留空时聊天图片回退 base64） |
+| OSS_SIGN_URL_EXPIRES | 3153600000（约 100 年） | OSS 签名 URL 有效期(秒) |
+| LOGIN_MAX_ATTEMPTS | 5 | 连续失败锁定阈值 |
+| LOGIN_LOCK_MINUTES | 15 | 锁定时长(分钟) |
+| VERIFICATION_CODE_COOLDOWN | 60 | 验证码发送冷却(秒) |
+| VERIFICATION_CODE_MAX_PER_HOUR | 5 | 每手机号每小时验证码上限 |
+| VERIFICATION_CODE_MAX_PER_IP_HOUR | 10 | 每 IP 每小时验证码上限 |

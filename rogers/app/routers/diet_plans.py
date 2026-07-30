@@ -17,7 +17,7 @@ from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.diet_plan import (
     DietDayCreate,
     DietDayUpdate,
-    DietMealOut,
+    DietMealCreate,
     DietMealUpdate,
     DietPlanCreate,
     DietPlanListOut,
@@ -141,7 +141,21 @@ async def update_diet_day(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.put("/meals/{meal_id}", response_model=ResponseModel[DietMealOut])
+@router.post("/days/{day_id}/meals", response_model=ResponseModel[DietPlanOut])
+async def add_meal(
+    day_id: UUID,
+    data: DietMealCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """为饮食日添加餐食"""
+    _, diet_plan = await DietPlanService.add_meal(db, day_id, user.id, data)
+    await db.commit()
+    updated = await DietPlanService.get_diet_plan_detail(db, diet_plan.id, user.id)
+    return ResponseModel(data=DietPlanOut.model_validate(updated))
+
+
+@router.put("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut])
 async def update_meal(
     meal_id: UUID,
     data: DietMealUpdate,
@@ -149,19 +163,20 @@ async def update_meal(
     db: AsyncSession = Depends(get_db),
 ):
     """更新餐食"""
-    meal = await DietPlanService.update_meal(db, meal_id, user.id, data)
+    _, diet_plan = await DietPlanService.update_meal(db, meal_id, user.id, data)
     await db.commit()
-    await db.refresh(meal)
-    return ResponseModel(data=DietMealOut.model_validate(meal))
+    updated = await DietPlanService.get_diet_plan_detail(db, diet_plan.id, user.id)
+    return ResponseModel(data=DietPlanOut.model_validate(updated))
 
 
-@router.delete("/meals/{meal_id}", response_model=ResponseModel[None])
+@router.delete("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut])
 async def delete_meal(
     meal_id: UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """删除餐食"""
-    await DietPlanService.delete_meal(db, meal_id, user.id)
+    _, diet_plan = await DietPlanService.delete_meal(db, meal_id, user.id)
     await db.commit()
-    return ResponseModel(message="餐食已删除")
+    updated = await DietPlanService.get_diet_plan_detail(db, diet_plan.id, user.id)
+    return ResponseModel(data=DietPlanOut.model_validate(updated))

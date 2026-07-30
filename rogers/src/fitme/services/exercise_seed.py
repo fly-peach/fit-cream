@@ -11,11 +11,15 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from seeds.exercises import SEED_EXERCISES
-from src.fitme.models.exercise import MUSCLE_GROUP_COARSENING, Exercise
+from src.fitme.models.exercise import (
+    EQUIPMENT_COARSENING,
+    MUSCLE_GROUP_COARSENING,
+    Exercise,
+)
 
 logger = logging.getLogger("fitcream")
 
@@ -85,6 +89,9 @@ def transform_record(raw: dict[str, Any]) -> dict[str, Any]:
     # secondary_muscles 中文
     secondary_zh: list[str] = list(secondary_obj.get("zh") or []) if isinstance(secondary_obj, dict) else []
 
+    # equipment 粗化为 8 类稳定值（equipment_zh 保留原中文标签）
+    equipment = EQUIPMENT_COARSENING.get(equipment_en, "other") if equipment_en else None
+
     return {
         "name": name_zh,
         "name_en": name_en,
@@ -93,7 +100,7 @@ def transform_record(raw: dict[str, Any]) -> dict[str, Any]:
         "muscle_subgroup_zh": muscle_subgroup_zh,
         "category": category,
         "is_compound": is_compound,
-        "equipment": equipment_en,
+        "equipment": equipment,
         "equipment_zh": equipment_zh,
         "difficulty": difficulty,
         "calories_per_min": _CAL_PER_MIN.get(category),
@@ -143,3 +150,26 @@ async def seed_exercises(db: AsyncSession):
         db.add(Exercise(**rec))
     await db.flush()
     logger.info(f"动作库种子完成：来源={source}，导入 {len(records)} 条")
+
+
+async def normalize_exercise_equipment(db: AsyncSession):
+    """幂等回填存量动作的 equipment 列为粗化值。
+
+    seed_exercises 仅插空表，存量 1324 行仍是 dataset 细粒度原始值（28 种）。
+    此函数将它们统一为 8 类稳定值，与 agent 工具描述一致。
+    """
+    # 1) 显式映射的细粒度值 -> 粗化值
+    for raw, coarse in EQUIPMENT_COARSENING.items():
+        await db.execute(
+            update(Exercise).where(Exercise.equipment == raw).values(equipment=coarse)
+        )
+    # 2) map 未覆盖的细粒度值（medicine ball/stability ball/ergometer 等）兜底 other；
+    #    已是粗化值的行不受影响，保证幂等。
+    valid_coarse = list(set(EQUIPMENT_COARSENING.values()) | {"other"})
+    await db.execute(
+        update(Exercise)
+        .where(Exercise.equipment.isnot(None))
+        .where(Exercise.equipment.notin_(valid_coarse))
+        .values(equipment="other")
+    )
+    logger.info("动作库 equipment 回填完成（粗化为 8 类）")

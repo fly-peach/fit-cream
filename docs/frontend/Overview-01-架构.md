@@ -30,7 +30,7 @@
 ```
 frontend/src/
 ├── main.tsx                  # 入口：React 18 createRoot，包裹 ThemeProvider
-├── App.tsx                   # BrowserRouter + 路由定义 + 授权守卫
+├── App.tsx                   # BrowserRouter + 路由定义 + 授权守卫 + LanguageProvider
 ├── index.css                 # Tailwind v4 CSS-first 配置 + 设计 Token + 暗色模式
 │
 ├── pages/                    # 页面组件
@@ -38,6 +38,8 @@ frontend/src/
 │   ├── dashboard.tsx         # 今日概览仪表盘
 │   ├── chat.tsx              # AI 教练对话页（流式）
 │   ├── plans.tsx             # 训练/饮食计划管理页
+│   ├── exercises.tsx         # 动作库浏览页（筛选 + 动图卡片）
+│   ├── exercise-detail.tsx   # 动作详情页（中英双语）
 │   ├── profile.tsx           # 个人资料编辑页
 │   ├── knowledge-bases.tsx   # 知识库门户（订阅浏览）
 │   ├── knowledge-base-detail.tsx # 知识库详情
@@ -69,10 +71,13 @@ frontend/src/
 │   ├── api.ts                # 统一 API 客户端（请求/响应/错误处理）
 │   ├── kb-api.ts             # 知识库 API 封装（27 个方法）
 │   ├── sse-client.ts         # SSE 流式客户端
+│   ├── language-context.tsx  # 全局语言上下文（中英切换，localStorage 持久化）
+│   ├── exercise-labels.ts    # 动作库标签中英文映射（肌群/器械/难度/目标）
 │   └── meta-utils.ts         # 元数据工具函数
 │
 └── types/
-    └── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程）
+    ├── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程）
+    └── exercise.ts           # 动作库类型定义（Exercise/统计）
 ```
 
 ## 构建与开发配置

@@ -8,16 +8,20 @@
 |------|------|------|
 | register | 用户注册 | 校验 phone 唯一 → （可选）短信验证码校验 → bcrypt 哈希密码 → 创建 User（含 is_active/is_verified） → 创建 UserSettings → 记录审计日志 → 生成 TokenPair |
 | login | 用户登录 | 检查登录锁定 → 按 phone 查用户 → bcrypt 验密码 → 检查 is_active/deleted_at → 更新 last_login_at/last_login_ip → 记录登录尝试 → 记录审计日志 → 生成 TokenPair |
+| sms_login | 短信验证码登录 | 检查登录锁定 → 原子消费验证码(login) → 已注册则 _finalize_login → 未注册则 _create_user(自动注册) → 生成 TokenPair |
 | refresh_token | 刷新令牌 | verify_refresh_token 解码 → 检查 jti 黑名单 → 查用户存活性 → 生成新 TokenPair |
 | change_password | 修改密码 | 验证旧密码 → bcrypt 哈希新密码 → 记录审计日志 |
 | logout | 登出 | 解码 refresh_token → 将 jti 写入 RefreshTokenBlacklist |
-| send_verification_code | 发送验证码 | 检查冷却期/每小时上限 → 生成 6 位验证码 → 持久化 → 调用 SmsService.send_code |
-| verify_code | 验证验证码 | 按 phone + code + code_type 查询 → 校验未使用/未过期 → 标记 used_at |
+| send_verification_code | 发送验证码 | 检查冷却期 → 每手机号每小时上限 → 每 IP 每小时上限 → secrets 生成 6 位码 → 持久化(含 ip) → SmsService.send_code |
+| verify_code | 验证验证码 | 原子 UPDATE 消费 → 校验未使用/未过期 → 标记 used_at → 返回 User |
 | request_password_reset | 请求密码重置 | 校验手机号已注册 → 调用 send_verification_code(code_type="reset_password") |
 | reset_password | 重置密码 | 调用 verify_code → 更新 password_hash |
 | _check_login_lock | 登录锁定检查 | 查询最近 15 分钟内失败次数 → >= 5 次则抛 FORBIDDEN |
 | _log_login_attempt | 记录登录尝试 | 创建 LoginAttempt（user_id/phone/ip/success） |
 | _log_audit | 审计日志 | 创建 UserAuditLog（user_id/action/ip/user_agent） |
+| _create_user | 创建用户(共用) | 创建 User(is_active/is_verified) → 创建 UserSettings → 记录审计日志（register/register_sms 共用） |
+| _finalize_login | 登录收尾(共用) | 检查 is_active/deleted_at → 标记 is_verified → 更新 last_login_at/ip → 记录登录尝试 + 审计（login/login_sms 共用） |
+| _record_failed_attempt | 记录失败登录 | 写入 LoginAttempt 后立即单独 commit（异常会回滚事务，须单独提交以确保锁定可见） |
 
 ### 注册逻辑
 
@@ -40,6 +44,16 @@
 8. 生成并返回 TokenPair
 
 > 失败路径：步骤 2/3 失败时同样记录登录尝试（success=False）并记录审计日志。
+
+### 短信验证码登录逻辑
+
+1. 检查登录锁定（`_check_login_lock`，与密码登录共用）
+2. `verify_code(phone, code, "login")` 原子消费验证码；失败则 `_record_failed_attempt` 单独提交后抛 40000
+3. 返回的 User 为空（未注册）→ `_create_user` 自动注册：随机密码哈希、name="用户+手机尾号"、is_verified=True、审计 action="register_sms"
+4. User 已存在 → `_finalize_login`（mark_verified=True、审计 action="login_sms"）
+5. 生成并返回 TokenPair
+
+> sms_login 复用 `_check_login_lock` / `_finalize_login` / `_create_user`，与 login/register 保持一致，避免逻辑漂移。
 
 ### 刷新令牌逻辑
 
@@ -97,6 +111,7 @@ Agent 工具通过 LangChain `@tool` 装饰器定义，直接调用 UserService�
 |------|------|------|------|
 | POST | /api/auth/register | 无 | 注册新用户 |
 | POST | /api/auth/login | 无 | 登录 |
+| POST | /api/auth/sms-login | 无 | 短信验证码登录（未注册自动注册） |
 | POST | /api/auth/refresh | 无 | 刷新令牌 |
 | POST | /api/auth/change-password | JWT | 修改密码（需旧密码） |
 | POST | /api/auth/logout | 无 | 登出（加入黑名单） |

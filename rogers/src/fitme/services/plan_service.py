@@ -34,16 +34,15 @@ class PlanService:
         user_id: UUID,
     ) -> Tuple[PlanDay, Plan]:
         """验证训练日归属，返回 (plan_day, plan)"""
-        day_result = await db.execute(
-            select(PlanDay).where(PlanDay.id == plan_day_id)
+        result = await db.execute(
+            select(PlanDay, Plan)
+            .join(Plan, PlanDay.plan_id == Plan.id)
+            .where(PlanDay.id == plan_day_id)
         )
-        plan_day = day_result.scalar_one_or_none()
-        if not plan_day:
+        row = result.one_or_none()
+        if not row:
             raise NotFoundException("训练日不存在")
-        plan_result = await db.execute(
-            select(Plan).where(Plan.id == plan_day.plan_id)
-        )
-        plan = plan_result.scalar_one()
+        plan_day, plan = row
         if plan.user_id != user_id:
             raise ForbiddenException("无权操作此训练日")
         return plan_day, plan
@@ -56,14 +55,17 @@ class PlanService:
     ) -> Tuple[PlanDayExercise, PlanDay, Plan]:
         """验证训练日动作归属，返回 (exercise, plan_day, plan)"""
         result = await db.execute(
-            select(PlanDayExercise).where(PlanDayExercise.id == exercise_id)
+            select(PlanDayExercise, PlanDay, Plan)
+            .join(PlanDay, PlanDayExercise.plan_day_id == PlanDay.id)
+            .join(Plan, PlanDay.plan_id == Plan.id)
+            .where(PlanDayExercise.id == exercise_id)
         )
-        plan_exercise = result.scalar_one_or_none()
-        if not plan_exercise:
+        row = result.one_or_none()
+        if not row:
             raise NotFoundException("动作不存在")
-        plan_day, plan = await PlanService._verify_plan_day_ownership(
-            db, plan_exercise.plan_day_id, user_id
-        )
+        plan_exercise, plan_day, plan = row
+        if plan.user_id != user_id:
+            raise ForbiddenException("无权操作此动作")
         return plan_exercise, plan_day, plan
 
     @staticmethod
@@ -255,6 +257,42 @@ class PlanService:
         return plan_day
 
     @staticmethod
+    def _parse_equipment_preferences(
+        preferences: Optional[str],
+    ) -> Optional[set]:
+        """从偏好自由文本解析器械约束集合，无命中返回 None（不限）。
+
+        多个约束可叠加（如「家里有哑铃」-> {bodyweight, dumbbell}）。
+        伤病类偏好（如「膝盖有伤」）仅记录，不做过滤（难度/禁忌过滤超出本次范围）。
+        """
+        if not preferences:
+            return None
+        text = preferences.lower()
+        result: set = set()
+        # 无器械/居家/自重 -> bodyweight；「无器械」含「器械」子串，故 machine 判断需排除该场景
+        no_equipment = any(
+            k in text for k in ("无器械", "没器械", "没有器械", "无设备", "没有设备")
+        )
+        if (
+            no_equipment
+            or any(k in text for k in ("家里", "居家", "在家", "home"))
+            or "自重" in text
+        ):
+            result.add("bodyweight")
+        if "哑铃" in text or "dumbbell" in text:
+            result.add("dumbbell")
+        if "杠铃" in text or "barbell" in text:
+            result.add("barbell")
+        if "壶铃" in text or "kettlebell" in text:
+            result.add("kettlebell")
+        if "弹力带" in text or "band" in text:
+            result.add("band")
+        # 「器械」单独指综合器械；无器械场景下不叠加 machine
+        if not no_equipment and ("器械" in text or "machine" in text):
+            result.add("machine")
+        return result or None
+
+    @staticmethod
     async def generate_plan_from_goal(
         db: AsyncSession,
         user_id: UUID,
@@ -312,6 +350,10 @@ class PlanService:
 
         training_days = list(range(1, min(days_per_week, 7) + 1))
 
+        # 解析器械偏好约束（如「家里没器械」-> {bodyweight}），无命中则不限
+        allowed_eq = PlanService._parse_equipment_preferences(preferences)
+        used_ids: set = set()
+
         for day_num in training_days:
             focus = day_focuses.get(day_num, "综合训练")
             muscle_group = focus_to_muscle.get(focus)
@@ -328,14 +370,44 @@ class PlanService:
 
             # 查询匹配肌群的动作填充训练日
             if muscle_group:
-                ex_result = await db.execute(
+                # 复合动作优先 + 难度升序；叠加器械约束
+                base = (
                     select(Exercise)
                     .where(Exercise.muscle_group == muscle_group)
-                    .order_by(Exercise.difficulty.nulls_last())
-                    .limit(3)
+                    .order_by(
+                        Exercise.is_compound.desc(),
+                        Exercise.difficulty.nulls_last(),
+                    )
                 )
-                day_exercises = list(ex_result.scalars().all())
-                for i, ex in enumerate(day_exercises):
+                if allowed_eq:
+                    base = base.where(Exercise.equipment.in_(allowed_eq))
+                candidates = list(
+                    (await db.execute(base.limit(8))).scalars().all()
+                )
+                fresh = [c for c in candidates if c.id not in used_ids]
+                # 回退：器械约束后可用候选不足，放宽约束补足（保证训练日有动作）
+                if allowed_eq and len(fresh) < 3:
+                    relaxed = (
+                        select(Exercise)
+                        .where(Exercise.muscle_group == muscle_group)
+                        .order_by(
+                            Exercise.is_compound.desc(),
+                            Exercise.difficulty.nulls_last(),
+                        )
+                        .limit(8)
+                    )
+                    candidates = list((await db.execute(relaxed)).scalars().all())
+                    fresh = [c for c in candidates if c.id not in used_ids]
+                # 难度偏好排前（不硬过滤），复合动作优先，跨天去重，取 3 个
+                fresh.sort(
+                    key=lambda c: (
+                        not c.is_compound,
+                        0 if c.difficulty == difficulty else 1,
+                        c.name or "",
+                    )
+                )
+                for i, ex in enumerate(fresh[:3]):
+                    used_ids.add(ex.id)
                     db.add(
                         PlanDayExercise(
                             id=uuid4(),
@@ -357,9 +429,9 @@ class PlanService:
         exercise_id: UUID,
         user_id: UUID,
         data: PlanExerciseUpdate,
-    ) -> PlanDayExercise:
-        """更新训练日中的单个动作"""
-        plan_exercise, _, _ = await PlanService._verify_exercise_ownership(
+    ) -> Tuple[PlanDayExercise, Plan]:
+        """更新训练日中的单个动作，返回 (plan_exercise, plan)"""
+        plan_exercise, _, plan = await PlanService._verify_exercise_ownership(
             db, exercise_id, user_id
         )
 
@@ -369,21 +441,22 @@ class PlanService:
 
         await db.flush()
         await db.refresh(plan_exercise)
-        return plan_exercise
+        return plan_exercise, plan
 
     @staticmethod
     async def delete_exercise(
         db: AsyncSession,
         exercise_id: UUID,
         user_id: UUID,
-    ) -> None:
-        """删除训练日中的单个动作"""
-        plan_exercise, _, _ = await PlanService._verify_exercise_ownership(
+    ) -> Tuple[PlanDayExercise, Plan]:
+        """删除训练日中的单个动作，返回 (plan_exercise, plan)"""
+        plan_exercise, _, plan = await PlanService._verify_exercise_ownership(
             db, exercise_id, user_id
         )
 
         await db.delete(plan_exercise)
         await db.flush()
+        return plan_exercise, plan
 
     @staticmethod
     async def add_exercise_to_day(
@@ -391,9 +464,9 @@ class PlanService:
         plan_day_id: UUID,
         user_id: UUID,
         data: PlanExerciseCreate,
-    ) -> PlanDayExercise:
-        """为训练日添加动作"""
-        await PlanService._verify_plan_day_ownership(db, plan_day_id, user_id)
+    ) -> Tuple[PlanDayExercise, Plan]:
+        """为训练日添加动作，返回 (plan_exercise, plan)"""
+        _, plan = await PlanService._verify_plan_day_ownership(db, plan_day_id, user_id)
 
         plan_exercise = PlanDayExercise(
             id=uuid4(),
@@ -409,21 +482,22 @@ class PlanService:
         db.add(plan_exercise)
         await db.flush()
         await db.refresh(plan_exercise)
-        return plan_exercise
+        return plan_exercise, plan
 
     @staticmethod
     async def delete_plan_day(
         db: AsyncSession,
         plan_day_id: UUID,
         user_id: UUID,
-    ) -> None:
-        """删除训练日"""
-        plan_day, _ = await PlanService._verify_plan_day_ownership(
+    ) -> Tuple[PlanDay, Plan]:
+        """删除训练日，返回 (plan_day, plan)"""
+        plan_day, plan = await PlanService._verify_plan_day_ownership(
             db, plan_day_id, user_id
         )
 
         await db.delete(plan_day)
         await db.flush()
+        return plan_day, plan
 
     @staticmethod
     async def adjust_plan(

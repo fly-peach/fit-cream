@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 import { useAuthStore } from "@/stores/auth-store";
 import { AdminRoute } from "@/components/admin-route";
 import { LanguageProvider } from "@/lib/language-context";
@@ -28,6 +29,7 @@ export function App() {
   return (
     <LanguageProvider>
       <BrowserRouter>
+        <Toaster position="top-center" richColors />
         <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />

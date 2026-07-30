@@ -28,6 +28,26 @@ MUSCLE_GROUP_COARSENING = {
     "cardio": "full_body",
 }
 
+# dataset 28 种 equipment -> 8 种稳定值（与 agent 工具描述一致）
+# map 只列非 other 映射；未命中的 key（medicine ball/stability ball/roller/tire/ergometer 等）默认 other
+EQUIPMENT_COARSENING = {
+    "body weight": "bodyweight",
+    "barbell": "barbell",
+    "ez barbell": "barbell",
+    "olympic barbell": "barbell",
+    "trap bar": "barbell",
+    "dumbbell": "dumbbell",
+    "cable": "cable",
+    "rope": "cable",
+    "leverage machine": "machine",
+    "sled machine": "machine",
+    "smith machine": "machine",
+    "assisted": "machine",
+    "kettlebell": "kettlebell",
+    "band": "band",
+    "resistance band": "band",
+}
+
 
 class Exercise(Base):
     __tablename__ = "exercises"

@@ -33,8 +33,9 @@ LangGraph Agent 的顶层入口模块。
 
 from typing import Any, Optional
 
-from src.agents.agent.agent_factory import create_fitcream_agent
-from src.agents.harness.prompts.system import SYSTEM_PROMPT
+from src.agents.harness.orchestration.agent_factory import create_fitcream_agent
+from src.agents.harness.runtime.middleware.dev_auth import _is_dev_env
+from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT
 
 # ============================================================
 # 全局 Agent 实例
@@ -49,15 +50,22 @@ graph = create_fitcream_agent(
 # Dev Agent（与 graph 配置一致 + 自动注入管理员身份，用于 LangGraph Studio 调试）
 def _get_dev_middleware() -> list:
     """获取 dev 中间件：默认中间件 + 管理员自动注入"""
-    from src.agents.agent.agent_factory import _get_default_middleware
-    from src.agents.harness.middleware.dev_auth import DevAuthMiddleware
+    from src.agents.harness.orchestration.agent_factory import _get_default_middleware
+    from src.agents.harness.runtime.middleware.dev_auth import DevAuthMiddleware
     return [DevAuthMiddleware(), *_get_default_middleware()]
 
-dev_graph = create_fitcream_agent(
-    system_prompt=SYSTEM_PROMPT,
-    enable_thinking=True,
-    middleware=_get_dev_middleware(),
-)
+
+# langgraph.json 通过 agent_graph:dev_graph 引用。
+# 仅在开发环境（DEBUG 或 LANGGRAPH_DEV）构造，生产环境保持 None，
+# 避免无谓的 graph 编译与 DevAuthMiddleware 实例化（DevAuth 内部亦通过环境守卫）。
+if _is_dev_env():
+    dev_graph = create_fitcream_agent(
+        system_prompt=SYSTEM_PROMPT,
+        enable_thinking=True,
+        middleware=_get_dev_middleware(),
+    )
+else:
+    dev_graph = None
 
 # 带 checkpointer 的 Agent（生产环境，在 init_agent 中初始化）
 _graph_with_checkpointer = None
@@ -123,20 +131,25 @@ async def init_agent(database_url: Optional[str] = None):
         # 需要进入上下文获取 checkpointer 实例
         cm = AsyncPostgresSaver.from_conn_string(psycopg_dsn)
         checkpointer = await cm.__aenter__()
-        await checkpointer.setup()
+        try:
+            await checkpointer.setup()
 
-        # 保存引用以便 shutdown 时关闭
-        _checkpointer = checkpointer
-        _checkpointer_cm = cm  # 保存 context manager 用于退出
+            # 保存引用以便 shutdown 时关闭
+            _checkpointer = checkpointer
+            _checkpointer_cm = cm  # 保存 context manager 用于退出
 
-        _graph_with_checkpointer = create_fitcream_agent(
-            system_prompt=SYSTEM_PROMPT,
-            checkpointer=checkpointer,
-            enable_thinking=True,
-        )
+            _graph_with_checkpointer = create_fitcream_agent(
+                system_prompt=SYSTEM_PROMPT,
+                checkpointer=checkpointer,
+                enable_thinking=True,
+            )
 
-        graph = _graph_with_checkpointer
-        logger.info("Agent 初始化完成（对话持久化已启用）")
+            graph = _graph_with_checkpointer
+            logger.info("Agent 初始化完成（对话持久化已启用）")
+        except Exception:
+            # setup() 或 agent 构造失败：必须退出 context manager，避免连接池泄漏
+            await cm.__aexit__(None, None, None)
+            raise
 
     except ImportError as e:
         logger.warning(f"Checkpointer 不可用（{e}），Agent 将不支持对话持久化")
@@ -245,7 +258,7 @@ def create_agent_with_middleware(
     Returns:
         CompiledStateGraph
     """
-    from src.agents.harness.middleware import create_agent_middleware
+    from src.agents.harness.runtime.middleware import create_agent_middleware
 
     if thread_id is None:
         thread_id = user_id

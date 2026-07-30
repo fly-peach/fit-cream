@@ -135,7 +135,11 @@ async def read_kb_document(
 
     async with async_session_factory() as db:
         try:
-            doc = await KnowledgeBaseService.get_document(db, UUID(document_id))
+            uid = UUID(user_id)
+            # 校验访问权限：仅 KB 所有者或已订阅者可读，防止 IDOR 枚举
+            doc = await KnowledgeBaseService.get_document_for_user(
+                db, UUID(document_id), uid
+            )
             return {
                 "success": True,
                 "document": {
