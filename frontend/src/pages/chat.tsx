@@ -18,13 +18,6 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-} from "@/components/ai-elements/tool";
-import {
   Attachments,
   Attachment,
   AttachmentPreview,
@@ -58,6 +51,7 @@ import {
 } from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
+import { ToolCallCard } from "@/components/tool-call-card";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api, checkAuthEnvelope } from "@/lib/api";
@@ -70,17 +64,6 @@ import {
   BookOpenIcon,
 } from "lucide-react";
 import type { ChatMessage, ToolCall } from "@/types/chat";
-/** 工具名 -> 中文展示名映射，让工具调用块更易读 */
-const toolNameMap: Record<string, string> = {
-  query_stats_tool: "查询训练统计",
-  query_checkins_tool: "查询打卡记录",
-  query_plan_tool: "查询训练计划",
-  query_body_tool: "查询身体数据",
-  create_checkin_tool: "创建打卡记录",
-  update_plan_tool: "更新训练计划",
-  get_user_profile_tool: "读取用户档案",
-  update_user_profile_tool: "更新用户档案",
-};
 
 /**
  * 清理模型回复中误以纯文本形式输出的工具调用标记。
@@ -95,29 +78,6 @@ function cleanContent(text: string): string {
     .replace(/\[?调用\s+\w+_tool\s*\([^)]*\)\]?/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-/** 单个工具调用块 */
-function ToolBlock({ tc }: { tc: ToolCall }) {
-  return (
-    <Tool defaultOpen={tc.status === "running"}>
-      <ToolHeader
-        title={toolNameMap[tc.name] ?? tc.name}
-        type="tool-call"
-        state={
-          tc.status === "running"
-            ? "input-available"
-            : tc.status === "error"
-              ? "output-error"
-              : "output-available"
-        }
-      />
-      <ToolContent>
-        <ToolInput input={tc.input} />
-        <ToolOutput output={tc.output} errorText={tc.error} />
-      </ToolContent>
-    </Tool>
-  );
 }
 
 /**
@@ -144,7 +104,7 @@ function InterleavedReasoning({
         {thinking && <div className="whitespace-pre-wrap">{thinking}</div>}
         <div className={thinking ? "mt-3 space-y-2 border-t border-border/50 pt-3" : "space-y-2"}>
           {toolCalls.map((tc) => (
-            <ToolBlock key={tc.id} tc={tc} />
+            <ToolCallCard key={tc.id} tc={tc} />
           ))}
         </div>
       </>
@@ -166,7 +126,7 @@ function InterleavedReasoning({
         </div>
       );
     }
-    nodes.push(<ToolBlock key={`tool-${tc.id}`} tc={tc} />);
+    nodes.push(<ToolCallCard key={`tool-${tc.id}`} tc={tc} />);
     lastOffset = offset;
   }
 
