@@ -20,6 +20,8 @@ import {
   Wrench,
   Gauge,
   Crosshair,
+  Languages,
+  Heart,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api } from "@/lib/api";
+import { api, exerciseFavApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 import {
@@ -45,6 +47,7 @@ import {
   targetLabels,
   useLabel,
   formatEnLabel,
+  exerciseDescription,
 } from "@/lib/exercise-labels";
 import type {
   EquipmentStats,
@@ -128,19 +131,19 @@ function FilterSelect({
   );
 }
 
-function ExerciseCard({ ex }: { ex: Exercise }) {
+function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited: boolean; onToggleFav: (id: string) => void }) {
   const navigate = useNavigate();
   const { isZh } = useLanguage();
   const label = useLabel();
   const primaryName = isZh ? ex.name : (ex.name_en || ex.name);
   const secondaryName = isZh ? ex.name_en : ex.name;
+  const description = exerciseDescription(ex, isZh);
   return (
     <Card
       onClick={() => navigate(`/exercises/${ex.id}`)}
       className="group cursor-pointer overflow-hidden border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-md"
     >
       <CardContent className="flex flex-col gap-2 p-3">
-        {/* 媒体：缩略图，hover 切换 GIF */}
         <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-emerald-50">
           {ex.image || ex.gif_url ? (
             <>
@@ -166,6 +169,17 @@ function ExerciseCard({ ex }: { ex: Exercise }) {
               <ImageIcon className="size-8" />
             </div>
           )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggleFav(ex.id); }}
+            className={cn(
+              "absolute right-1.5 top-1.5 flex size-7 items-center justify-center rounded-full bg-white/90 shadow-sm transition-all hover:scale-110",
+              favorited ? "text-rose-500" : "text-emerald-300 opacity-0 group-hover:opacity-100"
+            )}
+            title={favorited ? "取消收藏" : "收藏"}
+          >
+            <Heart className={cn("size-3.5", favorited && "fill-current")} />
+          </button>
         </div>
 
         <div className="min-w-0">
@@ -195,13 +209,13 @@ function ExerciseCard({ ex }: { ex: Exercise }) {
           )}
         </div>
 
-        {ex.description && (
-          <p className="line-clamp-2 text-xs text-emerald-700/70">{ex.description}</p>
+        {description && (
+          <p className="line-clamp-2 text-xs text-emerald-700/70">{description}</p>
         )}
         {ex.calories_per_min != null && (
           <p className="flex items-center gap-1 text-xs text-orange-600/80">
             <Flame className="size-3" />
-            {ex.calories_per_min} kcal/分钟
+            {ex.calories_per_min} {isZh ? "kcal/分钟" : "kcal/min"}
           </p>
         )}
       </CardContent>
@@ -210,7 +224,7 @@ function ExerciseCard({ ex }: { ex: Exercise }) {
 }
 
 export default function ExercisesPage() {
-  const { isZh } = useLanguage();
+  const { isZh, setLang } = useLanguage();
   const label = useLabel();
   const [items, setItems] = useState<Exercise[]>([]);
   const [keywordInput, setKeywordInput] = useState("");
@@ -226,6 +240,8 @@ export default function ExercisesPage() {
   const [error, setError] = useState("");
   const [muscleGroups, setMuscleGroups] = useState<MuscleGroupStats[]>([]);
   const [equipments, setEquipments] = useState<EquipmentStats[]>([]);
+  const [favIds, setFavIds] = useState<Set<string>>(new Set());
+  const [favOnly, setFavOnly] = useState(false);
 
   // 拉取筛选可选项（含计数，equipment 取动态值）
   useEffect(() => {
@@ -236,7 +252,20 @@ export default function ExercisesPage() {
       setMuscleGroups(mg ?? []);
       setEquipments(eq ?? []);
     });
+    exerciseFavApi.listIds().then((ids) => setFavIds(new Set(ids))).catch(() => {});
   }, []);
+
+  const toggleFav = async (id: string) => {
+    try {
+      const res = await exerciseFavApi.toggle(id);
+      setFavIds((prev) => {
+        const next = new Set(prev);
+        if (res.favorited) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    } catch { /* silent */ }
+  };
 
   const allOption: FilterOption = { value: "", label: isZh ? "全部" : "All" };
   const difficultyOptions: FilterOption[] = [
@@ -340,6 +369,7 @@ export default function ExercisesPage() {
     setEquipment("");
     setDifficulty("");
     setTarget("");
+    setFavOnly(false);
   };
 
   const hasActiveFilter =
@@ -348,21 +378,64 @@ export default function ExercisesPage() {
     !!bodyPart ||
     !!equipment ||
     !!difficulty ||
-    !!target;
+    !!target ||
+    favOnly;
+
+  const displayItems = favOnly ? items.filter((ex) => favIds.has(ex.id)) : items;
 
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-7xl space-y-5 p-6">
-          <header className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
-              <Dumbbell className="size-5 text-emerald-600" />
+          <header className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100">
+                <Dumbbell className="size-5 text-emerald-600" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-bold text-emerald-950">
+                  {isZh ? "动作库" : "Exercise Library"}
+                </h1>
+                <p className="truncate text-sm text-emerald-600/60">
+                  {isZh
+                    ? "1324 个动作 · 搜索/筛选并查看动图演示"
+                    : "1,324 exercises · search, filter & preview GIF demos"}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold text-emerald-950">动作库</h1>
-              <p className="text-sm text-emerald-600/60">
-                1324 个动作 · 搜索/筛选并查看动图演示
-              </p>
+            {/* 页内中英切换 */}
+            <div
+              className="flex shrink-0 items-center rounded-full border border-emerald-200 bg-white/70 p-1 shadow-sm"
+              role="group"
+              aria-label={isZh ? "语言切换" : "Language"}
+            >
+              <Languages className="ml-1.5 size-3.5 text-emerald-400" />
+              <button
+                type="button"
+                onClick={() => setLang("zh")}
+                aria-pressed={isZh}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-semibold transition-all duration-200",
+                  isZh
+                    ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/30"
+                    : "text-emerald-600/60 hover:text-emerald-700"
+                )}
+              >
+                中文
+              </button>
+              <button
+                type="button"
+                onClick={() => setLang("en")}
+                aria-pressed={!isZh}
+                className={cn(
+                  "rounded-full px-2.5 py-1 text-xs font-semibold transition-all duration-200",
+                  !isZh
+                    ? "bg-emerald-500 text-white shadow-sm shadow-emerald-500/30"
+                    : "text-emerald-600/60 hover:text-emerald-700"
+                )}
+              >
+                EN
+              </button>
             </div>
           </header>
 
@@ -379,17 +452,33 @@ export default function ExercisesPage() {
                     setKeyword(keywordInput.trim());
                   }
                 }}
-                placeholder="搜索动作名称或说明（如 深蹲 / squat）"
+                placeholder={
+                  isZh
+                    ? "搜索动作名称或说明（如 深蹲 / squat）"
+                    : "Search name or description (e.g. squat / 深蹲)"
+                }
                 className="rounded-xl border-emerald-200 bg-white/70 pl-9"
               />
             </div>
             <Button
               size="sm"
               variant="outline"
+              className={cn(
+                "border-emerald-200",
+                favOnly ? "bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100" : "text-emerald-700"
+              )}
+              onClick={() => setFavOnly((v) => !v)}
+            >
+              <Heart className={cn("mr-1 size-3.5", favOnly && "fill-current")} />
+              {isZh ? "收藏" : "Favs"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               className="border-emerald-200 text-emerald-700"
               onClick={() => setKeyword(keywordInput.trim())}
             >
-              搜索
+              {isZh ? "搜索" : "Search"}
             </Button>
             {hasActiveFilter && (
               <Button
@@ -399,7 +488,7 @@ export default function ExercisesPage() {
                 onClick={resetFilters}
               >
                 <X className="size-4" />
-                重置
+                {isZh ? "重置" : "Reset"}
               </Button>
             )}
           </div>
@@ -409,7 +498,7 @@ export default function ExercisesPage() {
             <div className="mb-2 flex items-center justify-between px-1">
               <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600/70">
                 <SlidersHorizontal className="size-3.5" />
-                筛选条件
+                {isZh ? "筛选条件" : "Filters"}
               </span>
               {hasActiveFilter && (
                 <button
@@ -417,7 +506,7 @@ export default function ExercisesPage() {
                   className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-emerald-500/70 transition-colors hover:bg-emerald-100/50 hover:text-emerald-700"
                 >
                   <X className="size-3" />
-                  清除
+                  {isZh ? "清除" : "Clear"}
                 </button>
               )}
             </div>
@@ -426,41 +515,41 @@ export default function ExercisesPage() {
                 value={muscleGroup}
                 onChange={setMuscleGroup}
                 options={muscleGroupOptions}
-                placeholder="肌群"
+                placeholder={isZh ? "肌群" : "Muscle"}
                 icon={Layers}
-                label="肌群"
+                label={isZh ? "肌群" : "Muscle"}
               />
               <FilterSelect
                 value={bodyPart}
                 onChange={setBodyPart}
                 options={bodyPartOptions}
-                placeholder="部位"
+                placeholder={isZh ? "部位" : "Part"}
                 icon={PersonStanding}
-                label="部位"
+                label={isZh ? "部位" : "Part"}
               />
               <FilterSelect
                 value={equipment}
                 onChange={setEquipment}
                 options={equipmentOptions}
-                placeholder="器械"
+                placeholder={isZh ? "器械" : "Equip"}
                 icon={Wrench}
-                label="器械"
+                label={isZh ? "器械" : "Equip"}
               />
               <FilterSelect
                 value={difficulty}
                 onChange={setDifficulty}
                 options={difficultyOptions}
-                placeholder="难度"
+                placeholder={isZh ? "难度" : "Level"}
                 icon={Gauge}
-                label="难度"
+                label={isZh ? "难度" : "Level"}
               />
               <FilterSelect
                 value={target}
                 onChange={setTarget}
                 options={targetOptions}
-                placeholder="目标肌"
+                placeholder={isZh ? "目标肌" : "Target"}
                 icon={Crosshair}
-                label="目标"
+                label={isZh ? "目标" : "Target"}
               />
             </div>
           </div>
@@ -475,21 +564,33 @@ export default function ExercisesPage() {
             <div className="flex items-center justify-center py-20 text-emerald-500">
               <Loader2 className="size-6 animate-spin" />
             </div>
-          ) : items.length === 0 ? (
+          ) : displayItems.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-16 text-center text-emerald-600/50">
               <Dumbbell className="size-8 text-emerald-300" />
               <p className="text-sm">
-                {hasActiveFilter ? "没有匹配的动作，试试调整筛选条件" : "暂无动作"}
+                {favOnly && favIds.size === 0
+                  ? isZh
+                    ? "暂无收藏动作，点击卡片上的 ♥ 收藏"
+                    : "No favorites yet — tap ♥ on a card to save it"
+                  : hasActiveFilter
+                    ? isZh
+                      ? "没有匹配的动作，试试调整筛选条件"
+                      : "No matching exercises — try adjusting the filters"
+                    : isZh
+                      ? "暂无动作"
+                      : "No exercises yet"}
               </p>
             </div>
           ) : (
             <>
               <p className="text-xs text-emerald-600/60">
-                共 {items.length} 个动作，点击卡片查看详情
+                {isZh
+                  ? `共 ${displayItems.length} 个动作，点击卡片查看详情`
+                  : `${displayItems.length} exercises loaded · tap a card for details`}
               </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-                {items.map((ex) => (
-                  <ExerciseCard key={ex.id} ex={ex} />
+                {displayItems.map((ex) => (
+                  <ExerciseCard key={ex.id} ex={ex} favorited={favIds.has(ex.id)} onToggleFav={toggleFav} />
                 ))}
               </div>
 
@@ -504,10 +605,10 @@ export default function ExercisesPage() {
                     {loadingMore ? (
                       <>
                         <Loader2 className="size-4 animate-spin" />
-                        加载中...
+                        {isZh ? "加载中..." : "Loading..."}
                       </>
                     ) : (
-                      "加载更多"
+                      isZh ? "加载更多" : "Load more"
                     )}
                   </Button>
                 </div>
@@ -517,7 +618,7 @@ export default function ExercisesPage() {
 
           {/* 媒体署名（© Gym visual 许可要求） */}
           <footer className="border-t border-emerald-100 pt-4 text-center text-xs text-emerald-500/70">
-            动作图片与动图 © Gym visual - https://gymvisual.com/
+            {isZh ? "动作图片与动图" : "Exercise images & GIFs"} © Gym visual - https://gymvisual.com/
           </footer>
         </div>
       </div>

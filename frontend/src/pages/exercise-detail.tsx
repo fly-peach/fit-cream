@@ -13,12 +13,13 @@ import {
   ChevronUp,
   ImageIcon,
   Layers,
+  Heart,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
-import { api } from "@/lib/api";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { api, exerciseFavApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 import {
@@ -27,6 +28,7 @@ import {
   difficultyColors,
   categoryLabels,
   useLabel,
+  exerciseDescription,
 } from "@/lib/exercise-labels";
 import type { Exercise } from "@/types/exercise";
 
@@ -38,6 +40,8 @@ export default function ExerciseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showEn, setShowEn] = useState(false);
+  const [favorited, setFavorited] = useState(false);
+  const [favLoading, setFavLoading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -55,10 +59,23 @@ export default function ExerciseDetailPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    exerciseFavApi.listIds().then((ids) => {
+      if (!cancelled && id) setFavorited(ids.includes(id));
+    }).catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [id]);
+
+  const toggleFav = async () => {
+    if (!id || favLoading) return;
+    setFavLoading(true);
+    try {
+      const res = await exerciseFavApi.toggle(id);
+      setFavorited(res.favorited);
+    } catch { /* silent */ }
+    finally { setFavLoading(false); }
+  };
 
   return (
     <AppLayout>
@@ -121,17 +138,38 @@ export default function ExerciseDetailPage() {
 
                 {/* 信息 */}
                 <div className="space-y-4">
-                  <div>
-                    <h1 className="text-2xl font-bold text-emerald-950">
-                      {isZh ? exercise.name : (exercise.name_en || exercise.name)}
-                    </h1>
-                    {isZh
-                      ? exercise.name_en && exercise.name_en !== exercise.name && (
-                          <p className="text-sm text-emerald-500">{exercise.name_en}</p>
-                        )
-                      : exercise.name !== (exercise.name_en || exercise.name) && (
-                          <p className="text-sm text-emerald-500">{exercise.name}</p>
-                        )}
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h1 className="text-2xl font-bold text-emerald-950">
+                        {isZh ? exercise.name : (exercise.name_en || exercise.name)}
+                      </h1>
+                      {isZh
+                        ? exercise.name_en && exercise.name_en !== exercise.name && (
+                            <p className="text-sm text-emerald-500">{exercise.name_en}</p>
+                          )
+                        : exercise.name !== (exercise.name_en || exercise.name) && (
+                            <p className="text-sm text-emerald-500">{exercise.name}</p>
+                          )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleFav}
+                      disabled={favLoading}
+                      className={cn(
+                        "shrink-0 rounded-full transition-colors",
+                        favorited
+                          ? "text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+                          : "text-emerald-300 hover:bg-emerald-50 hover:text-rose-400"
+                      )}
+                      title={favorited ? (isZh ? "取消收藏" : "Unfavorite") : (isZh ? "收藏" : "Favorite")}
+                    >
+                      {favLoading ? (
+                        <Loader2 className="size-5 animate-spin" />
+                      ) : (
+                        <Heart className={cn("size-5", favorited && "fill-current")} />
+                      )}
+                    </Button>
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
@@ -190,12 +228,14 @@ export default function ExerciseDetailPage() {
                     );
                   })()}
 
-                  {exercise.description && (
+                  {exerciseDescription(exercise, isZh) && (
                     <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3">
                       <p className="text-xs font-medium text-emerald-700">
                         {isZh ? "摘要" : "Summary"}
                       </p>
-                      <p className="mt-1 text-sm text-emerald-800">{exercise.description}</p>
+                      <p className="mt-1 text-sm text-emerald-800">
+                        {exerciseDescription(exercise, isZh)}
+                      </p>
                     </div>
                   )}
                 </div>

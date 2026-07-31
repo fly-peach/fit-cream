@@ -4,11 +4,13 @@
 存储健身动作的基础数据（名称、肌群、器械、难度、描述），
 供训练计划编排和 Agent 动作推荐查询使用。
 """
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -92,3 +94,23 @@ class Exercise(Base):
     image: Mapped[Optional[str]] = mapped_column(String(255))
     gif_url: Mapped[Optional[str]] = mapped_column(String(255))
     attribution: Mapped[Optional[str]] = mapped_column(String(255))
+
+    @hybrid_property
+    def description_en(self) -> Optional[str]:
+        steps = self.instruction_steps_en
+        return steps[0] if steps else None
+
+
+class UserExerciseFavorite(Base):
+    __tablename__ = "user_exercise_favorites"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    exercise_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("exercises.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "exercise_id", name="uq_user_exercise_fav"),)

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.dependencies import get_admin_user, get_current_user
 from src.fitme.models.user import User
-from src.fitme.schemas.common import ResponseModel
+from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.exercise import (
     CategoryStats,
     EquipmentStats,
@@ -23,7 +23,7 @@ from utils.exceptions import NotFoundException
 router = APIRouter(prefix="/exercises", tags=["exercises"])
 
 
-@router.get("", response_model=ResponseModel[list[ExerciseOut]])
+@router.get("", response_model=ResponseModel[list[ExerciseOut]], operation_id="list_exercises")
 async def list_exercises(
     muscle_group: Optional[str] = Query(None),
     equipment: Optional[str] = Query(None),
@@ -53,7 +53,7 @@ async def list_exercises(
                          message=f"共 {total} 个动作")
 
 
-@router.get("/categories", response_model=ResponseModel[list[CategoryStats]])
+@router.get("/categories", response_model=ResponseModel[list[CategoryStats]], operation_id="list_exercise_categories")
 async def list_categories(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -62,7 +62,7 @@ async def list_categories(
     return ResponseModel(data=[CategoryStats(**d) for d in data])
 
 
-@router.get("/muscle-groups", response_model=ResponseModel[list[MuscleGroupStats]])
+@router.get("/muscle-groups", response_model=ResponseModel[list[MuscleGroupStats]], operation_id="list_exercise_muscle_groups")
 async def list_muscle_groups(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -71,7 +71,7 @@ async def list_muscle_groups(
     return ResponseModel(data=[MuscleGroupStats(**d) for d in data])
 
 
-@router.get("/equipments", response_model=ResponseModel[list[EquipmentStats]])
+@router.get("/equipments", response_model=ResponseModel[list[EquipmentStats]], operation_id="list_exercise_equipments")
 async def list_equipments(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -81,7 +81,35 @@ async def list_equipments(
     return ResponseModel(data=[EquipmentStats(**d) for d in data])
 
 
-@router.get("/{exercise_id}", response_model=ResponseModel[ExerciseOut])
+@router.get("/favorites/list", response_model=ResponseModel[PaginatedResponse[ExerciseOut]], operation_id="list_exercise_favorites")
+async def list_exercise_favorites(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取当前用户收藏的动作列表"""
+    offset = (page - 1) * size
+    items, total = await ExerciseService.list_favorites(db, user.id, limit=size, offset=offset)
+    return ResponseModel(data=PaginatedResponse(
+        items=[ExerciseOut.model_validate(e) for e in items],
+        total=total,
+        page=page,
+        size=size,
+    ))
+
+
+@router.get("/favorites/ids", response_model=ResponseModel[list[str]], operation_id="get_exercise_favorite_ids")
+async def get_exercise_favorite_ids(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取当前用户收藏的动作 ID 集合（用于前端批量标记）"""
+    ids = await ExerciseService.get_favorite_ids(db, user.id)
+    return ResponseModel(data=[str(i) for i in ids])
+
+
+@router.get("/{exercise_id}", response_model=ResponseModel[ExerciseOut], operation_id="get_exercise")
 async def get_exercise(
     exercise_id: UUID,
     user: User = Depends(get_current_user),
@@ -93,7 +121,7 @@ async def get_exercise(
     return ResponseModel(data=ExerciseOut.model_validate(exercise))
 
 
-@router.post("", response_model=ResponseModel[ExerciseOut])
+@router.post("", response_model=ResponseModel[ExerciseOut], operation_id="create_exercise")
 async def create_exercise(
     data: ExerciseCreate,
     admin: User = Depends(get_admin_user),
@@ -107,7 +135,7 @@ async def create_exercise(
     return ResponseModel(data=ExerciseOut.model_validate(exercise))
 
 
-@router.put("/{exercise_id}", response_model=ResponseModel[ExerciseOut])
+@router.put("/{exercise_id}", response_model=ResponseModel[ExerciseOut], operation_id="update_exercise")
 async def update_exercise(
     exercise_id: UUID,
     data: ExerciseUpdate,
@@ -121,7 +149,7 @@ async def update_exercise(
     return ResponseModel(data=ExerciseOut.model_validate(exercise))
 
 
-@router.delete("/{exercise_id}", response_model=ResponseModel[None])
+@router.delete("/{exercise_id}", response_model=ResponseModel[None], operation_id="delete_exercise")
 async def delete_exercise(
     exercise_id: UUID,
     admin: User = Depends(get_admin_user),
@@ -130,3 +158,20 @@ async def delete_exercise(
     await ExerciseService.delete_exercise(db, exercise_id)
     await db.commit()
     return ResponseModel(message="动作已删除")
+
+
+@router.post("/{exercise_id}/favorite", response_model=ResponseModel[dict], operation_id="toggle_exercise_favorite")
+async def toggle_exercise_favorite(
+    exercise_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """收藏/取消收藏动作（toggle）"""
+    exercise = await ExerciseService.get_by_id(db, exercise_id)
+    if not exercise:
+        raise NotFoundException("动作不存在")
+    is_favorited = await ExerciseService.toggle_favorite(db, user.id, exercise_id)
+    return ResponseModel(
+        data={"favorited": is_favorited},
+        message="已收藏" if is_favorited else "已取消收藏",
+    )

@@ -82,6 +82,7 @@ class ExerciseOut(BaseModel):
     difficulty: Optional[str] = None
     calories_per_min: Optional[float] = None
     description: Optional[str] = None
+    description_en: Optional[str] = None
     instructions: Optional[str] = None
     tips: Optional[str] = None
     body_part: Optional[str] = None
@@ -114,6 +115,7 @@ class ExerciseBrief(BaseModel):
     equipment_zh: Optional[str] = None
     difficulty: Optional[str] = None
     description: Optional[str] = None
+    description_en: Optional[str] = None
     body_part: Optional[str] = None
     body_part_zh: Optional[str] = None
     target: Optional[str] = None

@@ -1,12 +1,12 @@
 """动作库服务"""
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import CheckinExercise
-from src.fitme.models.exercise import Exercise
+from src.fitme.models.exercise import Exercise, UserExerciseFavorite
 from src.fitme.models.plan import PlanDayExercise
 from utils.exceptions import BusinessException, ErrorCode, NotFoundException
 
@@ -157,6 +157,20 @@ class ExerciseService:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def match_names(
+        db: AsyncSession, names: List[str]
+    ) -> Dict[str, Optional[Exercise]]:
+        """将动作名称列表批量匹配到动作库，返回 {name: Exercise|None}。
+
+        供 Agent 打卡按名称输入时使用（名称→ID 的模糊匹配属 agent 输入便利，
+        见方案 D6；公共 CRUD schema 保持 id-only）。内部复用 search_by_name。
+        """
+        matched: Dict[str, Optional[Exercise]] = {}
+        for name in names:
+            matched[name] = await ExerciseService.search_by_name(db, name)
+        return matched
+
+    @staticmethod
     async def create_exercise(db: AsyncSession, data: dict) -> Exercise:
         exercise = Exercise(**data)
         db.add(exercise)
@@ -256,3 +270,52 @@ class ExerciseService:
             .order_by(Exercise.equipment)
         )
         return [{"name": row[0], "count": row[1]} for row in result.all()]
+
+    @staticmethod
+    async def toggle_favorite(db: AsyncSession, user_id: UUID, exercise_id: UUID) -> bool:
+        existing = await db.execute(
+            select(UserExerciseFavorite).where(
+                UserExerciseFavorite.user_id == user_id,
+                UserExerciseFavorite.exercise_id == exercise_id,
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row:
+            await db.execute(
+                delete(UserExerciseFavorite).where(UserExerciseFavorite.id == row.id)
+            )
+            await db.commit()
+            return False
+        fav = UserExerciseFavorite(user_id=user_id, exercise_id=exercise_id)
+        db.add(fav)
+        await db.commit()
+        return True
+
+    @staticmethod
+    async def get_favorite_ids(db: AsyncSession, user_id: UUID) -> Set[UUID]:
+        result = await db.execute(
+            select(UserExerciseFavorite.exercise_id).where(
+                UserExerciseFavorite.user_id == user_id
+            )
+        )
+        return set(result.scalars().all())
+
+    @staticmethod
+    async def list_favorites(
+        db: AsyncSession, user_id: UUID, limit: int = 50, offset: int = 0
+    ) -> Tuple[List[Exercise], int]:
+        count_q = select(func.count()).select_from(UserExerciseFavorite).where(
+            UserExerciseFavorite.user_id == user_id
+        )
+        total = (await db.execute(count_q)).scalar() or 0
+
+        q = (
+            select(Exercise)
+            .join(UserExerciseFavorite, UserExerciseFavorite.exercise_id == Exercise.id)
+            .where(UserExerciseFavorite.user_id == user_id)
+            .order_by(UserExerciseFavorite.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        result = await db.execute(q)
+        return list(result.scalars().all()), total

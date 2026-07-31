@@ -172,3 +172,12 @@ export function useLabel() {
     [isZh],
   );
 }
+
+/** 动作描述按语言取值：中文用 description，英文用 description_en（互为兜底） */
+export function exerciseDescription(
+  ex: { description?: string | null; description_en?: string | null },
+  isZh: boolean,
+): string | null {
+  if (isZh) return ex.description ?? ex.description_en ?? null;
+  return ex.description_en ?? ex.description ?? null;
+}

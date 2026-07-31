@@ -18,6 +18,7 @@ export interface ExerciseBrief {
   equipment_zh?: string | null;
   difficulty?: string | null;
   description?: string | null;
+  description_en?: string | null;
   body_part?: string | null;
   body_part_zh?: string | null;
   target?: string | null;
