@@ -13,7 +13,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.services.stats_service import StatsService
 
 
@@ -48,33 +48,31 @@ async def query_stats_tool(
     Returns:
         统计数据和自然语言分析
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "无法获取用户信息"}
 
-    async with async_session_factory() as db:
-        if period == "weekly":
-            stats = await StatsService.get_weekly_stats(db, user_id)
-            analysis = _generate_weekly_analysis(stats)
-        elif period == "monthly":
-            stats = await StatsService.get_monthly_trend(db, user_id)
-            analysis = _generate_monthly_analysis(stats)
-        elif period == "body":
-            stats = await StatsService.get_body_trend(db, user_id)
-            analysis = _generate_body_analysis(stats)
-        else:
-            stats = await StatsService.get_all_stats(db, user_id)
-            analysis = _generate_all_analysis(stats)
+    try:
+        async with session_scope() as db:
+            stats = await StatsService.get_stats(db, user_id, period, metric)
+    except Exception as e:
+        return error_response(e)
 
-        return {
-            "success": True,
-            "period": period,
-            "stats": stats,
-            "analysis": analysis,
-        }
+    if period == "weekly":
+        analysis = _generate_weekly_analysis(stats)
+    elif period == "monthly":
+        analysis = _generate_monthly_analysis(stats)
+    elif period == "body":
+        analysis = _generate_body_analysis(stats)
+    else:
+        analysis = _generate_all_analysis(stats)
+
+    return {
+        "success": True,
+        "period": period,
+        "stats": stats,
+        "analysis": analysis,
+    }
 
 
 def _generate_weekly_analysis(stats: dict) -> str:

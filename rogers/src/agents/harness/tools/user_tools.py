@@ -8,25 +8,14 @@
 直接调用 UserService（同进程融合，不走 HTTP）。
 """
 
-from datetime import date
 from typing import Optional
-from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
-from src.fitme.schemas.user import HealthMetricCreate, UserSettingsUpdate, UserUpdate
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.services.user_service import UserService
-
-
-def _calculate_bmi(height_cm: Optional[float], weight_kg: Optional[float]) -> Optional[float]:
-    """计算 BMI"""
-    if not height_cm or not weight_kg:
-        return None
-    height_m = height_cm / 100
-    return round(weight_kg / (height_m**2), 1)
 
 
 @tool
@@ -39,40 +28,16 @@ async def get_user_profile_tool(config: RunnableConfig) -> dict:
     Returns:
         用户基本信息、身体数据、健身目标
     """
-    configurable = config.get("configurable", {}) if config else {}
-    user_id = configurable.get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "无法获取用户信息（未登录或会话无效）"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-            user = await UserService.get_by_id(db, uid)
-
-            if not user:
-                return {"success": False, "error": "用户不存在"}
-
-            # 身高/体重已迁移到 HealthMetric，目标已迁移到 UserSettings
-            latest = await UserService.get_latest_health_metric(db, uid)
-            height = float(latest.height_cm) if latest and latest.height_cm else None
-            weight = float(latest.weight_kg) if latest and latest.weight_kg else None
-            goal = user.settings.goal if user.settings else None
-
-            return {
-                "success": True,
-                "profile": {
-                    "name": user.name,
-                    "height_cm": height,
-                    "weight_kg": weight,
-                    "age": user.age,
-                    "gender": user.gender,
-                    "goal": goal,
-                    "bmi": _calculate_bmi(height, weight),
-                },
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    try:
+        async with session_scope() as db:
+            profile = await UserService.get_profile_summary(db, user_id)
+            return {"success": True, "profile": profile}
+    except Exception as e:
+        return error_response(e)
 
 
 class UpdateUserProfileInput(BaseModel):
@@ -118,79 +83,28 @@ async def update_user_profile_tool(
     Returns:
         更新后的用户资料
     """
-    configurable = config.get("configurable", {}) if config else {}
-    user_id = configurable.get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "无法获取用户信息（未登录或会话无效）"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-
-            # name/age/gender 属于 User 模型（仅更新传入字段，避免空值覆盖）
-            user_updates: dict = {}
-            if name is not None:
-                user_updates["name"] = name
-            if age is not None:
-                user_updates["age"] = age
-            if gender is not None:
-                user_updates["gender"] = gender
-            if user_updates:
-                user = await UserService.update_profile(
-                    db, uid, UserUpdate(**user_updates)
-                )
-            else:
-                user = await UserService.get_by_id(db, uid)
-
-            # height_cm/weight_kg 已迁移到 HealthMetric（作为时序记录）
-            if height_cm is not None or weight_kg is not None:
-                latest = await UserService.get_latest_health_metric(db, uid)
-                await UserService.create_health_metric(
-                    db,
-                    uid,
-                    HealthMetricCreate(
-                        measure_date=date.today(),
-                        height_cm=(
-                            height_cm if height_cm is not None
-                            else (latest.height_cm if latest else None)
-                        ),
-                        weight_kg=(
-                            weight_kg if weight_kg is not None
-                            else (latest.weight_kg if latest else None)
-                        ),
-                    ),
-                )
-
-            # goal 已迁移到 UserSettings
-            if goal is not None:
-                await UserService.update_user_settings(
-                    db, uid, UserSettingsUpdate(goal=goal)
-                )
-
-            await db.commit()
-
-            # 读取最新数据返回
-            latest = await UserService.get_latest_health_metric(db, uid)
-            height = float(latest.height_cm) if latest and latest.height_cm else None
-            weight = float(latest.weight_kg) if latest and latest.weight_kg else None
-            user_goal = goal if goal is not None else (
-                user.settings.goal if user.settings else None
+    try:
+        async with session_scope() as db:
+            await UserService.update_profile_consolidated(
+                db,
+                user_id,
+                name=name,
+                age=age,
+                gender=gender,
+                height_cm=height_cm,
+                weight_kg=weight_kg,
+                goal=goal,
             )
 
+            profile = await UserService.get_profile_summary(db, user_id)
             return {
                 "success": True,
-                "profile": {
-                    "name": user.name,
-                    "height_cm": height,
-                    "weight_kg": weight,
-                    "age": user.age,
-                    "gender": user.gender,
-                    "goal": user_goal,
-                    "bmi": _calculate_bmi(height, weight),
-                },
+                "profile": profile,
                 "message": "用户资料已更新。",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)

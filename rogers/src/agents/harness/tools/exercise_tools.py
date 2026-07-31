@@ -10,7 +10,7 @@ from typing import Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, session_scope
 from src.fitme.services.exercise_service import ExerciseService
 
 
@@ -62,7 +62,7 @@ async def get_exercises_tool(
     Returns:
         包含动作列表和推荐建议的结构化数据
     """
-    async with async_session_factory() as db:
+    async with session_scope() as db:
         try:
             exercises = await ExerciseService.search(
                 db,
@@ -106,7 +106,7 @@ async def get_exercises_tool(
                 "recommendation": recommendation,
             }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return error_response(e)
 
 
 def _build_recommendation(exercises, muscle_group, equipment) -> str:

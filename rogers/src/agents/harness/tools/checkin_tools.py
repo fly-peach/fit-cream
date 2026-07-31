@@ -15,14 +15,19 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.schemas.checkin import CheckinCreate, CheckinExerciseCreate
 from src.fitme.services.checkin_service import CheckinService
 from src.fitme.services.exercise_service import ExerciseService
 
 
 class ExerciseRecord(BaseModel):
-    """单个动作的打卡记录"""
+    """单个动作的打卡记录（agent-facing，按名称输入）。
+
+    例外说明（方案 C2 + D6）：CRUD schema CheckinExerciseCreate 必须保持 id-only，
+    而 agent 入参按名称更自然，故此处保留极简 name-based 输入 schema；
+    名称→ID 匹配委托 ExerciseService.match_names，再组装 id-based 服务 schema。
+    """
 
     name: str = Field(description="动作名称")
     sets_done: int = Field(ge=1, description="完成组数")
@@ -66,61 +71,49 @@ async def checkin_tool(
     Returns:
         打卡确认信息 + 当前连续打卡天数
     """
-    # 从 config 获取 user_id
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "无法获取用户信息"}
 
-    async with async_session_factory() as db:
-        try:
-            # 解析日期
-            target_date = (
-                date_type.fromisoformat(checkin_date)
-                if checkin_date
-                else date_type.today()
+    target_date = (
+        date_type.fromisoformat(checkin_date) if checkin_date else date_type.today()
+    )
+
+    try:
+        async with session_scope() as db:
+            matched = await ExerciseService.match_names(
+                db, [ex["name"] for ex in exercises]
             )
 
-            # 匹配动作名称到动作库
-            matched_exercises = []
-            for ex in exercises:
-                exercise = await ExerciseService.search_by_name(db, ex["name"])
-                if exercise:
-                    matched_exercises.append(
-                        CheckinExerciseCreate(
-                            exercise_id=exercise.id,
-                            sets_done=ex["sets_done"],
-                            reps_done=ex["reps_done"],
-                            weight_kg=ex.get("weight_kg"),
-                            rpe=ex.get("rpe"),
-                            notes=ex.get("notes"),
-                        )
-                    )
-
-            # 创建打卡记录
-            checkin_data = CheckinCreate(
-                date=target_date,
-                plan_day_id=None,
-                duration_min=duration_min,
-                actual_intensity=actual_intensity,
-                calories_burned=calories_burned,
-                mood=mood,
-                note=note,
-                exercises=matched_exercises,
-            )
+            matched_exercises = [
+                CheckinExerciseCreate(
+                    exercise_id=matched[ex["name"]].id,
+                    sets_done=ex["sets_done"],
+                    reps_done=ex["reps_done"],
+                    weight_kg=ex.get("weight_kg"),
+                    rpe=ex.get("rpe"),
+                    notes=ex.get("notes"),
+                )
+                for ex in exercises
+                if matched.get(ex["name"])
+            ]
 
             checkin = await CheckinService.create_checkin(
                 db=db,
                 user_id=user_id,
-                data=checkin_data,
+                data=CheckinCreate(
+                    date=target_date,
+                    plan_day_id=None,
+                    duration_min=duration_min,
+                    actual_intensity=actual_intensity,
+                    calories_burned=calories_burned,
+                    mood=mood,
+                    note=note,
+                    exercises=matched_exercises,
+                ),
             )
 
-            # 获取连续打卡天数
             streak = await CheckinService.get_streak(db, user_id)
-
-            await db.commit()
 
             return {
                 "success": True,
@@ -131,9 +124,8 @@ async def checkin_tool(
                 "current_streak": streak["current_streak"],
                 "message": f"打卡成功！已连续训练 {streak['current_streak']} 天 🔥",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 @tool
@@ -146,21 +138,21 @@ async def get_streak_tool(config: "RunnableConfig" = None) -> dict:  # type: ign
     Returns:
         当前连续天数、最长连续天数、最后打卡日期
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "无法获取用户信息"}
 
-    async with async_session_factory() as db:
-        streak = await CheckinService.get_streak(db, user_id)
+    try:
+        async with session_scope() as db:
+            streak = await CheckinService.get_streak(db, user_id)
 
-        return {
-            "success": True,
-            "current_streak": streak["current_streak"],
-            "longest_streak": streak["longest_streak"],
-            "last_checkin_date": str(streak["last_checkin_date"])
-            if streak["last_checkin_date"]
-            else None,
-        }
+            return {
+                "success": True,
+                "current_streak": streak["current_streak"],
+                "longest_streak": streak["longest_streak"],
+                "last_checkin_date": str(streak["last_checkin_date"])
+                if streak["last_checkin_date"]
+                else None,
+            }
+    except Exception as e:
+        return error_response(e)

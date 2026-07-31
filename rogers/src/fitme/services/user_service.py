@@ -142,6 +142,98 @@ class UserService:
         return result.scalar_one_or_none()
 
     @staticmethod
+    async def get_body_summary(db: AsyncSession, user_id: UUID) -> dict:
+        """构建用户身体数据摘要（身高/体重取最新 HealthMetric，年龄/性别取 User）。
+
+        供 create_plan / create_diet_plan 等需要用户身体数据的生成逻辑共用。
+        """
+        user = await UserService.get_by_id(db, user_id)
+        latest = await UserService.get_latest_health_metric(db, user_id)
+        return {
+            "height_cm": float(latest.height_cm) if latest and latest.height_cm else None,
+            "weight_kg": float(latest.weight_kg) if latest and latest.weight_kg else None,
+            "age": user.age,
+            "gender": user.gender,
+        }
+
+    @staticmethod
+    def _compute_bmi(
+        height_cm: Optional[float], weight_kg: Optional[float]
+    ) -> Optional[float]:
+        if not height_cm or not weight_kg:
+            return None
+        return round(weight_kg / ((height_cm / 100) ** 2), 1)
+
+    @staticmethod
+    async def get_profile_summary(db: AsyncSession, user_id: UUID) -> dict:
+        """用户资料摘要（name/height/weight/age/gender/goal/bmi），供 get/update 共用。"""
+        user = await UserService.get_by_id(db, user_id)
+        latest = await UserService.get_latest_health_metric(db, user_id)
+        height = float(latest.height_cm) if latest and latest.height_cm else None
+        weight = float(latest.weight_kg) if latest and latest.weight_kg else None
+        return {
+            "name": user.name,
+            "height_cm": height,
+            "weight_kg": weight,
+            "age": user.age,
+            "gender": user.gender,
+            "goal": user.settings.goal if user.settings else None,
+            "bmi": UserService._compute_bmi(height, weight),
+        }
+
+    @staticmethod
+    async def update_profile_consolidated(
+        db: AsyncSession,
+        user_id: UUID,
+        *,
+        name: Optional[str] = None,
+        age: Optional[int] = None,
+        gender: Optional[str] = None,
+        height_cm: Optional[float] = None,
+        weight_kg: Optional[float] = None,
+        goal: Optional[str] = None,
+    ) -> None:
+        """跨 User / HealthMetric / UserSettings 三模型的资料更新（仅写入传入字段）。
+
+        height/weight 作为时序记录写入 HealthMetric（缺省时携带上次值）；
+        goal 写入 UserSettings；name/age/gender 写入 User。
+        """
+        user_updates: dict = {}
+        if name is not None:
+            user_updates["name"] = name
+        if age is not None:
+            user_updates["age"] = age
+        if gender is not None:
+            user_updates["gender"] = gender
+        if user_updates:
+            await UserService.update_profile(db, user_id, UserUpdate(**user_updates))
+
+        if height_cm is not None or weight_kg is not None:
+            latest = await UserService.get_latest_health_metric(db, user_id)
+            await UserService.create_health_metric(
+                db,
+                user_id,
+                HealthMetricCreate(
+                    measure_date=date.today(),
+                    height_cm=(
+                        height_cm
+                        if height_cm is not None
+                        else (latest.height_cm if latest else None)
+                    ),
+                    weight_kg=(
+                        weight_kg
+                        if weight_kg is not None
+                        else (latest.weight_kg if latest else None)
+                    ),
+                ),
+            )
+
+        if goal is not None:
+            await UserService.update_user_settings(
+                db, user_id, UserSettingsUpdate(goal=goal)
+            )
+
+    @staticmethod
     async def create_health_metric(
         db: AsyncSession, user_id: UUID, data: HealthMetricCreate
     ) -> HealthMetric:
@@ -195,7 +287,7 @@ class UserService:
             height = update_data.get("height_cm") or metric.height_cm
             weight = update_data.get("weight_kg") or metric.weight_kg
             if height and weight:
-                bmi = weight / ((height / 100) ** 2)
+                bmi = float(weight) / ((float(height) / 100) ** 2)
                 bmi_status = (
                     "偏瘦" if bmi < 18.5
                     else "正常" if bmi < 24

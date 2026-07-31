@@ -126,6 +126,39 @@ class DietMealService:
         return summary
 
     @staticmethod
+    async def get_summary_with_goals(
+        db: AsyncSession, user_id: UUID, summary_date: date_type
+    ) -> dict:
+        """合并当日营养汇总 + 用户营养目标 + 达标状态（供 Agent query_diet_summary 使用）。"""
+        summary = await DietMealService.get_summary(db, user_id, summary_date)
+
+        settings_result = await db.execute(
+            select(UserSettings).where(UserSettings.user_id == user_id)
+        )
+        settings = settings_result.scalar_one_or_none()
+
+        return {
+            "intake": {
+                "total_calories": summary.total_calories,
+                "total_protein_g": float(summary.total_protein_g),
+                "total_carbs_g": float(summary.total_carbs_g),
+                "total_fat_g": float(summary.total_fat_g),
+                "meal_count": summary.meal_count,
+            },
+            "goals": {
+                "calorie_goal": settings.calorie_goal if settings else None,
+                "protein_goal_g": settings.protein_goal_g if settings else None,
+                "carbs_goal_g": settings.carbs_goal_g if settings else None,
+                "fat_goal_g": settings.fat_goal_g if settings else None,
+            },
+            "goal_met": {
+                "protein": summary.protein_goal_met,
+                "carbs": summary.carbs_goal_met,
+                "fat": summary.fat_goal_met,
+            },
+        }
+
+    @staticmethod
     async def list_summaries(
         db: AsyncSession,
         user_id: UUID,

@@ -70,6 +70,25 @@ class DietTrendItem(TypedDict):
 
 class StatsService:
     @staticmethod
+    async def get_stats(
+        db: AsyncSession,
+        user_id: UUID,
+        period: str = "weekly",
+        metric: Optional[str] = None,
+    ) -> dict:
+        """按周期分发统计查询（weekly/monthly/body/all）。
+
+        NL 分析文案留在 tool 层（方案 D3），此处仅返回结构化数据。
+        """
+        if period == "weekly":
+            return await StatsService.get_weekly_stats(db, user_id)
+        if period == "monthly":
+            return await StatsService.get_monthly_trend(db, user_id)
+        if period == "body":
+            return await StatsService.get_body_trend(db, user_id)
+        return await StatsService.get_all_stats(db, user_id)
+
+    @staticmethod
     async def get_weekly_stats(
         db: AsyncSession,
         user_id: UUID,

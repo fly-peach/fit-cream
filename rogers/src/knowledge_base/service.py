@@ -526,6 +526,34 @@ class KnowledgeBaseService:
         return list(result.scalars().all())
 
     @staticmethod
+    async def search_across_subscriptions(
+        db: AsyncSession,
+        user_id: UUID,
+        query: str,
+        kb_id: Optional[UUID] = None,
+        limit: int = 5,
+    ) -> list:
+        """在用户已订阅范围内搜索（订阅校验 + 多 KB 搜索 + rank 排序合并）。
+
+        指定 kb_id 但未订阅时抛 NotFoundException（tool 层转为友好提示）。
+        未指定 kb_id 时搜索全部已订阅 KB，按相关度合并取 top limit。
+        """
+        if kb_id:
+            subscribed_ids = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+            if kb_id not in subscribed_ids:
+                raise NotFoundException(f"未订阅知识库 {kb_id}，请先订阅后再搜索")
+            return await KnowledgeBaseService.search_documents(db, kb_id, query, limit)
+
+        kbs = await KnowledgeBaseService.list_my_subscriptions(db, user_id)
+        all_results: list = []
+        for kb in kbs:
+            all_results.extend(
+                await KnowledgeBaseService.search_documents(db, kb.id, query, limit)
+            )
+        all_results.sort(key=lambda x: x.get("rank", 0), reverse=True)
+        return all_results[:limit]
+
+    @staticmethod
     async def list_subscribers(
         db: AsyncSession, kb_id: UUID
     ) -> List[KBSubscription]:

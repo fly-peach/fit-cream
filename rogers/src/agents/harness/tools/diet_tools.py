@@ -13,7 +13,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from src.fitme.schemas.diet import DietMealCreate, DietMealUpdate
 from src.fitme.schemas.user import UserSettingsUpdate
 from src.fitme.services.diet_meal_service import DietMealService
 from src.fitme.services.user_service import UserService
@@ -62,34 +63,26 @@ async def record_meal_tool(
     Returns:
         记录结果，包含餐食详情
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
     parsed_date = date_type.fromisoformat(meal_date) if meal_date else date_type.today()
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-            meal = await DietMealService.create_meal(
-                db,
-                uid,
-                {
-                    "meal_date": parsed_date,
-                    "meal_type": meal_type,
-                    "food_name": food_name,
-                    "calories": calories,
-                    "protein_g": protein_g,
-                    "carbs_g": carbs_g,
-                    "fat_g": fat_g,
-                    "portion": portion,
-                    "note": note,
-                },
+    try:
+        async with session_scope() as db:
+            meal_data = DietMealCreate(
+                meal_date=parsed_date,
+                meal_type=meal_type,
+                food_name=food_name,
+                calories=calories,
+                protein_g=protein_g,
+                carbs_g=carbs_g,
+                fat_g=fat_g,
+                portion=portion,
+                note=note,
             )
-            await db.commit()
+            meal = await DietMealService.create_meal(db, user_id, meal_data.model_dump())
             return {
                 "success": True,
                 "meal": {
@@ -105,9 +98,8 @@ async def record_meal_tool(
                 },
                 "message": f"已记录{food_name}（{meal.calories} kcal）",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class QueryDietSummaryInput(BaseModel):
@@ -134,46 +126,24 @@ async def query_diet_summary_tool(
     Returns:
         当日摄入总量、营养目标、各宏量达标状态
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
     query_date = date_type.fromisoformat(date) if date else date_type.today()
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-            summary = await DietMealService.get_summary(db, uid, query_date)
-            settings = await UserService.get_user_settings(db, uid)
-            await db.commit()
+    try:
+        async with session_scope() as db:
+            data = await DietMealService.get_summary_with_goals(db, user_id, query_date)
             return {
                 "success": True,
                 "date": str(query_date),
-                "intake": {
-                    "total_calories": summary.total_calories,
-                    "total_protein_g": float(summary.total_protein_g),
-                    "total_carbs_g": float(summary.total_carbs_g),
-                    "total_fat_g": float(summary.total_fat_g),
-                    "meal_count": summary.meal_count,
-                },
-                "goals": {
-                    "calorie_goal": settings.calorie_goal,
-                    "protein_goal_g": settings.protein_goal_g,
-                    "carbs_goal_g": settings.carbs_goal_g,
-                    "fat_goal_g": settings.fat_goal_g,
-                },
-                "goal_met": {
-                    "protein": summary.protein_goal_met,
-                    "carbs": summary.carbs_goal_met,
-                    "fat": summary.fat_goal_met,
-                },
+                "intake": data["intake"],
+                "goals": data["goals"],
+                "goal_met": data["goal_met"],
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class ManageMealInput(BaseModel):
@@ -222,10 +192,7 @@ async def manage_meal_tool(
     Returns:
         操作结果
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
@@ -234,12 +201,10 @@ async def manage_meal_tool(
     except ValueError:
         return {"success": False, "error": f"无效的 meal_id：{meal_id}"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
+    try:
+        async with session_scope() as db:
             if action == "delete":
-                await DietMealService.delete_meal(db, mid, uid)
-                await db.commit()
+                await DietMealService.delete_meal(db, mid, user_id)
                 return {"success": True, "message": "饮食记录已删除"}
 
             update_fields = {
@@ -259,8 +224,9 @@ async def manage_meal_tool(
             if not update_fields:
                 return {"success": False, "error": "未提供任何需要更新的字段"}
 
-            meal = await DietMealService.update_meal(db, mid, uid, update_fields)
-            await db.commit()
+            meal = await DietMealService.update_meal(
+                db, mid, user_id, DietMealUpdate(**update_fields).model_dump(exclude_unset=True)
+            )
             return {
                 "success": True,
                 "meal": {
@@ -271,9 +237,8 @@ async def manage_meal_tool(
                 },
                 "message": f"已更新饮食记录：{meal.food_name}",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class SetNutritionGoalsInput(BaseModel):
@@ -314,10 +279,7 @@ async def set_nutrition_goals_tool(
     Returns:
         更新后的营养目标
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
@@ -334,13 +296,11 @@ async def set_nutrition_goals_tool(
     if not update_data:
         return {"success": False, "error": "未提供任何需要更新的目标字段"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
+    try:
+        async with session_scope() as db:
             settings = await UserService.update_user_settings(
-                db, uid, UserSettingsUpdate(**update_data)
+                db, user_id, UserSettingsUpdate(**update_data)
             )
-            await db.commit()
             return {
                 "success": True,
                 "goals": {
@@ -351,6 +311,5 @@ async def set_nutrition_goals_tool(
                 },
                 "message": "营养目标已更新",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)

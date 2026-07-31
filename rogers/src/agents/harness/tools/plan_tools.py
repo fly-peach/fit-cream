@@ -11,24 +11,11 @@ from uuid import UUID
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.plan_service import PlanService
 from src.fitme.services.user_service import UserService
-
-
-async def _build_user_body_data(db: AsyncSession, uid: UUID) -> dict:
-    """构建用户身体数据（身高/体重取最新 HealthMetric，年龄/性别取 User）。"""
-    user = await UserService.get_by_id(db, uid)
-    latest = await UserService.get_latest_health_metric(db, uid)
-    return {
-        "height_cm": float(latest.height_cm) if latest and latest.height_cm else None,
-        "weight_kg": float(latest.weight_kg) if latest and latest.weight_kg else None,
-        "age": user.age,
-        "gender": user.gender,
-    }
 
 
 @tool
@@ -42,16 +29,13 @@ async def list_plans_tool(config: RunnableConfig) -> dict:
     Returns:
         计划列表，包含每个计划的名称、目标、状态和创建时间
     """
-    configurable = config.get("configurable", {}) if config else {}
-    user_id = configurable.get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-            plans, total = await PlanService.list_plans(db, uid, page=1, size=20)
+    try:
+        async with session_scope() as db:
+            plans, total = await PlanService.list_plans(db, user_id, page=1, size=20)
 
             if total == 0:
                 return {"success": True, "total": 0, "plans": [], "message": "你还没有创建过训练计划，需要我帮你创建一个吗？"}
@@ -87,8 +71,8 @@ async def list_plans_tool(config: RunnableConfig) -> dict:
                 "plans": plan_list,
                 "message": msg,
             }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class CreatePlanInput(BaseModel):
@@ -134,24 +118,17 @@ async def create_plan_tool(
     Returns:
         包含计划详情、训练日安排的结构化数据
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
+    try:
+        async with session_scope() as db:
+            user_data = await UserService.get_body_summary(db, user_id)
 
-            # 身高/体重已迁移到 HealthMetric
-            user_data = await _build_user_body_data(db, uid)
-
-            # 生成计划
             plan = await PlanService.generate_plan_from_goal(
                 db=db,
-                user_id=uid,
+                user_id=user_id,
                 goal=goal,
                 days_per_week=days_per_week,
                 difficulty=difficulty,
@@ -159,9 +136,6 @@ async def create_plan_tool(
                 user_data=user_data,
             )
 
-            await db.commit()
-
-            # 构建返回数据
             plan_data = {
                 "id": str(plan.id),
                 "name": plan.name,
@@ -201,9 +175,8 @@ async def create_plan_tool(
                 "plan": plan_data,
                 "message": f"已为你创建{goal_name}计划，每周训练{days_per_week}天，难度{difficulty}。",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class CreateDietPlanInput(BaseModel):
@@ -247,44 +220,23 @@ async def create_diet_plan_tool(
     Returns:
         包含饮食计划详情、每日餐食安排的结构化数据
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
+    try:
+        async with session_scope() as db:
+            user_data = await UserService.get_body_summary(db, user_id)
 
-            # 身高/体重已迁移到 HealthMetric
-            user_data = await _build_user_body_data(db, uid)
-            calculated_calories = target_calories or 2000
-
-            # 如果没有指定热量，根据用户数据估算
-            if not target_calories and user_data["weight_kg"]:
-                weight = user_data["weight_kg"]
-                if goal == "lose_fat":
-                    calculated_calories = int(weight * 22)  # 减脂：体重×22
-                elif goal == "gain_muscle":
-                    calculated_calories = int(weight * 33)  # 增肌：体重×33
-                else:
-                    calculated_calories = int(weight * 28)  # 维持：体重×28
-
-            # 生成饮食计划
             diet_plan = await DietPlanService.generate_diet_plan_from_goal(
                 db=db,
-                user_id=uid,
+                user_id=user_id,
                 goal=goal,
-                target_calories=calculated_calories,
+                target_calories=target_calories,
                 preferences=preferences,
                 user_data=user_data,
             )
 
-            await db.commit()
-
-            # 构建返回数据
             plan_data = {
                 "id": str(diet_plan.id),
                 "name": diet_plan.name,
@@ -323,11 +275,10 @@ async def create_diet_plan_tool(
             return {
                 "success": True,
                 "diet_plan": plan_data,
-                "message": f"已为你创建{goal_name}饮食计划，每日目标热量 {calculated_calories} kcal，包含7天完整餐食安排。",
+                "message": f"已为你创建{goal_name}饮食计划，每日目标热量 {diet_plan.target_calories} kcal，包含7天完整餐食安排。",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
 
 
 class AdjustPlanInput(BaseModel):
@@ -365,29 +316,21 @@ async def adjust_plan_tool(
     Returns:
         调整后的计划变更说明
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-
-            # 获取计划
+    try:
+        async with session_scope() as db:
             if plan_id:
-                plan = await PlanService.get_plan_detail(db, UUID(plan_id), uid)
+                plan = await PlanService.get_plan_detail(db, UUID(plan_id), user_id)
             else:
-                plan = await PlanService.get_active_plan(db, uid)
+                plan = await PlanService.get_active_plan(db, user_id)
 
             if not plan:
                 return {"success": False, "error": "没有找到需要调整的计划，请先创建一个计划。"}
 
-            # 执行调整
             changes = await PlanService.adjust_plan(db, plan, action, details)
-            await db.commit()
 
             return {
                 "success": True,
@@ -397,6 +340,5 @@ async def adjust_plan_tool(
                 "changes": changes,
                 "message": f"计划已调整：{changes['summary']}",
             }
-        except Exception as e:
-            await db.rollback()
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)

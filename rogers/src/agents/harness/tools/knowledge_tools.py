@@ -2,7 +2,7 @@
 知识库检索工具
 
 供 Agent 调用，检索知识库内容。
-遵循现有 plan_tools.py 的 @tool + async_session_factory() 模式（同进程融合）。
+遵循现有 plan_tools.py 的 @tool + session_scope() 模式（同进程融合）。
 """
 from typing import Optional
 from uuid import UUID
@@ -11,8 +11,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.database import async_session_factory
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.knowledge_base.service import KnowledgeBaseService
+from utils.exceptions import NotFoundException
 
 
 class SearchKBInput(BaseModel):
@@ -46,59 +47,34 @@ async def search_knowledge_base(
     Returns:
         包含搜索结果列表的字典
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
+    try:
+        async with session_scope() as db:
+            results = await KnowledgeBaseService.search_across_subscriptions(
+                db, user_id, query, UUID(kb_id) if kb_id else None, limit
+            )
+    except NotFoundException as e:
+        return {"success": True, "total": 0, "results": [], "message": e.message}
+    except Exception as e:
+        return error_response(e)
 
-            if kb_id:
-                # 指定 KB：仅当用户已订阅时才搜索（订阅即 Agent 搜索范围）
-                subscribed_ids = await KnowledgeBaseService.get_subscribed_kb_ids(db, uid)
-                if UUID(kb_id) not in subscribed_ids:
-                    return {
-                        "success": True,
-                        "total": 0,
-                        "results": [],
-                        "message": f"未订阅知识库 {kb_id}，请先订阅后再搜索",
-                    }
-                results = await KnowledgeBaseService.search_documents(
-                    db, UUID(kb_id), query, limit
-                )
-            else:
-                # 搜索用户已订阅的全部知识库
-                kbs = await KnowledgeBaseService.list_my_subscriptions(db, uid)
-                all_results = []
-                for kb in kbs:
-                    r = await KnowledgeBaseService.search_documents(
-                        db, kb.id, query, limit
-                    )
-                    all_results.extend(r)
-                # 按相关度排序，取 top limit
-                all_results.sort(key=lambda x: x.get("rank", 0), reverse=True)
-                results = all_results[:limit]
+    if not results:
+        return {
+            "success": True,
+            "total": 0,
+            "results": [],
+            "message": f"知识库中未找到与「{query}」相关的内容",
+        }
 
-            if not results:
-                return {
-                    "success": True,
-                    "total": 0,
-                    "results": [],
-                    "message": f"知识库中未找到与「{query}」相关的内容",
-                }
-
-            return {
-                "success": True,
-                "total": len(results),
-                "results": results,
-                "message": f"找到 {len(results)} 条与「{query}」相关的知识库内容",
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    return {
+        "success": True,
+        "total": len(results),
+        "results": results,
+        "message": f"找到 {len(results)} 条与「{query}」相关的知识库内容",
+    }
 
 
 class ReadKBDocumentInput(BaseModel):
@@ -126,19 +102,14 @@ async def read_kb_document(
     Returns:
         包含文档标题、完整内容、元数据的字典
     """
-    user_id = None
-    if config and "configurable" in config:
-        user_id = config["configurable"].get("user_id")
-
+    user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    async with async_session_factory() as db:
-        try:
-            uid = UUID(user_id)
-            # 校验访问权限：仅 KB 所有者或已订阅者可读，防止 IDOR 枚举
+    try:
+        async with session_scope() as db:
             doc = await KnowledgeBaseService.get_document_for_user(
-                db, UUID(document_id), uid
+                db, UUID(document_id), user_id
             )
             return {
                 "success": True,
@@ -155,5 +126,5 @@ async def read_kb_document(
                 },
                 "message": f"已读取文档「{doc.title}」",
             }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+    except Exception as e:
+        return error_response(e)
