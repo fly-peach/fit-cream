@@ -119,15 +119,18 @@ get_current_user
   → 检查 deleted_at（已删除则 401）
   → 返回 User ORM 实例
 
+get_current_user（多态认证）
+  → 读取 Authorization: Bearer <credential>
+  → 先尝试 verify_access_token(credential) 解码 JWT
+    → 成功则 _load_active_user(db, sub) 返回 User
+  → JWT 失败则尝试 UserApiKeyService.authenticate(db, credential)
+    → sha256 哈希匹配 user_api_keys 表 → 加载活跃用户 → 更新 last_used_at
+  → 均失败则抛 401「无效的访问令牌或 API Key」
+
 get_admin_user
   → get_current_user
   → 校验 user.role == "admin"
   → 不满足则抛 403
-
-get_kb_from_token（知识库 MCP 专用）
-  → 读取 Authorization: Bearer <token>
-  → KnowledgeBaseService.verify_token() 校验 KB API Token
-  → 返回 (token, kb) 元组
 ```
 
 ### 错误码

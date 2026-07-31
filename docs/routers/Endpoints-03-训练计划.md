@@ -129,7 +129,7 @@ name、goal、difficulty、weeks、status 均为 Optional，支持部分更新�
 | 方法 | DELETE |
 | 路径 | `/api/plans/days/{day_id}` |
 
-**响应：`ResponseModel[None]`（message: "训练日已删除"）**
+**响应：`ResponseModel[PlanOut]`** — 返回删除后的完整计划
 
 ---
 
@@ -152,7 +152,7 @@ name、goal、difficulty、weeks、status 均为 Optional，支持部分更新�
 | notes | Optional[str] | 最多 500 字符 |
 | metadata_ | Optional[dict] | |
 
-**响应：`ResponseModel[PlanExerciseOut]`**（含 ExerciseBrief 引用信息）
+**响应：`ResponseModel[PlanOut]`** — 返回刷新后的完整计划（含 ExerciseBrief 引用信息）
 
 ### 更新动作
 
@@ -165,7 +165,7 @@ name、goal、difficulty、weeks、status 均为 Optional，支持部分更新�
 
 sets、reps、weight_kg、sort_order、notes、metadata_ 均为 Optional
 
-**响应：`ResponseModel[PlanExerciseOut]`**
+**响应：`ResponseModel[PlanOut]`** — 返回刷新后的完整计划
 
 ### 删除动作
 
@@ -174,7 +174,7 @@ sets、reps、weight_kg、sort_order、notes、metadata_ 均为 Optional
 | 方法 | DELETE |
 | 路径 | `/api/plans/exercises/{exercise_id}` |
 
-**响应：`ResponseModel[None]`（message: "动作已删除"）**
+**响应：`ResponseModel[PlanOut]`** — 返回删除后的完整计划
 
 ---
 

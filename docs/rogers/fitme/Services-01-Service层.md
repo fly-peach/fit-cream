@@ -65,18 +65,22 @@ HealthMetricService（含于 UserService）
 |------|------|------|
 | create_plan | 创建计划 | 批量创建 Plan → PlanDay → PlanDayExercise |
 | list_plans | 分页列表查询 | 支持按状态过滤 |
-| get_plan_detail | 获取计划详情 | 含 training days + exercises |
+| get_plan_detail | 获取计划详情 | 含 training days + exercises（selectinload） |
 | get_active_plan | 获取当前活跃计划 | 最近的一个 active 状态计划 |
 | update_plan | 更新计划 | 部分更新，支持 status 切换 |
-| delete_plan | 删除计划 | 物理 CASCADE 删除 |
+| delete_plan | 删除计划 | 软删除（archived） |
 | add_plan_day | 添加训练日 | 新增 day 关联 plan |
 | update_plan_day | 更新训练日 | - |
-| delete_plan_day | 删除训练日 | - |
-| add_exercise_to_day | 添加动作到训练日 | 关联 exercise_id |
-| update_exercise | 更新动作 | - |
-| delete_exercise | 删除动作 | - |
+| delete_plan_day | 删除训练日 | 返回 (plan_day, plan) |
+| add_exercise_to_day | 添加动作到训练日 | 返回 (plan_exercise, plan) |
+| update_exercise | 更新动作 | 返回 (plan_exercise, plan) |
+| delete_exercise | 删除动作 | 返回 (plan_exercise, plan) |
 | generate_plan_from_goal | AI 生成计划 | 根据目标、难度自动创建完整计划 |
 | adjust_plan | AI 调整计划 | 支持：移除日、改难度、改动作 |
+
+归属验证优化：`_verify_plan_day_ownership` 和 `_verify_exercise_ownership` 使用单条 JOIN 查询（PlanDayExercise → PlanDay → Plan）替代原有的 2-3 次串行查询。
+
+mutation 方法（delete_plan_day、delete_exercise、add_exercise_to_day、update_exercise）返回 plan 对象，供 Router 层获取 plan.id 后调用 get_plan_detail 返回完整 PlanOut。
 
 generate_plan_from_goal 流程：
 1. 目标映射为计划名称和训练重点
@@ -86,7 +90,9 @@ generate_plan_from_goal 流程：
 
 ### DietPlanService
 
-与 PlanService 平行的饮食计划服务，结构一致但使用软删除（archived 状态）。特有的方法：
+与 PlanService 平行的饮食计划服务，结构一致但使用软删除（archived 状态）。归属验证同样使用单条 JOIN 查询（DietPlanMeal → DietPlanDay → DietPlan）。mutation 方法（add_meal、update_meal、delete_meal）返回 (meal, diet_plan) 元组。
+
+特有的方法：
 
 | 方法 | 功能 | 逻辑说明 |
 |------|------|------|

@@ -113,6 +113,29 @@ name、target_calories、goal、status 均为 Optional
 
 **响应：`ResponseModel[DietPlanOut]`** — 返回父计划完整结构
 
+## 添加餐食
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/api/diet-plans/days/{day_id}/meals` |
+
+**请求体：DietMealCreate**
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| meal_type | str | breakfast / lunch / dinner / snack |
+| food_name | str | 食物名称 |
+| calories | Optional[int] | 热量 |
+| protein_g | Optional[float] | 蛋白质 |
+| carbs_g | Optional[float] | 碳水 |
+| fat_g | Optional[float] | 脂肪 |
+| portion | Optional[str] | 份量描述 |
+| sort_order | Optional[int] | 排序 |
+| metadata_ | Optional[dict] | |
+
+**响应：`ResponseModel[DietPlanOut]`** — 返回刷新后的完整饮食计划
+
 ## 更新餐食
 
 | 项目 | 值 |
@@ -134,7 +157,7 @@ name、target_calories、goal、status 均为 Optional
 | sort_order | Optional[int] | 排序 |
 | metadata_ | Optional[dict] | |
 
-**响应：`ResponseModel[DietMealOut]`**
+**响应：`ResponseModel[DietPlanOut]`** — 返回刷新后的完整饮食计划
 
 ## 删除餐食
 
@@ -143,4 +166,4 @@ name、target_calories、goal、status 均为 Optional
 | 方法 | DELETE |
 | 路径 | `/api/diet-plans/meals/{meal_id}` |
 
-**响应：`ResponseModel[None]`（message: "餐食已删除"）**
+**响应：`ResponseModel[DietPlanOut]`** — 返回删除后的完整饮食计划

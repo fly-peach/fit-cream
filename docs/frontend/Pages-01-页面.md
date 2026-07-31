@@ -52,14 +52,30 @@ AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Though
 |------|-----|
 | 路径 | `/plans` |
 | 守卫 | ProtectedRoute |
+| 文件 | `src/pages/plans/`（目录，index.tsx 入口） |
 
-训练与饮食计划管理页。实现打卡日历、全部计划列表、活跃训练计划详情（可编辑训练日与动作的 CRUD，搜索动作库）、饮食计划卡片（可编辑餐食与饮食日）。
+训练与饮食计划管理页。实现打卡日历（锻炼/饮食双模式切换）、活跃训练计划详情（可编辑训练日与动作的 CRUD，搜索动作库）、饮食计划卡片（可编辑餐食与饮食日）。URL 编码选中日期（`/plans/exercise-plan-date=YYYY-MM-DD/diet-plan-date=YYYY-MM-DD`）。
 
-**子组件：** CheckinCalendar、DayDetailDialog、DietPlanCard
+**文件结构：**
 
-**自定义组件：** MetadataEditor / MetadataPreview（元数据键值编辑）
+| 文件 | 组件 | 说明 |
+|------|------|------|
+| index.tsx | PlansPage | 主页面（~280 行） |
+| checkin-calendar.tsx | CheckinCalendar | 锻炼/饮食日历切换 |
+| day-detail-dialog.tsx | DayDetailDialog | 训练日详情弹窗（编辑动作/训练日信息） |
+| exercise-search.tsx | ExerciseSearchInline | 动作内联搜索（300ms 防抖自动搜索 + Enter 立即搜索） |
+| diet-plan-card.tsx | DietPlanCard | 饮食计划卡片（餐食 CRUD） |
+| types.ts | — | 共享类型 + 常量 + 日期工具函数 |
 
-**API 调用：** `GET /api/plans`、`GET /api/plans/active`、`GET /api/plans/{id}`、`DELETE /api/plans/{id}`、`POST /api/plans/{id}/days`、`PUT /api/plans/days/{id}`、`DELETE /api/plans/days/{id}`、`PUT /api/plans/exercises/{id}`、`DELETE /api/plans/exercises/{id}`、`POST /api/plans/days/{id}/exercises`、`GET /api/exercises?limit=20&keyword=`、`POST /api/checkins`、`GET /api/checkins/streak`、`GET /api/checkins?limit=200`、`GET /api/diet-plans/active`、`PUT /api/diet-plans/meals/{id}`、`DELETE /api/diet-plans/meals/{id}`、`PUT /api/diet-plans/days/{id}`（约 18 个端点）
+**数据流：** 所有 mutation 操作直接使用后端响应更新 state（后端 mutation 端点统一返回完整 PlanOut/DietPlanOut），不再额外发 GET 回捞。
+
+**错误提示：** 使用 sonner toast（`showError` / `showSuccess`），全局 `<Toaster />` 挂载于 App.tsx。
+
+**表单校验：** 动作编辑 sets∈[1,20]、reps∈[1,100]、weight≥0；训练日 rest_seconds≥0；添加餐食 food_name 非空、calories≥0。
+
+**API 调用：** `GET /api/plans/active`、`POST /api/plans/{id}/days`、`PUT /api/plans/days/{id}`、`DELETE /api/plans/days/{id}`、`PUT /api/plans/exercises/{id}`、`DELETE /api/plans/exercises/{id}`、`POST /api/plans/days/{id}/exercises`、`GET /api/exercises?limit=12&keyword=`、`POST /api/checkins`、`GET /api/checkins/streak`、`GET /api/checkins?limit=200`、`GET /api/diet-plans/active`、`POST /api/diet-plans`、`POST /api/diet-plans/{id}/days`、`PUT /api/diet-plans/days/{id}`、`POST /api/diet-plans/days/{id}/meals`、`PUT /api/diet-plans/meals/{id}`、`DELETE /api/diet-plans/meals/{id}`
+
+**依赖：** sonner（toast）、date-fns（zhCN 本地化）、MetadataEditor / MetadataPreview（元数据键值编辑）、DietRecordSection（饮食记录）
 
 ## ExercisesPage
 

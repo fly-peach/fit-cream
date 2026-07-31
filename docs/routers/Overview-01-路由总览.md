@@ -88,11 +88,11 @@
 
 | 依赖 | 来源 | 校验方式 | 用途 |
 |------|------|----------|------|
-| get_current_user | Header `Authorization: Bearer <token>` | 解码 Access JWT → 查询 User | 普通用户接口 |
+| get_current_user | Header `Authorization: Bearer <token>` | 多态：先解码 Access JWT，再尝试用户 API Key（sha256 哈希匹配） | 普通用户接口（App JWT / MCP API Key） |
 | get_admin_user | get_current_user + role 校验 | user.role == "admin" | 管理员接口 |
-| get_kb_from_token | Header `Authorization: Bearer <token>` | KnowledgeBaseService.verify_token() | 知识库 MCP 外部访问 |
 
 所有 JWT 签名为 HS256，Access Token 有效期 7 天，Refresh Token 有效期 30 天。
+用户 API Key（一人一把）用于 MCP 外部接入，明文仅创建时返回一次，存储 sha256 哈希。
 
 ## 全局异常处理器
 

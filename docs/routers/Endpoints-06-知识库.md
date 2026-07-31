@@ -420,7 +420,7 @@ KBSearchResult：chunk_id, document_id, document_title, filename, path, chunk_in
 
 | 实例 | 挂载路径 | 操作数 | 认证方式 |
 |------|----------|--------|----------|
-| 只读 MCP | /mcp/read | 13 个只读操作 | API Token 或 JWT |
-| 管理 MCP | /mcp/admin | 31 个完整操作 | JWT 管理员 |
+| 用户 MCP | /mcp/user | 74 个操作（健身全域 + 知识库用户态） | 用户 API Key |
+| 管理 MCP | /mcp/admin | 30 个操作（知识库管理） | JWT 管理员 |
 
 每个端点设置了显式 `operation_id` 用于 MCP 工具暴露。

@@ -55,7 +55,7 @@ props：`{children, sidebarExtra?}` — sidebarExtra 用于聊天页的线程历
 
 `components/kb-mcp-panel.tsx`
 
-MCP 集成面板。展示 `/mcp/read` 和 `/mcp/admin` 端点信息、Claude Desktop / Cursor JSON 配置片段（可复制）、管理员 API Token 创建/列表/撤销。
+MCP 集成面板。展示 `/mcp/admin` 管理端点信息、管理员 API Token 创建/列表/撤销。用户 MCP 接入（`/mcp/user`）请使用个人中心的 API Key 面板。
 
 ---
 

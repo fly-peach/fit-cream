@@ -44,18 +44,18 @@
 
 知识库通过 `fastapi-mcp` 框架暴露为 MCP 服务，供外部 AI Agent（如 Cursor、Claude Desktop）接入。
 
-### 双实例架构
+### 双端点架构
 
 | 实例 | 挂载路径 | 操作数 | 认证方式 |
 |------|----------|--------|----------|
-| 只读 MCP | /mcp/read | 13 个只读操作 | API Token 或 JWT |
-| 管理 MCP | /mcp/admin | 31 个完整操作 | JWT 管理员 |
+| 用户 MCP | /mcp/user | 74 个操作（健身全域 + 知识库用户态） | 用户 API Key |
+| 管理 MCP | /mcp/admin | 30 个操作（知识库管理） | JWT 管理员 |
 
-如果双实例挂载失败（fastapi-mcp 限制），回退为单个管理员 MCP 实例。
+用户 MCP 接入：在 App 个人中心创建用户 API Key（一人一把），MCP 客户端配置 `Authorization: Bearer <key>` 指向 `/mcp/user`。
 
-### 只读操作 (API Token 认证)
+### 知识库用户态操作 (用户 API Key 认证)
 
-外部 Agent 可通过 API Token 接入只读 MCP，执行以下操作：
+外部 Agent 可通过用户 API Key 接入用户 MCP，执行以下知识库操作：
 
 - 查询知识库列表
 - 查看我的订阅
