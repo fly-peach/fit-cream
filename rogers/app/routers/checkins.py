@@ -21,7 +21,7 @@ from src.fitme.services.checkin_service import CheckinService
 router = APIRouter(prefix="/checkins", tags=["checkins"])
 
 
-@router.get("", response_model=ResponseModel[PaginatedResponse[CheckinOut]])
+@router.get("", response_model=ResponseModel[PaginatedResponse[CheckinOut]], operation_id="list_checkins")
 async def list_checkins(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -44,7 +44,7 @@ async def list_checkins(
     )
 
 
-@router.get("/streak", response_model=ResponseModel[StreakOut])
+@router.get("/streak", response_model=ResponseModel[StreakOut], operation_id="get_streak")
 async def get_streak(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -54,7 +54,7 @@ async def get_streak(
     return ResponseModel(data=StreakOut(**streak_data))
 
 
-@router.get("/{checkin_id}", response_model=ResponseModel[CheckinOut])
+@router.get("/{checkin_id}", response_model=ResponseModel[CheckinOut], operation_id="get_checkin")
 async def get_checkin(
     checkin_id: UUID,
     user: User = Depends(get_current_user),
@@ -65,7 +65,7 @@ async def get_checkin(
     return ResponseModel(data=CheckinOut.model_validate(checkin))
 
 
-@router.post("", response_model=ResponseModel[CheckinOut])
+@router.post("", response_model=ResponseModel[CheckinOut], operation_id="create_checkin")
 async def create_checkin(
     data: CheckinCreate,
     user: User = Depends(get_current_user),
@@ -78,7 +78,7 @@ async def create_checkin(
     return ResponseModel(data=CheckinOut.model_validate(checkin))
 
 
-@router.put("/{checkin_id}", response_model=ResponseModel[CheckinOut])
+@router.put("/{checkin_id}", response_model=ResponseModel[CheckinOut], operation_id="update_checkin")
 async def update_checkin(
     checkin_id: UUID,
     data: CheckinUpdate,
@@ -92,7 +92,7 @@ async def update_checkin(
     return ResponseModel(data=CheckinOut.model_validate(checkin))
 
 
-@router.delete("/{checkin_id}", response_model=ResponseModel[None])
+@router.delete("/{checkin_id}", response_model=ResponseModel[None], operation_id="delete_checkin")
 async def delete_checkin(
     checkin_id: UUID,
     user: User = Depends(get_current_user),

@@ -81,10 +81,9 @@ class Settings(BaseSettings):
     LOG_RETENTION_DAYS: int = 30
 
     # ---------- MCP ----------
-    MCP_SERVER_NAME: str = "FitCream KB MCP"
-    MCP_READ_MOUNT_PATH: str = "/mcp/read"
-    MCP_ADMIN_MOUNT_PATH: str = "/mcp/admin"
     MCP_ENABLED: bool = True
+    MCP_USER_MOUNT_PATH: str = "/mcp/user"
+    MCP_ADMIN_MOUNT_PATH: str = "/mcp/admin"
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

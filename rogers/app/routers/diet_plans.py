@@ -29,7 +29,7 @@ from src.fitme.services.diet_plan_service import DietPlanService
 router = APIRouter(prefix="/diet-plans", tags=["diet-plans"])
 
 
-@router.get("", response_model=ResponseModel[PaginatedResponse[DietPlanListOut]])
+@router.get("", response_model=ResponseModel[PaginatedResponse[DietPlanListOut]], operation_id="list_diet_plans")
 async def list_diet_plans(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -51,7 +51,7 @@ async def list_diet_plans(
     )
 
 
-@router.get("/active", response_model=ResponseModel[Optional[DietPlanOut]])
+@router.get("/active", response_model=ResponseModel[Optional[DietPlanOut]], operation_id="get_active_diet_plan")
 async def get_active_diet_plan(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -61,7 +61,7 @@ async def get_active_diet_plan(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan) if diet_plan else None)
 
 
-@router.get("/{diet_plan_id}", response_model=ResponseModel[DietPlanOut])
+@router.get("/{diet_plan_id}", response_model=ResponseModel[DietPlanOut], operation_id="get_diet_plan")
 async def get_diet_plan(
     diet_plan_id: UUID,
     user: User = Depends(get_current_user),
@@ -72,7 +72,7 @@ async def get_diet_plan(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.post("", response_model=ResponseModel[DietPlanOut])
+@router.post("", response_model=ResponseModel[DietPlanOut], operation_id="create_diet_plan")
 async def create_diet_plan(
     data: DietPlanCreate,
     user: User = Depends(get_current_user),
@@ -85,7 +85,7 @@ async def create_diet_plan(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.put("/{diet_plan_id}", response_model=ResponseModel[DietPlanOut])
+@router.put("/{diet_plan_id}", response_model=ResponseModel[DietPlanOut], operation_id="update_diet_plan")
 async def update_diet_plan(
     diet_plan_id: UUID,
     data: DietPlanUpdate,
@@ -99,7 +99,7 @@ async def update_diet_plan(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.delete("/{diet_plan_id}", response_model=ResponseModel[None])
+@router.delete("/{diet_plan_id}", response_model=ResponseModel[None], operation_id="delete_diet_plan")
 async def delete_diet_plan(
     diet_plan_id: UUID,
     user: User = Depends(get_current_user),
@@ -111,7 +111,7 @@ async def delete_diet_plan(
     return ResponseModel(message="饮食计划已归档")
 
 
-@router.post("/{diet_plan_id}/days", response_model=ResponseModel[DietPlanOut])
+@router.post("/{diet_plan_id}/days", response_model=ResponseModel[DietPlanOut], operation_id="add_diet_day")
 async def add_diet_day(
     diet_plan_id: UUID,
     data: DietDayCreate,
@@ -126,7 +126,7 @@ async def add_diet_day(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.put("/days/{day_id}", response_model=ResponseModel[DietPlanOut])
+@router.put("/days/{day_id}", response_model=ResponseModel[DietPlanOut], operation_id="update_diet_day")
 async def update_diet_day(
     day_id: UUID,
     data: DietDayUpdate,
@@ -141,7 +141,7 @@ async def update_diet_day(
     return ResponseModel(data=DietPlanOut.model_validate(diet_plan))
 
 
-@router.post("/days/{day_id}/meals", response_model=ResponseModel[DietPlanOut])
+@router.post("/days/{day_id}/meals", response_model=ResponseModel[DietPlanOut], operation_id="add_diet_plan_meal")
 async def add_meal(
     day_id: UUID,
     data: DietMealCreate,
@@ -155,7 +155,7 @@ async def add_meal(
     return ResponseModel(data=DietPlanOut.model_validate(updated))
 
 
-@router.put("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut])
+@router.put("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut], operation_id="update_diet_plan_meal")
 async def update_meal(
     meal_id: UUID,
     data: DietMealUpdate,
@@ -169,7 +169,7 @@ async def update_meal(
     return ResponseModel(data=DietPlanOut.model_validate(updated))
 
 
-@router.delete("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut])
+@router.delete("/meals/{meal_id}", response_model=ResponseModel[DietPlanOut], operation_id="delete_diet_plan_meal")
 async def delete_meal(
     meal_id: UUID,
     user: User = Depends(get_current_user),

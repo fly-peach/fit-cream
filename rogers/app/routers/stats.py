@@ -19,7 +19,7 @@ from src.fitme.services.stats_service import StatsService
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
-@router.get("/weekly", response_model=ResponseModel[dict])
+@router.get("/weekly", response_model=ResponseModel[dict], operation_id="get_weekly_stats")
 async def get_weekly_stats(
     week_start: Optional[date] = Query(None, description="周起始日期 (YYYY-MM-DD)，默认本周一"),
     user: User = Depends(get_current_user),
@@ -30,7 +30,7 @@ async def get_weekly_stats(
     return ResponseModel(data=data)
 
 
-@router.get("/monthly", response_model=ResponseModel[dict])
+@router.get("/monthly", response_model=ResponseModel[dict], operation_id="get_monthly_stats")
 async def get_monthly_stats(
     year: Optional[int] = Query(None, ge=2020, le=2100, description="年份"),
     month: Optional[int] = Query(None, ge=1, le=12, description="月份"),
@@ -42,7 +42,7 @@ async def get_monthly_stats(
     return ResponseModel(data=data)
 
 
-@router.get("/body", response_model=ResponseModel[dict])
+@router.get("/body", response_model=ResponseModel[dict], operation_id="get_body_stats")
 async def get_body_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -52,7 +52,7 @@ async def get_body_stats(
     return ResponseModel(data=data)
 
 
-@router.get("/overview", response_model=ResponseModel[dict])
+@router.get("/overview", response_model=ResponseModel[dict], operation_id="get_overview_stats")
 async def get_overview_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -62,7 +62,7 @@ async def get_overview_stats(
     return ResponseModel(data=data)
 
 
-@router.get("/diet", response_model=ResponseModel[list])
+@router.get("/diet", response_model=ResponseModel[list], operation_id="get_diet_trend")
 async def get_diet_trend(
     start: Optional[date] = Query(None, description="开始日期 (YYYY-MM-DD)，默认7天前"),
     end: Optional[date] = Query(None, description="结束日期 (YYYY-MM-DD)，默认今天"),

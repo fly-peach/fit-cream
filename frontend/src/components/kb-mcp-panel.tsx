@@ -1,12 +1,12 @@
 /**
  * 知识库 MCP 配置面板
  *
- * 展示后端 fastapi-mcp 挂载的两个分权限 MCP 端点：
- * - /mcp/read  只读（外部 agent 接入，认证: API Token / JWT）
- * - /mcp/admin 全权限（管理端，认证: JWT admin）
+ * 展示后端 fastapi-mcp 挂载的管理 MCP 端点：
+ * - /mcp/admin 全权限（管理端，认证: 管理员 JWT）
  *
- * 并提供该知识库的 API Token 管理（创建 / 列表 / 撤销），
- * 以及 Claude Desktop / Cursor 等 MCP 客户端的接入配置示例。
+ * 并提供该知识库的 API Token 管理（创建 / 列表 / 撤销）。
+ * 注意：KB Token 仅作管理员功能保留，不再用于 MCP 接入。
+ * 用户 MCP 接入请使用个人中心的用户 API Key（/mcp/user）。
  */
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -28,8 +28,7 @@ import { ApiError } from "@/lib/api";
 import { kbApi, type KBToken, type KBTokenCreated } from "@/lib/kb-api";
 import { useAuthStore } from "@/stores/auth-store";
 
-/** 只读 MCP 暴露的操作（与后端 MCP_READ_OPERATIONS 对应） */
-const READ_OPERATIONS: string[] = [
+const KB_USER_OPERATIONS: string[] = [
   "list_knowledge_bases",
   "list_my_subscriptions",
   "get_knowledge_base",
@@ -45,7 +44,6 @@ const READ_OPERATIONS: string[] = [
   "get_public_kb",
 ];
 
-/** 管理 MCP 在只读基础上额外暴露的操作 */
 const ADMIN_EXTRA_OPERATIONS: string[] = [
   "create_knowledge_base",
   "update_knowledge_base",
@@ -159,7 +157,6 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
   const [error, setError] = useState("");
 
   const trimmedBase = baseUrl.replace(/\/+$/, "");
-  const readUrl = `${trimmedBase}/mcp/read`;
   const adminUrl = `${trimmedBase}/mcp/admin`;
 
   const loadTokens = useCallback(async () => {
@@ -204,26 +201,8 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
     }
   };
 
-  // Claude Desktop / Cursor 等 HTTP transport 客户端的接入配置示例
-  const tokenForConfig = createdToken?.token ?? "<YOUR_KB_TOKEN>";
-  const claudeConfig = JSON.stringify(
-    {
-      mcpServers: {
-        "fitcream-kb": {
-          url: readUrl,
-          headers: {
-            Authorization: `Bearer ${tokenForConfig}`,
-          },
-        },
-      },
-    },
-    null,
-    2
-  );
-
   return (
     <div className="space-y-4">
-      {/* 端点配置 */}
       <Card className="border-emerald-100 bg-white/80">
         <CardContent className="space-y-3 p-5">
           <div className="flex items-center gap-2">
@@ -247,74 +226,46 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
             </p>
           </div>
 
-          <EndpointRow
-            icon={<ServerIcon className="size-3.5 text-white" />}
-            label="只读 MCP（/mcp/read）"
-            url={readUrl}
-            authHint="认证：知识库 API Token（Authorization: Bearer）或用户 JWT。适合外部 Agent 只读接入。"
-            opsCount={READ_OPERATIONS.length}
-            accent="bg-emerald-500"
-          />
-
           {isAdmin && (
             <EndpointRow
               icon={<ShieldCheckIcon className="size-3.5 text-white" />}
               label="管理 MCP（/mcp/admin）"
               url={adminUrl}
               authHint="认证：管理员 JWT（Bearer）。仅管理员可用，含全部读写操作。"
-              opsCount={READ_OPERATIONS.length + ADMIN_EXTRA_OPERATIONS.length}
+              opsCount={KB_USER_OPERATIONS.length + ADMIN_EXTRA_OPERATIONS.length}
               accent="bg-rose-500"
             />
           )}
 
-          <details className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 text-xs text-emerald-700">
-            <summary className="cursor-pointer font-medium">
-              可用操作（{READ_OPERATIONS.length + (isAdmin ? ADMIN_EXTRA_OPERATIONS.length : 0)} 个）
-            </summary>
-            <div className="mt-2 space-y-1.5">
-              <p className="font-medium text-emerald-800">只读（{READ_OPERATIONS.length}）：</p>
-              <code className="block break-all text-[11px] text-emerald-700/80">
-                {READ_OPERATIONS.join(", ")}
-              </code>
-              {isAdmin && (
-                <>
-                  <p className="mt-2 font-medium text-emerald-800">
-                    管理额外（{ADMIN_EXTRA_OPERATIONS.length}）：
-                  </p>
-                  <code className="block break-all text-[11px] text-emerald-700/80">
-                    {ADMIN_EXTRA_OPERATIONS.join(", ")}
-                  </code>
-                </>
-              )}
-            </div>
-          </details>
-        </CardContent>
-      </Card>
-
-      {/* 接入示例 */}
-      <Card className="border-emerald-100 bg-white/80">
-        <CardContent className="space-y-3 p-5">
-          <div className="flex items-center gap-2">
-            <CopyIcon className="size-4 text-emerald-600" />
-            <h3 className="text-sm font-semibold text-emerald-950">客户端接入示例</h3>
-          </div>
-          <p className="text-xs text-emerald-700/70">
-            以下 JSON 适用于 Claude Desktop、Cursor 等支持 HTTP transport 的 MCP 客户端。将下方内容写入客户端配置文件即可接入本知识库。
+          <p className="rounded-lg border border-emerald-100 bg-emerald-50/40 px-3 py-2 text-[11px] text-emerald-600/70">
+            用户 MCP 接入（健身数据 + 知识库只读）请使用个人中心的用户 API Key，端点为
+            <code className="mx-1 rounded bg-emerald-50 px-1">{trimmedBase}/mcp/user</code>。
           </p>
-          <div className="relative">
-            <pre className="max-h-72 overflow-auto rounded-xl border border-emerald-100 bg-emerald-950/95 p-3 font-mono text-xs leading-relaxed text-emerald-100">
-              {claudeConfig}
-            </pre>
-            <CopyButton
-              text={claudeConfig}
-              fieldKey="MCP 配置"
-              className="absolute right-2 top-2 bg-white/90 shadow-sm hover:bg-white"
-            />
-          </div>
+
+          {isAdmin && (
+            <details className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3 text-xs text-emerald-700">
+              <summary className="cursor-pointer font-medium">
+                管理 MCP 可用操作（{KB_USER_OPERATIONS.length + ADMIN_EXTRA_OPERATIONS.length} 个）
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                <p className="font-medium text-emerald-800">
+                  知识库用户态（{KB_USER_OPERATIONS.length}）：
+                </p>
+                <code className="block break-all text-[11px] text-emerald-700/80">
+                  {KB_USER_OPERATIONS.join(", ")}
+                </code>
+                <p className="mt-2 font-medium text-emerald-800">
+                  管理额外（{ADMIN_EXTRA_OPERATIONS.length}）：
+                </p>
+                <code className="block break-all text-[11px] text-emerald-700/80">
+                  {ADMIN_EXTRA_OPERATIONS.join(", ")}
+                </code>
+              </div>
+            </details>
+          )}
         </CardContent>
       </Card>
 
-      {/* API Token 管理（仅管理员） */}
       {isAdmin ? (
         <Card className="border-emerald-100 bg-white/80">
           <CardContent className="space-y-3 p-5">
@@ -322,7 +273,7 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
               <KeyIcon className="size-4 text-emerald-600" />
               <h3 className="text-sm font-semibold text-emerald-950">API Token</h3>
               <span className="text-xs text-emerald-600/60">
-                供外部 Agent 通过只读 MCP 接入该知识库
+                知识库管理功能（不用于 MCP 接入）
               </span>
             </div>
 
@@ -332,7 +283,6 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
               </div>
             )}
 
-            {/* 新创建的 token（仅展示一次完整值） */}
             {createdToken && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="mb-1 text-xs font-semibold text-amber-800">
@@ -350,7 +300,6 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
               </div>
             )}
 
-            {/* 创建 token */}
             <div className="flex items-center gap-2">
               <Input
                 value={newTokenName}
@@ -376,14 +325,13 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
               </Button>
             </div>
 
-            {/* token 列表 */}
             {loading ? (
               <div className="flex items-center justify-center py-6 text-emerald-500">
                 <Loader2 className="size-5 animate-spin" />
               </div>
             ) : tokens.length === 0 ? (
               <p className="py-6 text-center text-xs text-emerald-600/50">
-                暂无令牌，创建一个供外部 Agent 接入
+                暂无令牌
               </p>
             ) : (
               <ul className="space-y-1.5">
@@ -443,7 +391,7 @@ export function KbMcpPanel({ kbId }: { kbId: string }) {
               <h3 className="text-sm font-semibold text-emerald-950">API Token</h3>
             </div>
             <p className="text-xs text-emerald-700/70">
-              仅管理员可创建与管理 API Token。如需通过 MCP 接入该知识库，请联系管理员获取 Token。
+              仅管理员可创建与管理 API Token。
             </p>
           </CardContent>
         </Card>

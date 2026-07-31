@@ -29,7 +29,7 @@ from src.fitme.services.plan_service import PlanService
 router = APIRouter(prefix="/plans", tags=["plans"])
 
 
-@router.get("", response_model=ResponseModel[PaginatedResponse[PlanListOut]])
+@router.get("", response_model=ResponseModel[PaginatedResponse[PlanListOut]], operation_id="list_plans")
 async def list_plans(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -51,7 +51,7 @@ async def list_plans(
     )
 
 
-@router.get("/active", response_model=ResponseModel[Optional[PlanOut]])
+@router.get("/active", response_model=ResponseModel[Optional[PlanOut]], operation_id="get_active_plan")
 async def get_active_plan(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -61,7 +61,7 @@ async def get_active_plan(
     return ResponseModel(data=PlanOut.model_validate(plan) if plan else None)
 
 
-@router.get("/{plan_id}", response_model=ResponseModel[PlanOut])
+@router.get("/{plan_id}", response_model=ResponseModel[PlanOut], operation_id="get_plan")
 async def get_plan(
     plan_id: UUID,
     user: User = Depends(get_current_user),
@@ -72,7 +72,7 @@ async def get_plan(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.post("", response_model=ResponseModel[PlanOut])
+@router.post("", response_model=ResponseModel[PlanOut], operation_id="create_plan")
 async def create_plan(
     data: PlanCreate,
     user: User = Depends(get_current_user),
@@ -85,7 +85,7 @@ async def create_plan(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.put("/{plan_id}", response_model=ResponseModel[PlanOut])
+@router.put("/{plan_id}", response_model=ResponseModel[PlanOut], operation_id="update_plan")
 async def update_plan(
     plan_id: UUID,
     data: PlanUpdate,
@@ -99,7 +99,7 @@ async def update_plan(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.delete("/{plan_id}", response_model=ResponseModel[None])
+@router.delete("/{plan_id}", response_model=ResponseModel[None], operation_id="delete_plan")
 async def delete_plan(
     plan_id: UUID,
     user: User = Depends(get_current_user),
@@ -111,7 +111,7 @@ async def delete_plan(
     return ResponseModel(message="计划已删除")
 
 
-@router.post("/{plan_id}/days", response_model=ResponseModel[PlanOut])
+@router.post("/{plan_id}/days", response_model=ResponseModel[PlanOut], operation_id="add_plan_day")
 async def add_plan_day(
     plan_id: UUID,
     data: PlanDayCreate,
@@ -126,7 +126,7 @@ async def add_plan_day(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.delete("/days/{day_id}", response_model=ResponseModel[PlanOut])
+@router.delete("/days/{day_id}", response_model=ResponseModel[PlanOut], operation_id="delete_plan_day")
 async def delete_plan_day(
     day_id: UUID,
     user: User = Depends(get_current_user),
@@ -139,7 +139,7 @@ async def delete_plan_day(
     return ResponseModel(data=PlanOut.model_validate(updated))
 
 
-@router.put("/days/{day_id}", response_model=ResponseModel[PlanOut])
+@router.put("/days/{day_id}", response_model=ResponseModel[PlanOut], operation_id="update_plan_day")
 async def update_plan_day(
     day_id: UUID,
     data: PlanDayUpdate,
@@ -154,7 +154,7 @@ async def update_plan_day(
     return ResponseModel(data=PlanOut.model_validate(plan))
 
 
-@router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanOut])
+@router.post("/days/{day_id}/exercises", response_model=ResponseModel[PlanOut], operation_id="add_plan_exercise")
 async def add_exercise_to_day(
     day_id: UUID,
     data: PlanExerciseCreate,
@@ -168,7 +168,7 @@ async def add_exercise_to_day(
     return ResponseModel(data=PlanOut.model_validate(updated))
 
 
-@router.put("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut])
+@router.put("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut], operation_id="update_plan_exercise")
 async def update_exercise(
     exercise_id: UUID,
     data: PlanExerciseUpdate,
@@ -182,7 +182,7 @@ async def update_exercise(
     return ResponseModel(data=PlanOut.model_validate(updated))
 
 
-@router.delete("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut])
+@router.delete("/exercises/{exercise_id}", response_model=ResponseModel[PlanOut], operation_id="delete_plan_exercise")
 async def delete_exercise(
     exercise_id: UUID,
     user: User = Depends(get_current_user),

@@ -31,7 +31,7 @@ router = APIRouter(prefix="/diet-meals", tags=["diet-meals"])
 
 
 # ---- DietMeal list / create endpoints ----
-@router.get("", response_model=ResponseModel[PaginatedResponse[DietMealOut]])
+@router.get("", response_model=ResponseModel[PaginatedResponse[DietMealOut]], operation_id="list_meals")
 async def list_meals(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
@@ -54,7 +54,7 @@ async def list_meals(
     )
 
 
-@router.post("", response_model=ResponseModel[DietMealOut])
+@router.post("", response_model=ResponseModel[DietMealOut], operation_id="create_meal")
 async def create_meal(
     data: DietMealCreate,
     user: User = Depends(get_current_user),
@@ -67,7 +67,7 @@ async def create_meal(
 
 
 # ---- Daily summary endpoints ----
-@router.get("/summary", response_model=ResponseModel[DailyDietSummaryOut])
+@router.get("/summary", response_model=ResponseModel[DailyDietSummaryOut], operation_id="get_daily_summary")
 async def get_daily_summary(
     date: date_type = Query(description="查询日期 YYYY-MM-DD"),
     user: User = Depends(get_current_user),
@@ -77,7 +77,7 @@ async def get_daily_summary(
     return ResponseModel(data=DailyDietSummaryOut.model_validate(summary))
 
 
-@router.get("/summaries", response_model=ResponseModel[list[DailyDietSummaryOut]])
+@router.get("/summaries", response_model=ResponseModel[list[DailyDietSummaryOut]], operation_id="list_daily_summaries")
 async def list_daily_summaries(
     start: Optional[date_type] = Query(None),
     end: Optional[date_type] = Query(None),
@@ -89,7 +89,7 @@ async def list_daily_summaries(
 
 
 # ---- Custom Food Item endpoints (before /{meal_id} to avoid path conflicts) ----
-@router.get("/foods/list", response_model=ResponseModel[list[CustomFoodItemOut]])
+@router.get("/foods/list", response_model=ResponseModel[list[CustomFoodItemOut]], operation_id="list_custom_foods")
 async def list_custom_foods(
     category: Optional[str] = Query(None),
     keyword: Optional[str] = Query(None),
@@ -100,7 +100,7 @@ async def list_custom_foods(
     return ResponseModel(data=[CustomFoodItemOut.model_validate(i) for i in items])
 
 
-@router.post("/foods", response_model=ResponseModel[CustomFoodItemOut])
+@router.post("/foods", response_model=ResponseModel[CustomFoodItemOut], operation_id="create_custom_food")
 async def create_custom_food(
     data: CustomFoodItemCreate,
     user: User = Depends(get_current_user),
@@ -112,7 +112,7 @@ async def create_custom_food(
     return ResponseModel(data=CustomFoodItemOut.model_validate(item))
 
 
-@router.put("/foods/{food_id}", response_model=ResponseModel[CustomFoodItemOut])
+@router.put("/foods/{food_id}", response_model=ResponseModel[CustomFoodItemOut], operation_id="update_custom_food")
 async def update_custom_food(
     food_id: UUID,
     data: CustomFoodItemUpdate,
@@ -126,7 +126,7 @@ async def update_custom_food(
     return ResponseModel(data=CustomFoodItemOut.model_validate(item))
 
 
-@router.delete("/foods/{food_id}", response_model=ResponseModel[None])
+@router.delete("/foods/{food_id}", response_model=ResponseModel[None], operation_id="delete_custom_food")
 async def delete_custom_food(
     food_id: UUID,
     user: User = Depends(get_current_user),
@@ -138,7 +138,7 @@ async def delete_custom_food(
 
 
 # ---- Batch create (before /{meal_id} to avoid path conflicts) ----
-@router.post("/batch", response_model=ResponseModel[list[DietMealOut]])
+@router.post("/batch", response_model=ResponseModel[list[DietMealOut]], operation_id="batch_create_meals")
 async def batch_create_meals(
     data: DietMealBatchCreate,
     user: User = Depends(get_current_user),
@@ -152,7 +152,7 @@ async def batch_create_meals(
 
 
 # ---- DietMeal by ID endpoints (after static/named routes) ----
-@router.get("/{meal_id}", response_model=ResponseModel[DietMealOut])
+@router.get("/{meal_id}", response_model=ResponseModel[DietMealOut], operation_id="get_meal")
 async def get_meal(
     meal_id: UUID,
     user: User = Depends(get_current_user),
@@ -162,7 +162,7 @@ async def get_meal(
     return ResponseModel(data=DietMealOut.model_validate(meal))
 
 
-@router.put("/{meal_id}", response_model=ResponseModel[DietMealOut])
+@router.put("/{meal_id}", response_model=ResponseModel[DietMealOut], operation_id="update_meal")
 async def update_meal(
     meal_id: UUID,
     data: DietMealUpdate,
@@ -176,7 +176,7 @@ async def update_meal(
     return ResponseModel(data=DietMealOut.model_validate(meal))
 
 
-@router.delete("/{meal_id}", response_model=ResponseModel[None])
+@router.delete("/{meal_id}", response_model=ResponseModel[None], operation_id="delete_meal")
 async def delete_meal(
     meal_id: UUID,
     user: User = Depends(get_current_user),
