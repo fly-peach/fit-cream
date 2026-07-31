@@ -12,25 +12,26 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Loader2, Trash2, Pencil, ExternalLink } from "lucide-react";
+import { Trash2, Pencil, ExternalLink, Loader2, Plus } from "lucide-react";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
-import { muscleGroupLabels, equipmentLabels } from "@/lib/exercise-labels";
-import type { Exercise } from "@/types/exercise";
-import { ExerciseSearchInline } from "./exercise-search";
-import { dayNames, type PlanDay, type PlanExercise } from "./types";
+import { showError } from "@/lib/toast";
+import { muscleGroupLabels, equipmentLabels, exerciseDescription } from "@/lib/exercise-labels";
+import { useLanguage } from "@/lib/language-context";
+import { AddExerciseDialog } from "./add-exercise-dialog";
+import { dayNames, type PlanDay, type PlanDetail, type PlanExercise } from "./types";
 
 export function DayDetailDialog({
   day,
   open,
   onClose,
-  onUpdated,
+  onPlanUpdated,
 }: {
   day: PlanDay | null;
   open: boolean;
   onClose: () => void;
-  onUpdated: () => void;
+  onPlanUpdated: (plan: PlanDetail) => void;
 }) {
+  const { isZh } = useLanguage();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editSets, setEditSets] = useState(3);
   const [editReps, setEditReps] = useState(12);
@@ -38,13 +39,14 @@ export function DayDetailDialog({
   const [editNotes, setEditNotes] = useState("");
   const [editMetadata, setEditMetadata] = useState<MetaRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [dayInfoSync, setDayInfoSync] = useState<string | null>(null);
   const [dayFocus, setDayFocus] = useState("");
   const [dayRest, setDayRest] = useState(60);
   const [dayMeta, setDayMeta] = useState<MetaRow[]>([]);
   const [dayInfoSaving, setDayInfoSaving] = useState(false);
-  const [searchHasResults, setSearchHasResults] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   if (day && day.id !== dayInfoSync) {
     setDayInfoSync(day.id);
@@ -52,7 +54,6 @@ export function DayDetailDialog({
     setDayRest(day.rest_seconds);
     setDayMeta(toMetaRows(day.metadata_));
     setEditingId(null);
-    setSearchHasResults(false);
   }
 
   if (!day) return null;
@@ -67,9 +68,21 @@ export function DayDetailDialog({
   };
 
   const saveEdit = async (exId: string) => {
+    if (editSets < 1 || editSets > 20) {
+      showError("组数需在 1-20 之间");
+      return;
+    }
+    if (editReps < 1 || editReps > 100) {
+      showError("次数需在 1-100 之间");
+      return;
+    }
+    if (editWeight && parseFloat(editWeight) < 0) {
+      showError("重量不能为负数");
+      return;
+    }
     setSaving(true);
     try {
-      await api.put(`/plans/exercises/${exId}`, {
+      const updated = await api.put<PlanDetail>(`/plans/exercises/${exId}`, {
         sets: editSets,
         reps: editReps,
         weight_kg: editWeight ? parseFloat(editWeight) : null,
@@ -77,9 +90,9 @@ export function DayDetailDialog({
         metadata_: toMetaDict(editMetadata),
       });
       setEditingId(null);
-      onUpdated();
+      onPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -87,58 +100,40 @@ export function DayDetailDialog({
 
   const deleteExercise = async (exId: string) => {
     if (!confirm("确定删除该动作？")) return;
+    setDeletingId(exId);
     try {
-      await api.delete(`/plans/exercises/${exId}`);
-      onUpdated();
+      const updated = await api.delete<PlanDetail>(`/plans/exercises/${exId}`);
+      onPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
   const saveDayInfo = async () => {
+    if (dayRest < 0) {
+      showError("组间休息不能为负数");
+      return;
+    }
     setDayInfoSaving(true);
     try {
-      await api.put(`/plans/days/${day.id}`, {
+      const updated = await api.put<PlanDetail>(`/plans/days/${day.id}`, {
         focus: dayFocus.trim() || null,
         rest_seconds: dayRest,
         metadata_: toMetaDict(dayMeta),
       });
-      onUpdated();
+      onPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setDayInfoSaving(false);
     }
   };
 
-  const addExerciseToDay = async (ex: Exercise) => {
-    await api.post(`/plans/days/${day.id}/exercises`, {
-      exercise_id: ex.id,
-      sets: 3,
-      reps: 12,
-      weight_kg: null,
-      sort_order: day.exercises.length,
-      notes: null,
-    });
-    onUpdated();
-  };
-
-  const handlePickExercise = async (ex: Exercise) => {
-    try {
-      await addExerciseToDay(ex);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent
-        className={cn(
-          "plan-day-dialog max-h-[85vh] overflow-y-auto transition-[max-width] duration-200",
-          searchHasResults ? "sm:max-w-5xl" : "sm:max-w-3xl",
-        )}
-      >
+      <DialogContent className="plan-day-dialog max-h-[85vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-emerald-950">
             <span className="flex size-7 items-center justify-center rounded-lg bg-emerald-600 text-xs font-bold text-white">
@@ -180,13 +175,21 @@ export function DayDetailDialog({
             </div>
           </div>
 
-          <ExerciseSearchInline onPick={handlePickExercise} onResultsChange={setSearchHasResults} />
-
-          <p className="text-xs font-medium text-emerald-700">
-            当日动作（{day.exercises.length}）
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-emerald-700">
+              当日动作（{day.exercises.length}）
+            </p>
+            <Button
+              size="sm"
+              onClick={() => setAddDialogOpen(true)}
+              className="h-7 gap-1 rounded-lg bg-emerald-600 px-2.5 text-xs text-white shadow-sm shadow-emerald-200 transition-all hover:bg-emerald-500 active:scale-95"
+            >
+              <Plus className="size-3.5" />
+              添加动作
+            </Button>
+          </div>
           {day.exercises.length === 0 ? (
-            <p className="py-4 text-center text-sm text-emerald-600/50">暂无动作，在上方搜索添加</p>
+            <p className="py-4 text-center text-sm text-emerald-600/50">暂无动作，点击上方「添加动作」开始</p>
           ) : (
             <div className="space-y-2">
               {[...day.exercises]
@@ -265,6 +268,14 @@ export function DayDetailDialog({
                             <p className="font-medium text-emerald-900">
                               {ex.exercise?.name ?? ex.exercise_name ?? "未知动作"}
                             </p>
+                            {!ex.exercise_id && (
+                              <Badge
+                                variant="outline"
+                                className="h-5 border-violet-200 bg-violet-50 px-1.5 text-[10px] text-violet-600"
+                              >
+                                自定义
+                              </Badge>
+                            )}
                             {ex.exercise?.muscle_group && (
                               <Badge
                                 variant="outline"
@@ -288,9 +299,9 @@ export function DayDetailDialog({
                             </span>
                             {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
                           </p>
-                          {ex.exercise?.description && (
+                          {ex.exercise && exerciseDescription(ex.exercise, isZh) && (
                             <p className="mt-1 line-clamp-2 text-xs text-emerald-600/60">
-                              {ex.exercise.description}
+                              {exerciseDescription(ex.exercise, isZh)}
                             </p>
                           )}
                           {ex.notes && (
@@ -304,15 +315,17 @@ export function DayDetailDialog({
                           </div>
                         </div>
                         <div className="flex shrink-0 flex-col gap-1">
-                          <a
-                            href={`/exercises/${ex.exercise_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title="查看动作详情"
-                            className="flex size-7 items-center justify-center rounded-md text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </a>
+                          {ex.exercise_id && (
+                            <a
+                              href={`/exercises/${ex.exercise_id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="查看动作详情"
+                              className="flex size-7 items-center justify-center rounded-md text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
+                            >
+                              <ExternalLink className="size-3.5" />
+                            </a>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -326,8 +339,13 @@ export function DayDetailDialog({
                             size="icon"
                             className="size-7 text-red-300 hover:text-red-600"
                             onClick={() => deleteExercise(ex.id)}
+                            disabled={deletingId === ex.id}
                           >
-                            <Trash2 className="size-3.5" />
+                            {deletingId === ex.id ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
                           </Button>
                         </div>
                       </div>
@@ -343,6 +361,13 @@ export function DayDetailDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AddExerciseDialog
+        day={day}
+        open={addDialogOpen}
+        onClose={() => setAddDialogOpen(false)}
+        onPlanUpdated={onPlanUpdated}
+      />
     </Dialog>
   );
 }

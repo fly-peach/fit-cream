@@ -19,14 +19,23 @@ from src.fitme.schemas.exercise import ExerciseBrief  # noqa: F401
 
 
 class PlanExerciseCreate(BaseModel):
-    """计划中动作创建"""
-    exercise_id: UUID
+    """计划中动作创建（动作库动作二选一：exercise_id 或 custom_name）"""
+    exercise_id: Optional[UUID] = None
+    custom_name: Optional[str] = Field(default=None, max_length=200)
     sets: int = Field(ge=1, le=20)
     reps: int = Field(ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
     sort_order: int = 0
     notes: Optional[str] = Field(default=None, max_length=500)
     metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
+
+    @model_validator(mode="after")
+    def _require_exercise_source(self):
+        if not self.exercise_id and not (self.custom_name and self.custom_name.strip()):
+            raise ValueError("需提供 exercise_id 或 custom_name")
+        if self.custom_name:
+            self.custom_name = self.custom_name.strip()
+        return self
 
 
 class PlanExerciseUpdate(BaseModel):
@@ -42,7 +51,8 @@ class PlanExerciseUpdate(BaseModel):
 class PlanExerciseOut(BaseModel):
     """计划中动作输出"""
     id: UUID
-    exercise_id: UUID
+    exercise_id: Optional[UUID] = None
+    custom_name: Optional[str] = None
     exercise_name: Optional[str] = None
     sets: int
     reps: int
@@ -56,9 +66,12 @@ class PlanExerciseOut(BaseModel):
 
     @model_validator(mode="after")
     def _fill_exercise_name(self):
-        # 模型无 exercise_name 列，从关联动作回填，保证前端可直接展示名称
-        if not self.exercise_name and self.exercise is not None:
-            self.exercise_name = self.exercise.name
+        # 模型无 exercise_name 列，从关联动作或自定义名称回填，保证前端可直接展示名称
+        if not self.exercise_name:
+            if self.exercise is not None:
+                self.exercise_name = self.exercise.name
+            elif self.custom_name:
+                self.exercise_name = self.custom_name
         return self
 
 

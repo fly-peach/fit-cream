@@ -5,21 +5,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Loader2, Trash2, UtensilsCrossed, Pencil, Plus } from "lucide-react";
+import { Loader2, Trash2, UtensilsCrossed, Pencil, Plus, Settings2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { dayNames, mealTypeLabels, mealTypeColors, type DietDay, type DietMeal, type DietPlanDetail } from "./types";
+import { showError, showSuccess } from "@/lib/toast";
+import { dayNames, mealTypeLabels, mealTypeColors, type DietDay, type DietMeal, type DietPlanDetail, type UserSettings } from "./types";
 
 export function DietPlanCard({
   dietPlan,
   dayOfWeek,
   selectedDateLabel,
-  onUpdated,
+  settings,
+  onDietPlanUpdated,
+  onSettingsUpdated,
 }: {
   dietPlan: DietPlanDetail | null;
   dayOfWeek: number;
   selectedDateLabel: string;
-  onUpdated: () => void;
+  settings: UserSettings | null;
+  onDietPlanUpdated: (plan: DietPlanDetail) => void;
+  onSettingsUpdated: (s: UserSettings) => void;
 }) {
   const [editingMealId, setEditingMealId] = useState<string | null>(null);
   const [editFood, setEditFood] = useState("");
@@ -47,18 +52,52 @@ export function DietPlanCard({
   const [dayAddSaving, setDayAddSaving] = useState(false);
   const [planCreating, setPlanCreating] = useState(false);
 
+  const [editingTargets, setEditingTargets] = useState(false);
+  const [targetCal, setTargetCal] = useState("");
+  const [targetProtein, setTargetProtein] = useState("");
+  const [targetCarbs, setTargetCarbs] = useState("");
+  const [targetFat, setTargetFat] = useState("");
+  const [targetsSaving, setTargetsSaving] = useState(false);
+
+  const startEditTargets = () => {
+    setTargetCal(String(settings?.calorie_goal ?? 2000));
+    setTargetProtein(String(settings?.protein_goal_g ?? 0));
+    setTargetCarbs(String(settings?.carbs_goal_g ?? 0));
+    setTargetFat(String(settings?.fat_goal_g ?? 0));
+    setEditingTargets(true);
+  };
+
+  const saveTargets = async () => {
+    setTargetsSaving(true);
+    try {
+      const updated = await api.put<UserSettings>("/users/settings", {
+        calorie_goal: parseInt(targetCal) || 2000,
+        protein_goal_g: parseInt(targetProtein) || 0,
+        carbs_goal_g: parseInt(targetCarbs) || 0,
+        fat_goal_g: parseInt(targetFat) || 0,
+      });
+      onSettingsUpdated(updated);
+      setEditingTargets(false);
+      showSuccess("营养目标已保存");
+    } catch (e) {
+      showError((e as Error).message);
+    } finally {
+      setTargetsSaving(false);
+    }
+  };
+
   const createDietPlan = async () => {
     setPlanCreating(true);
     try {
-      await api.post("/diet-plans", {
+      const created = await api.post<DietPlanDetail>("/diet-plans", {
         name: "我的饮食计划",
         target_calories: null,
         goal: null,
         days: [],
       });
-      onUpdated();
+      onDietPlanUpdated(created);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setPlanCreating(false);
     }
@@ -108,7 +147,7 @@ export function DietPlanCard({
   const saveMealEdit = async (mealId: string) => {
     setSaving(true);
     try {
-      await api.put(`/diet-plans/meals/${mealId}`, {
+      const updated = await api.put<DietPlanDetail>(`/diet-plans/meals/${mealId}`, {
         food_name: editFood,
         calories: editCalories ? parseInt(editCalories) : null,
         protein_g: editProtein ? parseFloat(editProtein) : null,
@@ -118,9 +157,9 @@ export function DietPlanCard({
         metadata_: toMetaDict(editMealMetadata),
       });
       setEditingMealId(null);
-      onUpdated();
+      onDietPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -129,10 +168,10 @@ export function DietPlanCard({
   const deleteMeal = async (mealId: string) => {
     if (!confirm("确定删除该餐食？")) return;
     try {
-      await api.delete(`/diet-plans/meals/${mealId}`);
-      onUpdated();
+      const updated = await api.delete<DietPlanDetail>(`/diet-plans/meals/${mealId}`);
+      onDietPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     }
   };
 
@@ -145,14 +184,14 @@ export function DietPlanCard({
   const saveDayEdit = async (dayId: string) => {
     setSaving(true);
     try {
-      await api.put(`/diet-plans/days/${dayId}`, {
+      const updated = await api.put<DietPlanDetail>(`/diet-plans/days/${dayId}`, {
         focus: editDayFocus.trim() || null,
         metadata_: toMetaDict(editDayMetadata),
       });
       setEditingDayId(null);
-      onUpdated();
+      onDietPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -172,12 +211,16 @@ export function DietPlanCard({
   const addMeal = async () => {
     if (!currentDay) return;
     if (!newFood.trim()) {
-      alert("请填写食物名称");
+      showError("请填写食物名称");
+      return;
+    }
+    if (newCalories && parseInt(newCalories) < 0) {
+      showError("卡路里不能为负数");
       return;
     }
     setAddSaving(true);
     try {
-      await api.post(`/diet-plans/days/${currentDay.id}/meals`, {
+      const updated = await api.post<DietPlanDetail>(`/diet-plans/days/${currentDay.id}/meals`, {
         meal_type: newMealType,
         food_name: newFood.trim(),
         calories: newCalories ? parseInt(newCalories) : null,
@@ -190,9 +233,9 @@ export function DietPlanCard({
       });
       setAddingMeal(false);
       resetAddMealForm();
-      onUpdated();
+      onDietPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setAddSaving(false);
     }
@@ -202,14 +245,14 @@ export function DietPlanCard({
     if (!dietPlan?.id) return;
     setDayAddSaving(true);
     try {
-      await api.post(`/diet-plans/${dietPlan.id}/days`, {
+      const updated = await api.post<DietPlanDetail>(`/diet-plans/${dietPlan.id}/days`, {
         day_of_week: dayOfWeek,
         focus: `${dayNames[dayOfWeek - 1]}饮食`,
         meals: [],
       });
-      onUpdated();
+      onDietPlanUpdated(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setDayAddSaving(false);
     }
@@ -302,6 +345,103 @@ export function DietPlanCard({
               <span className="text-xs text-orange-600">当日总热量</span>
               <span className="text-sm font-bold text-orange-600">{totalCalories} kcal</span>
             </div>
+
+            {/* 每日营养目标 */}
+            <div className="rounded-lg border border-orange-100 bg-orange-50/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-orange-700">
+                  <Settings2 className="size-3.5 text-orange-500" />
+                  每日营养目标
+                </span>
+                {!editingTargets && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 text-orange-300 hover:text-orange-600"
+                    onClick={startEditTargets}
+                  >
+                    <Pencil className="size-3" />
+                  </Button>
+                )}
+              </div>
+              {editingTargets ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={targetCal}
+                        onChange={(e) => setTargetCal(e.target.value)}
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[10px] text-orange-500">kcal</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={targetProtein}
+                        onChange={(e) => setTargetProtein(e.target.value)}
+                        placeholder="蛋白质"
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[10px] text-orange-500">g</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={targetCarbs}
+                        onChange={(e) => setTargetCarbs(e.target.value)}
+                        placeholder="碳水"
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[10px] text-orange-500">g</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={targetFat}
+                        onChange={(e) => setTargetFat(e.target.value)}
+                        placeholder="脂肪"
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[10px] text-orange-500">g</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="h-7 text-xs" onClick={saveTargets} disabled={targetsSaving}>
+                      {targetsSaving ? "保存中..." : "保存目标"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingTargets(false)}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {(
+                    [
+                      { label: "热量", value: settings?.calorie_goal ?? 2000, unit: "kcal" },
+                      { label: "蛋白质", value: settings?.protein_goal_g ?? 0, unit: "g" },
+                      { label: "碳水", value: settings?.carbs_goal_g ?? 0, unit: "g" },
+                      { label: "脂肪", value: settings?.fat_goal_g ?? 0, unit: "g" },
+                    ] as const
+                  ).map((t) => (
+                    <div key={t.label} className="rounded-md bg-white/70 px-2 py-1.5 text-center">
+                      <p className="text-[10px] text-orange-600/70">{t.label}</p>
+                      <p className="text-sm font-bold tabular-nums text-orange-950">
+                        {t.value}
+                        <span className="ml-0.5 text-[10px] font-normal text-orange-400">{t.unit}</span>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {currentDay.meals.length === 0 ? (
               <p className="py-4 text-center text-sm text-orange-600/50">
                 暂无餐食，点击下方添加

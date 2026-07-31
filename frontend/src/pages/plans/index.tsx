@@ -16,10 +16,11 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import { DietRecordSection } from "@/pages/diet";
+import { showError } from "@/lib/toast";
 import { CheckinCalendar } from "./checkin-calendar";
 import { DayDetailDialog } from "./day-detail-dialog";
 import { DietPlanCard } from "./diet-plan-card";
+import { NutritionOverview } from "./nutrition-overview";
 import {
   dayNames,
   parseDateLocal,
@@ -29,6 +30,7 @@ import {
   type PlanDetail,
   type CheckinItem,
   type DietPlanDetail,
+  type UserSettings,
 } from "./types";
 
 export default function PlansPage() {
@@ -52,6 +54,7 @@ export default function PlansPage() {
   const [checkins, setCheckins] = useState<CheckinItem[]>([]);
   const [streak, setStreak] = useState(0);
   const [dietPlan, setDietPlan] = useState<DietPlanDetail | null>(null);
+  const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [dayDialogOpen, setDayDialogOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
@@ -74,12 +77,14 @@ export default function PlansPage() {
       api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
       api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
       api.get<DietPlanDetail | null>("/diet-plans/active").catch(() => null),
+      api.get<UserSettings>("/users/settings").catch(() => null),
     ])
-      .then(([active, checkinRes, streakRes, diet]) => {
+      .then(([active, checkinRes, streakRes, diet, userSettings]) => {
         setActivePlan(active);
         if (checkinRes?.items) setCheckins(checkinRes.items);
         if (streakRes) setStreak(streakRes.current_streak);
         setDietPlan(diet);
+        setSettings(userSettings);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -100,27 +105,25 @@ export default function PlansPage() {
   const deleteTrainingDay = async (dayId: string) => {
     if (!confirm("确定删除该训练日？")) return;
     try {
-      await api.delete(`/plans/days/${dayId}`);
-      if (activePlan?.id) {
-        setActivePlan(await api.get<PlanDetail>(`/plans/${activePlan.id}`));
-      }
+      const updated = await api.delete<PlanDetail>(`/plans/days/${dayId}`);
+      setActivePlan(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     }
   };
 
   const addTrainingDayFor = async (dow: number) => {
     if (!activePlan?.id) return;
     try {
-      await api.post(`/plans/${activePlan.id}/days`, {
+      const updated = await api.post<PlanDetail>(`/plans/${activePlan.id}/days`, {
         day_of_week: dow,
         focus: `${dayNames[dow - 1]}训练`,
         rest_seconds: 60,
         exercises: [],
       });
-      setActivePlan(await api.get<PlanDetail>(`/plans/${activePlan.id}`));
+      setActivePlan(updated);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     }
   };
 
@@ -134,7 +137,7 @@ export default function PlansPage() {
       setStreak(streakRes.current_streak);
       if (checkinRes?.items) setCheckins(checkinRes.items);
     } catch (e) {
-      alert((e as Error).message);
+      showError((e as Error).message);
     } finally {
       setCheckinLoading(null);
     }
@@ -170,7 +173,7 @@ export default function PlansPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="mx-auto max-w-md">
+              <div className="grid items-start gap-6 lg:grid-cols-2">
                 <CheckinCalendar
                   mode={calMode}
                   onModeChange={setCalMode}
@@ -180,6 +183,11 @@ export default function PlansPage() {
                   streak={streak}
                   dietDayCalories={dietDayCalories}
                   dietTargetCalories={dietPlan?.target_calories ?? null}
+                />
+                <NutritionOverview
+                  meals={dietDay?.meals ?? []}
+                  settings={settings}
+                  dateLabel={dietDateLabel}
                 />
               </div>
 
@@ -308,15 +316,11 @@ export default function PlansPage() {
                   dietPlan={dietPlan}
                   dayOfWeek={dietDow}
                   selectedDateLabel={dietDateLabel}
-                  onUpdated={() => {
-                    api.get<DietPlanDetail | null>("/diet-plans/active").then((diet) => {
-                      setDietPlan(diet);
-                    });
-                  }}
+                  settings={settings}
+                  onDietPlanUpdated={(plan) => setDietPlan(plan)}
+                  onSettingsUpdated={(s) => setSettings(s)}
                 />
               </div>
-
-              <DietRecordSection selectedDate={dietDate} />
             </div>
           )}
         </div>
@@ -326,14 +330,10 @@ export default function PlansPage() {
         day={selectedDay}
         open={dayDialogOpen}
         onClose={() => setDayDialogOpen(false)}
-        onUpdated={() => {
-          if (activePlan?.id) {
-            api.get<PlanDetail>(`/plans/${activePlan.id}`).then((detail) => {
-              setActivePlan(detail);
-              const updatedDay = detail.days.find((d) => d.id === selectedDay?.id);
-              if (updatedDay) setSelectedDay(updatedDay);
-            });
-          }
+        onPlanUpdated={(plan) => {
+          setActivePlan(plan);
+          const updatedDay = plan.days.find((d) => d.id === selectedDay?.id);
+          if (updatedDay) setSelectedDay(updatedDay);
         }}
       />
     </AppLayout>

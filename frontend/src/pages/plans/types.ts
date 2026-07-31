@@ -2,7 +2,8 @@ import type { ExerciseBrief } from "@/types/exercise";
 
 export interface PlanExercise {
   id: string;
-  exercise_id: string;
+  exercise_id: string | null;
+  custom_name?: string | null;
   exercise_name: string | null;
   sets: number;
   reps: number;
@@ -66,6 +67,13 @@ export interface DietPlanDetail {
   goal: string | null;
   status: string;
   days: DietDay[];
+}
+
+export interface UserSettings {
+  calorie_goal: number;
+  protein_goal_g: number;
+  carbs_goal_g: number;
+  fat_goal_g: number;
 }
 
 export const dayNames = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];

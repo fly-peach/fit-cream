@@ -87,9 +87,10 @@ class PlanDayExercise(Base):
         ForeignKey("plan_days.id", ondelete="CASCADE"),
         index=True,
     )
-    exercise_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("exercises.id"), index=True
+    exercise_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("exercises.id"), index=True, nullable=True
     )
+    custom_name: Mapped[Optional[str]] = mapped_column(String(200))
     sets: Mapped[int] = mapped_column(Integer, nullable=False)
     reps: Mapped[int] = mapped_column(Integer, nullable=False)
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
