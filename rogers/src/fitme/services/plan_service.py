@@ -116,6 +116,7 @@ class PlanService:
                 id=uuid4(),
                 plan_day_id=day_id,
                 exercise_id=ex_data.exercise_id,
+                custom_name=ex_data.custom_name,
                 sets=ex_data.sets,
                 reps=ex_data.reps,
                 weight_kg=ex_data.weight_kg,
@@ -170,6 +171,9 @@ class PlanService:
                 selectinload(Plan.days).selectinload(PlanDay.exercises)
             )
             .where(Plan.id == plan_id)
+            # 会话 expire_on_commit=False：增删训练日/动作后，identity map 中的 Plan
+            # 仍持有旧的 days 集合；populate_existing 强制用本次查询结果覆盖，保证返回最新
+            .execution_options(populate_existing=True)
         )
         plan = result.scalar_one_or_none()
 
@@ -472,6 +476,7 @@ class PlanService:
             id=uuid4(),
             plan_day_id=plan_day_id,
             exercise_id=data.exercise_id,
+            custom_name=data.custom_name if not data.exercise_id else None,
             sets=data.sets,
             reps=data.reps,
             weight_kg=data.weight_kg,

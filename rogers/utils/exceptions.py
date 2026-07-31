@@ -106,12 +106,22 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        # 仅保留可安全 JSON 序列化的字段：model_validator 抛出的 ValueError 会进入
+        # ctx，直接透传 exc.errors() 会让 422 处理器自身崩溃成 500
+        safe_errors = [
+            {
+                "loc": list(err.get("loc", [])),
+                "msg": str(err.get("msg", "")),
+                "type": str(err.get("type", "")),
+            }
+            for err in exc.errors()
+        ]
         return JSONResponse(
             status_code=422,
             content={
                 "code": ErrorCode.BAD_REQUEST,
                 "message": "参数校验失败",
-                "data": {"errors": exc.errors()},
+                "data": {"errors": safe_errors},
             },
         )
 

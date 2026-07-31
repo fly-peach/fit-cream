@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from src.fitme.schemas.diet_plan import (
@@ -162,7 +163,12 @@ class DietPlanService:
     ) -> DietPlan:
         """获取饮食计划详情（含饮食日和餐食）"""
         result = await db.execute(
-            select(DietPlan).where(DietPlan.id == diet_plan_id)
+            select(DietPlan)
+            .options(selectinload(DietPlan.days).selectinload(DietPlanDay.meals))
+            .where(DietPlan.id == diet_plan_id)
+            # 会话 expire_on_commit=False：增删饮食日/餐食后，identity map 中的 DietPlan
+            # 仍持有旧的 days 集合；populate_existing 强制用本次查询结果覆盖，保证返回最新
+            .execution_options(populate_existing=True)
         )
         diet_plan = result.scalar_one_or_none()
 
@@ -317,12 +323,24 @@ class DietPlanService:
         db: AsyncSession,
         user_id: UUID,
         goal: str,
-        target_calories: int = 2000,
+        target_calories: Optional[int] = None,
         days_per_week: int = 7,
         preferences: Optional[str] = None,
         user_data: Optional[dict] = None,
     ) -> DietPlan:
-        """根据目标智能生成饮食计划（Agent 调用）"""
+        """根据目标智能生成饮食计划（Agent 调用）。
+
+        target_calories 为空时，根据 user_data 的体重 + 目标自动估算：
+        减脂=体重×22，增肌=体重×33，其余=体重×28；无体重则兜底 2000。
+        """
+        if target_calories is None:
+            weight = (user_data or {}).get("weight_kg")
+            if weight:
+                factor = {"lose_fat": 22, "gain_muscle": 33}.get(goal, 28)
+                target_calories = int(weight * factor)
+            else:
+                target_calories = 2000
+
         goal_names = {
             "lose_fat": "减脂饮食",
             "gain_muscle": "增肌饮食",

@@ -5,10 +5,10 @@
 输出模型使用 model_config = {"from_attributes": True} 从 ORM 实例转换。
 """
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 # ============================================================
@@ -116,7 +116,13 @@ class KBDocumentOut(BaseModel):
     stale_since: Optional[datetime] = None
     tags: List[str] = Field(default_factory=list)
     entity_type: Optional[str] = None
-    metadata_: dict = Field(default_factory=dict, alias="metadata")
+    # ORM 属性名为 metadata_（列名 metadata），而 "metadata" 会撞到 SQLAlchemy 的
+    # Base.metadata；from_attributes 校验时优先读 metadata_，序列化仍输出 "metadata"
+    metadata_: dict = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("metadata_", "metadata"),
+        serialization_alias="metadata",
+    )
     version: int = 0
     created_by: UUID
     created_at: datetime
