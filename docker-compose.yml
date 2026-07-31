@@ -1,0 +1,38 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fitcream
+      POSTGRES_PASSWORD: fitcream
+      POSTGRES_DB: fitcream
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitcream"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fitcream:fitcream@db:5432/fitcream
+      DEBUG: "false"
+      LOG_DIR: /data/logs
+    volumes:
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  appdata:
