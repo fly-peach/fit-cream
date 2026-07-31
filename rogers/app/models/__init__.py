@@ -12,13 +12,14 @@ src 各子系统只保留核心数据模型、schemas 与 service 定义，
 from src.fitme.models.auth_models import (
     LoginAttempt,
     RefreshTokenBlacklist,
+    UserApiKey,
     UserAuditLog,
     VerificationCode,
 )
 from src.fitme.models.checkin import Checkin, CheckinExercise
 from src.fitme.models.diet_meal import CustomFoodItem, DailyDietSummary, DietMeal
 from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
-from src.fitme.models.exercise import Exercise
+from src.fitme.models.exercise import Exercise, UserExerciseFavorite
 from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.agents.models.thread_meta import ThreadMeta
@@ -47,6 +48,7 @@ from src.agents.models.memory import (
 
 # ---- Service 层 ----
 from src.agents.harness.runtime.conversation_service import ConversationService
+from src.auth.api_key_service import UserApiKeyService
 from src.auth.auth_service import AuthService
 from src.fitme.services.checkin_service import CheckinService
 from src.fitme.services.diet_meal_service import CustomFoodItemService, DietMealService
@@ -75,6 +77,7 @@ __all__ = [
     "Checkin",
     "CheckinExercise",
     "Exercise",
+    "UserExerciseFavorite",
     "ThreadUsage",
     "ThreadMeta",
     # Agent 模型
@@ -82,6 +85,7 @@ __all__ = [
     # 认证模型
     "RefreshTokenBlacklist",
     "LoginAttempt",
+    "UserApiKey",
     "UserAuditLog",
     "VerificationCode",
     # 知识库模型
@@ -97,6 +101,7 @@ __all__ = [
     "ProceduralMemory",
     "MemoryConsolidationLog",
     # 服务
+    "UserApiKeyService",
     "AuthService",
     "UserService",
     "PlanService",

@@ -83,3 +83,20 @@ class VerificationCode(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class UserApiKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id: Mapped[PyUUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[PyUUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
+    )
+    key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))

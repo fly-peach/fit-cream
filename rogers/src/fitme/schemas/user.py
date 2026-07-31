@@ -120,3 +120,24 @@ class UserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
     age: Optional[int] = Field(default=None, gt=0, le=150)
     gender: Optional[str] = Field(default=None, pattern="^(male|female|other)$")
+
+
+class UserApiKeyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    key_prefix: str
+    name: Optional[str] = None
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+
+class UserApiKeyCreated(BaseModel):
+    key: str
+    key_out: UserApiKeyOut
+
+
+class UserApiKeyCreate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=100)

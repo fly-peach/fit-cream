@@ -106,4 +106,36 @@ export const api = {
     request<T>(path, { method: "POST", body: formData }),
 };
 
+export interface UserApiKeyOut {
+  id: string;
+  user_id: string;
+  key_prefix: string;
+  name: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+
+export interface UserApiKeyCreated {
+  key: string;
+  key_out: UserApiKeyOut;
+}
+
+export const apiKeyApi = {
+  get: () => api.get<UserApiKeyOut | null>("/users/me/api-key"),
+  create: (name?: string) =>
+    api.post<UserApiKeyCreated>("/users/me/api-key", name ? { name } : undefined),
+  delete: () => api.delete<null>("/users/me/api-key"),
+};
+
+export const exerciseFavApi = {
+  toggle: (exerciseId: string) =>
+    api.post<{ favorited: boolean }>(`/exercises/${exerciseId}/favorite`),
+  listIds: () => api.get<string[]>("/exercises/favorites/ids"),
+  list: (page = 1, size = 20) =>
+    api.get<{ items: import("@/types/exercise").Exercise[]; total: number }>(
+      `/exercises/favorites/list?page=${page}&size=${size}`
+    ),
+};
+
 export { API_URL };

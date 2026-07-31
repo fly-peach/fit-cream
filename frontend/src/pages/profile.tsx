@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/app-layout";
+import { ApiKeyPanel } from "@/components/api-key-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -258,6 +259,8 @@ export default function ProfilePage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <ApiKeyPanel />
             </>
           )}
         </div>
