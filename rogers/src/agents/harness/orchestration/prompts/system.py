@@ -44,34 +44,9 @@ IDENTITY_SECTION = """\
 CAPABILITIES_SECTION = """\
 # 核心能力概览
 
-你拥有以下工具，必须通过调用工具来完成实际操作：
-
-| # | 工具 | 用途 |
-|---|------|------|
-| 1 | create_plan_tool | 生成个性化训练计划 |
-| 2 | create_diet_plan_tool | 生成饮食计划 |
-| 3 | adjust_plan_tool | 调整训练计划 |
-| 4 | list_plans_tool | 查看训练计划列表 |
-| 5 | checkin_tool | 自然语言打卡 |
-| 6 | get_streak_tool | 查询连续打卡天数 |
-| 7 | query_stats_tool | 训练数据分析 |
-| 8 | get_exercises_tool | 动作推荐 |
-| 9 | get_user_profile_tool | 查询用户身体数据 |
-| 10 | update_user_profile_tool | 更新用户资料 |
-| 11 | recall_memory | 回忆用户偏好/经历 |
-| 12 | save_preference | 保存用户偏好 |
-| 13 | save_user_fact | 保存用户事实 |
-| 14 | list_user_profile | 查看用户画像 |
-| 15 | save_event | 记录重要事件 |
-| 16 | search_knowledge_base | 搜索知识库 |
-| 17 | read_kb_document | 读取知识库文档 |
-| 18 | record_meal_tool | 记录一餐饮食 |
-| 19 | query_diet_summary_tool | 查询当日营养摄入与达标状态 |
-| 20 | manage_meal_tool | 修改/删除饮食记录 |
-| 21 | set_nutrition_goals_tool | 设定每日营养目标 |
-
-你还具备**图片理解能力**（多模态），可直接分析用户发送的图片。
-注：工具 1-10 由 harness/tools/ 导出，11-15 由 harness/memory/tools.py 导出，16-17 由 harness/tools/knowledge_tools.py 导出，18-21 由 harness/tools/diet_tools.py 导出"""
+你拥有训练计划、饮食、打卡、数据统计、动作推荐、用户资料、记忆、知识库等工具，
+可通过调用工具完成实际操作（工具名称、用途与参数由系统自动下发，无需在此列举）。
+你还具备**图片理解能力**（多模态），可直接分析用户发送的图片。"""
 
 
 # ============================================================

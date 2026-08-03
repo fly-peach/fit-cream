@@ -45,44 +45,15 @@ def _get_agent():
 
 
 async def _build_user_context(user: User) -> str:
-    """构建用户动态上下文字符串，注入到对话输入中"""
-    from app.database import async_session_factory
-    from src.fitme.services.checkin_service import CheckinService
-    from src.fitme.services.plan_service import PlanService
-    from src.fitme.services.user_service import UserService
+    """构建用户动态上下文（精简版）：仅注入当前日期与用户称呼。
 
+    此前每轮会查询 goal/BMI/streak/active plan 并作为 SystemMessage 注入，
+    这些数据随 checkpointer 累积在历史中、逐轮重复消耗 token。用户目标 / 身体
+    数据 / 打卡 / 计划均可通过 get_user_profile_tool / get_streak_tool /
+    list_plans_tool 等按需获取，故不再每轮注入，仅在需要时由模型主动调用工具。
+    """
     parts = [f"- 当前日期：{date.today().isoformat()}"]
     parts.append(f"- 用户称呼：{user.name or '用户'}")
-
-    try:
-        async with async_session_factory() as db:
-            # 获取用户设置
-            settings = await UserService.get_user_settings(db, user.id)
-            if settings.goal:
-                goal_map = {
-                    "lose_fat": "减脂", "gain_muscle": "增肌",
-                    "maintain": "维持体型", "improve_health": "改善健康",
-                }
-                parts.append(f"- 用户目标：{goal_map.get(settings.goal, settings.goal)}")
-
-            # 获取最新健康指标
-            latest_metric = await UserService.get_latest_health_metric(db, user.id)
-            if latest_metric and latest_metric.height_cm and latest_metric.weight_kg:
-                bmi = latest_metric.weight_kg / ((latest_metric.height_cm / 100) ** 2)
-                parts.append(f"- 身体数据：{latest_metric.height_cm}cm / {latest_metric.weight_kg}kg")
-                bmi_text = "偏瘦" if bmi < 18.5 else "正常" if bmi < 24 else "偏胖" if bmi < 28 else "肥胖"
-                parts.append(f"- BMI：{bmi:.1f}（{bmi_text}）")
-
-            # 获取打卡 streak 和计划
-            streak = await CheckinService.get_streak(db, user.id)
-            if streak.get("current_streak"):
-                parts.append(f"- 当前连续打卡：{streak['current_streak']} 天")
-            plan, _ = await PlanService.list_plans(db, user.id, page=1, size=1, status="active")
-            if plan:
-                parts.append(f"- 当前活跃计划：{plan[0].name}（第 {plan[0].weeks} 周计划）")
-    except Exception:
-        pass
-
     return "# 当前对话上下文\n" + "\n".join(parts)
 
 
