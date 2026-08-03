@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
