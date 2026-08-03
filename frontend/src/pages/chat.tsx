@@ -50,9 +50,11 @@ import {
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
+import { MemoryPanel } from "@/components/memory-panel";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { ToolCallCard } from "@/components/tool-call-card";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api, checkAuthEnvelope } from "@/lib/api";
 import {
@@ -62,6 +64,7 @@ import {
   XIcon,
   CameraIcon,
   BookOpenIcon,
+  BrainIcon,
 } from "lucide-react";
 import type { ChatMessage, ToolCall } from "@/types/chat";
 
@@ -372,6 +375,7 @@ export default function ChatPage() {
     useChatSSE(currentThreadId, loadThreads);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"chat" | "memories">("chat");
 
   // 已 seed usage 的会话 id：仅真正切换到新会话时重置 usage，
   // 同一会话内 threads 列表刷新不应覆盖实时累计值
@@ -399,6 +403,7 @@ export default function ChatPage() {
     seededThreadRef.current = null;
     setThreadId(null);
     clearMessages();
+    setTab("chat");
   };
 
   // 发送消息：支持文本 + 图片。图片先经后端转存阿里云 OSS（返回签名 URL），
@@ -613,6 +618,23 @@ export default function ChatPage() {
           </div>
         </header>
 
+        <div className="flex shrink-0 items-center border-b border-emerald-100 bg-white/50 px-4 py-1.5">
+          <Tabs
+            value={tab}
+            onValueChange={(v) => setTab(v as "chat" | "memories")}
+          >
+            <TabsList className="bg-emerald-50">
+              <TabsTrigger value="chat">对话</TabsTrigger>
+              <TabsTrigger value="memories" className="gap-1.5">
+                <BrainIcon className="size-3.5" />
+                我的记忆
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {tab === "chat" ? (
+          <>
         <Conversation className="flex-1">
           <ConversationContent>
             {messages.length === 0 && (
@@ -713,6 +735,10 @@ export default function ChatPage() {
               )}
             </div>
           </div>
+        )}
+          </>
+        ) : (
+          <MemoryPanel />
         )}
       </div>
     </AppLayout>

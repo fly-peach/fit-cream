@@ -15,6 +15,7 @@ API 路由汇总
 - stats: 训练数据统计
 - exercises: 动作库查询
 - knowledge_bases: 知识库管理（CRUD + 搜索 + 图谱 + 成员 + 令牌 + lint）
+- memory: 语义记忆只读查询
 """
 from fastapi import APIRouter
 
@@ -25,6 +26,7 @@ from app.routers.diet_meals import router as diet_meals_router
 from app.routers.diet_plans import router as diet_plans_router
 from app.routers.exercises import router as exercises_router
 from app.routers.knowledge_bases import router as knowledge_bases_router
+from app.routers.memory import router as memory_router
 from app.routers.plans import router as plans_router
 from app.routers.stats import router as stats_router
 from app.routers.users import router as users_router
@@ -40,3 +42,4 @@ api_router.include_router(checkins_router)
 api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
 api_router.include_router(knowledge_bases_router)
+api_router.include_router(memory_router)
