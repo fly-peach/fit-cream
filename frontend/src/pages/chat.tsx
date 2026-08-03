@@ -367,17 +367,36 @@ export default function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
-  const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, setUsage } =
-    useChatSSE(currentThreadId);
-  const { threads, deleteThread, renameThread } = useThreads();
+  const { threads, loadThreads, deleteThread, renameThread } = useThreads();
+  const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, seedUsage } =
+    useChatSSE(currentThreadId, loadThreads);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+
+  // 已 seed usage 的会话 id：仅真正切换到新会话时重置 usage，
+  // 同一会话内 threads 列表刷新不应覆盖实时累计值
+  const seededThreadRef = useRef<string | null>(null);
+
+  const seedUsageForThread = useCallback(
+    (id: string) => {
+      if (seededThreadRef.current === id) return;
+      seededThreadRef.current = id;
+      const t = threads.find((th) => th.id === id);
+      seedUsage(id, {
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: t?.totalTokens ?? 0,
+      });
+    },
+    [threads, seedUsage]
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleNewChat = () => {
+    seededThreadRef.current = null;
     setThreadId(null);
     clearMessages();
   };
@@ -464,23 +483,26 @@ export default function ChatPage() {
     }
   }, [setMessages]);
 
-  // 进入页面恢复：URL 会话优先；无 URL 参数时恢复上次会话（保留旧行为）
+  // 进入页面恢复：URL 会话优先；无 URL 参数时恢复上次会话（保留旧行为）。
+  // 仅负责加载目标会话消息，seed usage 交由下方 effect 等待 threads 列表就绪后执行
   const initRef = useRef(false);
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = true;
     const id = sessionId ?? currentThreadId;
-    if (id) {
-      setThreadId(id);
-      loadThreadMessages(id);
-      const t = threads.find((th) => th.id === id);
-      setUsage({
-        input_tokens: 0,
-        output_tokens: 0,
-        total_tokens: t?.totalTokens ?? 0,
-      });
-    }
-  }, [sessionId, currentThreadId, threads, setThreadId, loadThreadMessages, setUsage]);
+    if (!id) return;
+    setThreadId(id);
+    loadThreadMessages(id);
+  }, [sessionId, currentThreadId, setThreadId, loadThreadMessages]);
+
+  // 目标会话确定且 threads 列表加载完成（能拿到历史 totalTokens）后，seed usage 一次
+  useEffect(() => {
+    const id = sessionId ?? currentThreadId;
+    if (!id) return;
+    const t = threads.find((th) => th.id === id);
+    if (!t) return;
+    seedUsageForThread(id);
+  }, [sessionId, currentThreadId, threads, seedUsageForThread]);
 
   // store → URL：新会话创建（SSE start 返回 thread_id）或新对话时同步地址栏
   useEffect(() => {
@@ -499,25 +521,15 @@ export default function ChatPage() {
     if (!sessionId || sessionId === currentThreadId) return;
     setThreadId(sessionId);
     loadThreadMessages(sessionId);
-    const t = threads.find((th) => th.id === sessionId);
-    setUsage({
-      input_tokens: 0,
-      output_tokens: 0,
-      total_tokens: t?.totalTokens ?? 0,
-    });
-  }, [sessionId, currentThreadId, threads, setThreadId, loadThreadMessages, setUsage]);
+    seedUsageForThread(sessionId);
+  }, [sessionId, currentThreadId, threads, setThreadId, loadThreadMessages, seedUsageForThread]);
 
   const handleSelectThread = (id: string) => {
     setThreadId(id);
     loadThreadMessages(id);
     setSidebarOpen(false);
-    // 从 threads 列表中找到该线程的 totalTokens，初始化 usage
-    const t = threads.find((th) => th.id === id);
-    setUsage({
-      input_tokens: 0,
-      output_tokens: 0,
-      total_tokens: t?.totalTokens ?? 0,
-    });
+    // 真正切换到新会话时才用该会话历史累计值重置 usage（seedUsage 内部有切换守卫）
+    seedUsageForThread(id);
   };
 
   return (

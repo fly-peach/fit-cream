@@ -4,7 +4,10 @@ import { streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
 import type { ChatMessage, ToolCall, TokenUsage } from "@/types/chat";
 
-export function useChatSSE(threadId: string | null) {
+export function useChatSSE(
+  threadId: string | null,
+  onUsageCommitted?: (usage: TokenUsage) => void
+) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinking, setThinking] = useState("");
@@ -15,6 +18,23 @@ export function useChatSSE(threadId: string | null) {
     total_tokens: 0,
   });
   const abortRef = useRef<AbortController | null>(null);
+  // 当前会话累计值同步 ref：setState 异步，done 时需读最终值
+  const usageRef = useRef<TokenUsage>({
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+  });
+  // 本页面会话内各线程实时累计值缓存：切换会话不丢已累计增量，避免被历史快照覆盖
+  const usageCacheRef = useRef<Map<string, TokenUsage>>(new Map());
+  // 当前流式/活动线程 id（新会话由 start 事件创建）
+  const activeThreadIdRef = useRef<string | null>(threadId);
+  const onUsageCommittedRef = useRef(onUsageCommitted);
+  useEffect(() => {
+    onUsageCommittedRef.current = onUsageCommitted;
+  });
+  useEffect(() => {
+    activeThreadIdRef.current = threadId;
+  }, [threadId]);
 
   // 使用 store 统一管理 currentThreadId，避免状态不同步
   const setThreadId = useChatStore((s) => s.setThreadId);
@@ -62,7 +82,9 @@ export function useChatSSE(threadId: string | null) {
             case "start":
               // 后端返回 thread_id，同步到全局 store
               if (event.data.thread_id) {
-                setThreadId(event.data.thread_id as string);
+                const tid = event.data.thread_id as string;
+                activeThreadIdRef.current = tid;
+                setThreadId(tid);
               }
               break;
 
@@ -143,15 +165,27 @@ export function useChatSSE(threadId: string | null) {
             case "usage": {
               // 后端返回本轮 token 使用量，累加到会话总量
               const u = event.data as unknown as TokenUsage;
-              setUsage((prev) => ({
-                input_tokens: prev.input_tokens + (u.input_tokens || 0),
-                output_tokens: prev.output_tokens + (u.output_tokens || 0),
-                total_tokens: prev.total_tokens + (u.total_tokens || 0),
-              }));
+              const next = {
+                input_tokens: usageRef.current.input_tokens + (u.input_tokens || 0),
+                output_tokens: usageRef.current.output_tokens + (u.output_tokens || 0),
+                total_tokens: usageRef.current.total_tokens + (u.total_tokens || 0),
+              };
+              usageRef.current = next;
+              setUsage(next);
+              const tid = activeThreadIdRef.current;
+              if (tid) usageCacheRef.current.set(tid, next);
               break;
             }
 
             case "done":
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId ? { ...m, isStreaming: false } : m
+                )
+              );
+              // 后端已落库 ThreadUsage，通知页面刷新 threads 快照，供切会话 seed 用
+              onUsageCommittedRef.current?.({ ...usageRef.current });
+              break;
             case "stopped":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -202,8 +236,20 @@ export function useChatSSE(threadId: string | null) {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-    setUsage({ input_tokens: 0, output_tokens: 0, total_tokens: 0 });
+    const zero: TokenUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+    usageRef.current = zero;
+    setUsage(zero);
   }, []);
 
-  return { messages, sendMessage, stop, clearMessages, isStreaming, thinking, setMessages, usage, setUsage };
+  // 会话切换时用历史累计值（threads.totalTokens）seed usage；
+  // 若本页面已对该会话实时累计过（usageCache），优先用实时值，避免历史快照覆盖。
+  const seedUsage = useCallback((threadId: string | null, seed: TokenUsage) => {
+    activeThreadIdRef.current = threadId;
+    const cached = threadId ? usageCacheRef.current.get(threadId) : undefined;
+    const base = cached && cached.total_tokens > 0 ? cached : seed;
+    usageRef.current = { ...base };
+    setUsage({ ...base });
+  }, []);
+
+  return { messages, sendMessage, stop, clearMessages, isStreaming, thinking, setMessages, usage, seedUsage };
 }
