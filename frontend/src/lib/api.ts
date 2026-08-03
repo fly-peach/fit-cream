@@ -1,9 +1,9 @@
 /**
  * 统一 API 客户端
  *
- * - 自动附加 Authorization Bearer Token
+ * - 同源请求自动携带 httpOnly Cookie 完成认证（无需手动附加 token）
  * - 解析后端 ResponseModel 信封：{ code, message, data }
- * - 401 时自动登出（清除 token）
+ * - 401 时自动登出（清除本地会话状态）
  */
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -58,14 +58,12 @@ async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = useAuthStore.getState().token;
   const isFormData =
     typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
   if (!isFormData) headers["Content-Type"] = "application/json";
-  if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 

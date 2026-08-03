@@ -5,25 +5,13 @@ import { checkAuthEnvelope } from "@/lib/api";
 // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
 const API_URL = "/api";
 
-/** 从 localStorage 获取 token（后续接入 auth store） */
-function getToken(): string | null {
-  return localStorage.getItem("fitcream_token");
-}
-
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 export function useThreads() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadThreads = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/chat/threads`, {
-        headers: authHeaders(),
-      });
+      const res = await fetch(`${API_URL}/chat/threads`);
       if (res.ok) {
         const json = await res.json();
         checkAuthEnvelope(json);
@@ -57,7 +45,6 @@ export function useThreads() {
     try {
       const res = await fetch(`${API_URL}/chat/threads/${id}`, {
         method: "DELETE",
-        headers: authHeaders(),
       });
       checkAuthEnvelope(await res.json().catch(() => null));
       if (!res.ok) return;
@@ -71,7 +58,6 @@ export function useThreads() {
     try {
       const res = await fetch(`${API_URL}/chat/history`, {
         method: "DELETE",
-        headers: authHeaders(),
       });
       checkAuthEnvelope(await res.json().catch(() => null));
       if (!res.ok) return;
@@ -91,7 +77,7 @@ export function useThreads() {
     try {
       const res = await fetch(`${API_URL}/chat/threads/${id}/title`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: trimmed }),
       });
       const json = await res.json().catch(() => null);

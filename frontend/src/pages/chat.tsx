@@ -411,11 +411,8 @@ export default function ChatPage() {
   const loadThreadMessages = useCallback(async (id: string) => {
     // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
     const API_URL = "/api";
-    const token = localStorage.getItem("fitcream_token");
     try {
-      const res = await fetch(`${API_URL}/chat/threads/${id}/messages`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await fetch(`${API_URL}/chat/threads/${id}/messages`);
       if (res.ok) {
         const json = await res.json();
         checkAuthEnvelope(json);

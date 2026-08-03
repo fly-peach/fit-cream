@@ -31,6 +31,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return bcrypt.checkpw(pwd_bytes, hashed_password.encode("utf-8"))
 
 
+def mask_phone(phone: str) -> str:
+    """手机号脱敏：保留前 3 位与后 4 位，用于日志输出。
+
+    如 13800138000 -> 138****8000。
+    """
+    if not phone:
+        return ""
+    return f"{phone[:3]}****{phone[-4:]}" if len(phone) >= 8 else "****"
+
+
 def create_access_token(user_id: UUID, expires_delta: Optional[timedelta] = None) -> str:
     """创建访问令牌"""
     expire = datetime.utcnow() + (

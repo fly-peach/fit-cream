@@ -7,18 +7,20 @@
 """
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from src.auth.api_key_service import UserApiKeyService
 from src.fitme.models.user import User
 from utils.exceptions import ForbiddenException, UnauthorizedException
 from utils.security import verify_access_token
 
-security = HTTPBearer()
+# auto_error=False：允许无 Authorization 头（纯 Cookie 认证的浏览器请求）
+security = HTTPBearer(auto_error=False)
 
 
 async def _load_active_user(db: AsyncSession, user_id: UUID) -> User:
@@ -38,19 +40,28 @@ async def _load_active_user(db: AsyncSession, user_id: UUID) -> User:
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """多态认证：先尝试 JWT，再尝试用户 API Key"""
-    credential = credentials.credentials
+    """多态认证：Cookie JWT（浏览器）→ Header JWT（API 客户端）→ 用户 API Key"""
+    # httpOnly Cookie 优先（浏览器会话）
+    cookie_token = request.cookies.get(settings.COOKIE_ACCESS_NAME)
+    if cookie_token:
+        payload = verify_access_token(cookie_token)
+        if payload:
+            return await _load_active_user(db, UUID(payload.get("sub")))
+        raise UnauthorizedException("无效的访问令牌")
 
-    payload = verify_access_token(credential)
-    if payload:
-        return await _load_active_user(db, UUID(payload.get("sub")))
-
-    user = await UserApiKeyService.authenticate(db, credential)
-    if user:
-        return user
+    # Header JWT / API Key（第三方与 API 客户端）
+    if credentials is not None:
+        credential = credentials.credentials
+        payload = verify_access_token(credential)
+        if payload:
+            return await _load_active_user(db, UUID(payload.get("sub")))
+        user = await UserApiKeyService.authenticate(db, credential)
+        if user:
+            return user
 
     raise UnauthorizedException("无效的访问令牌或 API Key")
 

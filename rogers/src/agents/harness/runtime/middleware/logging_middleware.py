@@ -94,14 +94,18 @@ class AgentLoggingMiddleware(AgentMiddleware):
         tool_call_count = 0
         if messages:
             last = messages[-1]
-            content_preview = str(getattr(last, "content", ""))[:100]
             # usage_metadata 在非流式调用时存在，流式时由 ChatDashScope 补全
             usage = getattr(last, "usage_metadata", None) or {}
             tokens = usage.get("total_tokens", "N/A")
-            logger.info(
-                f"{self._log_prefix()} LLM responded | "
-                f"tokens={tokens} | response='{content_preview}...'"
-            )
+            if self.verbose:
+                # 内容预览仅调试模式记录，避免对话隐私写入日志
+                content_preview = str(getattr(last, "content", ""))[:100]
+                logger.info(
+                    f"{self._log_prefix()} LLM responded | "
+                    f"tokens={tokens} | response='{content_preview}...'"
+                )
+            else:
+                logger.info(f"{self._log_prefix()} LLM responded | tokens={tokens}")
             tool_calls = getattr(last, "tool_calls", None) or []
             tool_call_count = len(tool_calls)
 
@@ -117,21 +121,22 @@ class AgentLoggingMiddleware(AgentMiddleware):
         handler: Callable[[ToolCallRequest], ToolMessage | Command],
     ) -> ToolMessage | Command:
         tool_name = request.tool_call["name"]
-        args_preview = str(request.tool_call.get("args", {}))[:200]
 
-        logger.info(
-            f"{self._log_prefix()} Tool started | tool={tool_name} | args='{args_preview}'"
-        )
+        logger.info(f"{self._log_prefix()} Tool started | tool={tool_name}")
+        if self.verbose:
+            args_preview = str(request.tool_call.get("args", {}))[:200]
+            logger.debug(f"  args: {args_preview}...")
 
         start = time.time()
         try:
             result = handler(request)
             duration = (time.time() - start) * 1000
-            output_preview = str(getattr(result, "content", result))[:200]
+            if self.verbose:
+                output_preview = str(getattr(result, "content", result))[:200]
+                logger.debug(f"  output: {output_preview}...")
             logger.info(
                 f"{self._log_prefix()} Tool ended ✓ | "
-                f"tool={tool_name} | duration={duration:.1f}ms | "
-                f"output='{output_preview}...'"
+                f"tool={tool_name} | duration={duration:.1f}ms"
             )
             return result
         except Exception as e:
@@ -149,21 +154,22 @@ class AgentLoggingMiddleware(AgentMiddleware):
         handler: AsyncToolHandler,
     ) -> ToolMessage | Command:
         tool_name = request.tool_call["name"]
-        args_preview = str(request.tool_call.get("args", {}))[:200]
 
-        logger.info(
-            f"{self._log_prefix()} Tool started | tool={tool_name} | args='{args_preview}'"
-        )
+        logger.info(f"{self._log_prefix()} Tool started | tool={tool_name}")
+        if self.verbose:
+            args_preview = str(request.tool_call.get("args", {}))[:200]
+            logger.debug(f"  args: {args_preview}...")
 
         start = time.time()
         try:
             result = await handler(request)
             duration = (time.time() - start) * 1000
-            output_preview = str(getattr(result, "content", result))[:200]
+            if self.verbose:
+                output_preview = str(getattr(result, "content", result))[:200]
+                logger.debug(f"  output: {output_preview}...")
             logger.info(
                 f"{self._log_prefix()} Tool ended ✓ | "
-                f"tool={tool_name} | duration={duration:.1f}ms | "
-                f"output='{output_preview}...'"
+                f"tool={tool_name} | duration={duration:.1f}ms"
             )
             return result
         except Exception as e:

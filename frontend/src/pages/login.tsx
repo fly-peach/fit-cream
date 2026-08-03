@@ -40,9 +40,8 @@ const QUOTES = [
   "科学健身，循序渐进。",
 ];
 
-/** 登录/注册返回的用户 + Token 数据 */
+/** 登录/注册返回的用户数据（token 已由后端写入 httpOnly Cookie，前端不接触） */
 interface AuthData {
-  tokens?: { access_token?: string };
   user?: { id: string; role: string; name?: string | null; phone?: string | null };
 }
 
@@ -312,10 +311,9 @@ export default function LoginPage() {
 
   /** 完成登录态写入并跳转 */
   const finishAuth = (data: AuthData | null | undefined) => {
-    const accessToken = data?.tokens?.access_token;
     const user = data?.user;
-    if (accessToken && user) {
-      setAuth(accessToken, {
+    if (user) {
+      setAuth({
         id: String(user.id),
         role: user.role === "admin" ? "admin" : "user",
         name: user.name,
@@ -323,7 +321,7 @@ export default function LoginPage() {
       });
       navigate(user.role === "admin" ? "/admin/knowledge-bases" : "/knowledge-bases");
     } else {
-      setError("未获取到 Token");
+      setError("登录失败，未返回用户信息");
     }
   };
 

@@ -368,6 +368,37 @@ def _to_data_url(content: bytes, mime: str) -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def _strip_image_metadata(content: bytes, mime: str) -> bytes:
+    """剥离图片 EXIF 等元数据（照片常携带 GPS 位置、设备信息等隐私），GIF 无 EXIF 直接返回。
+
+    使用 Pillow 重新编码并丢弃全部元数据；解析失败时保留原内容。
+    """
+    if mime == "image/gif":
+        return content
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        fmt = {
+            "image/jpeg": "JPEG",
+            "image/png": "PNG",
+            "image/webp": "WEBP",
+        }.get(mime, "JPEG")
+        img = Image.open(BytesIO(content))
+        img.load()
+        img.info.clear()
+        buf = BytesIO()
+        if fmt == "JPEG":
+            img.save(buf, fmt, quality=90)
+        else:
+            img.save(buf, fmt)
+        return buf.getvalue()
+    except Exception:
+        logger.warning("EXIF 剥离失败，保留原图: %s", mime)
+        return content
+
+
 @router.post("/upload-image", response_model=ResponseModel[dict])
 async def upload_image(
     file: UploadFile = File(..., description="图片文件（jpg/png/webp/gif，最大 10MB）"),
@@ -392,6 +423,9 @@ async def upload_image(
         return ResponseModel(code=400, message=f"图片大小超过限制（最大 {MAX_IMAGE_SIZE // 1024 // 1024}MB）")
 
     mime = file.content_type or "image/jpeg"
+
+    # 上传前剥离 EXIF 等元数据（照片常携带 GPS 位置、设备信息等隐私）
+    content = _strip_image_metadata(content, mime)
 
     # 优先上传 OSS 返回签名 URL；未配置或上传失败时回退 base64 data URL
     if is_oss_configured():

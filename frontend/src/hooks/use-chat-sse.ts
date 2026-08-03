@@ -4,10 +4,6 @@ import { streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
 import type { ChatMessage, ToolCall, TokenUsage } from "@/types/chat";
 
-function getToken(): string | null {
-  return localStorage.getItem("fitcream_token");
-}
-
 export function useChatSSE(threadId: string | null) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -61,8 +57,7 @@ export function useChatSSE(threadId: string | null) {
       let full_thinking = "";
 
       try {
-        const token = getToken() || undefined;
-        for await (const event of streamChat(content, threadId, controller.signal, token, images)) {
+        for await (const event of streamChat(content, threadId, controller.signal, images)) {
           switch (event.event) {
             case "start":
               // 后端返回 thread_id，同步到全局 store
@@ -200,8 +195,7 @@ export function useChatSSE(threadId: string | null) {
     // 从 store 获取最新的 threadId
     const tid = useChatStore.getState().currentThreadId || threadId;
     if (tid) {
-      const token = getToken() || undefined;
-      await stopGeneration(tid, token);
+      await stopGeneration(tid);
     }
     setIsStreaming(false);
   }, [threadId]);

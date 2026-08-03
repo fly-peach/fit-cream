@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from src.fitme.models.user import User
-from utils.security import hash_password
+from utils.security import hash_password, mask_phone
 
 logger = logging.getLogger("fitcream")
 
@@ -37,9 +37,9 @@ async def seed_admin(db: AsyncSession) -> None:
         if existing.role != "admin":
             existing.role = "admin"
             await db.commit()
-            logger.info(f"种子管理员已存在: {phone}，已更新 role=admin")
+            logger.info(f"种子管理员已存在: {mask_phone(phone)}，已更新 role=admin")
         else:
-            logger.info(f"种子管理员已存在: {phone}，跳过创建")
+            logger.info(f"种子管理员已存在: {mask_phone(phone)}，跳过创建")
         return
 
     # 创建管理员
@@ -51,4 +51,4 @@ async def seed_admin(db: AsyncSession) -> None:
     )
     db.add(admin)
     await db.commit()
-    logger.info(f"种子管理员创建成功: {phone}")
+    logger.info(f"种子管理员创建成功: {mask_phone(phone)}")

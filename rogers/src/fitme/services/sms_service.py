@@ -16,9 +16,12 @@ class SmsService:
     async def send_code(phone: str, code: str) -> bool:
         """发送短信验证码（系统赠送签名/模板，见 SendSmsVerifyCode）。"""
         if not settings.ALIBABA_CLOUD_ACCESS_KEY_ID:
-            # 无凭证的 dev 模式：放行并打印验证码
-            logger.info(f"[DEV] 短信验证码 {phone}: {code}")
-            return True
+            if settings.DEBUG:
+                # 无凭证的 dev 模式：放行并打印验证码（生产环境禁止打印）
+                logger.info(f"[DEV] 短信验证码 {phone}: {code}")
+                return True
+            logger.error("短信凭证未配置（ALIBABA_CLOUD_ACCESS_KEY_ID），生产环境拒绝放行")
+            return False
 
         try:
             from alibabacloud_dypnsapi20170525.client import Client as DypnsapiClient

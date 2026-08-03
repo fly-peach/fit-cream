@@ -23,9 +23,9 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    """刷新 Token 请求"""
+    """刷新 Token 请求（body 可选：优先使用 httpOnly Cookie 中的 refresh token）"""
 
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class TokenPair(BaseModel):
@@ -75,5 +75,6 @@ class ChangePasswordRequest(BaseModel):
 
 
 class LogoutRequest(BaseModel):
-    """登出请求"""
-    refresh_token: str
+    """登出请求（body 可选：优先使用 httpOnly Cookie 中的 refresh token）"""
+
+    refresh_token: str | None = None

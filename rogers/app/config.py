@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60  # access token 7 天
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # refresh token 30 天
 
+    # ---------- httpOnly Cookie 认证 ----------
+    # token 写入 httpOnly Cookie，避免前端 localStorage 暴露给 XSS
+    COOKIE_ACCESS_NAME: str = "fitcream_access"
+    COOKIE_REFRESH_NAME: str = "fitcream_refresh"
+    # 生产走 HTTPS 时须设为 True（浏览器仅在安全连接下携带 Secure Cookie）
+    COOKIE_SECURE: bool = False
+
     # ---------- 阿里云（SMS 与 OSS 共用同一对 AccessKey） ----------
     ALIBABA_CLOUD_ACCESS_KEY_ID: str = ""
     ALIBABA_CLOUD_ACCESS_KEY_SECRET: str = ""
@@ -45,8 +52,8 @@ class Settings(BaseSettings):
     # ---------- 阿里云 OSS 对象存储 ----------
     OSS_ENDPOINT: str = "oss-cn-hangzhou.aliyuncs.com"
     OSS_BUCKET_NAME: str = ""
-    # 签名 URL 有效期（秒）。长期 AccessKey 签名无硬性上限，默认约 100 年即长期有效
-    OSS_SIGN_URL_EXPIRES: int = 100 * 365 * 24 * 3600
+    # 签名 URL 有效期（秒）。默认 7 天，避免 URL 泄露后图片被长期访问
+    OSS_SIGN_URL_EXPIRES: int = 7 * 24 * 3600
 
     # ---------- 安全策略 ----------
     LOGIN_MAX_ATTEMPTS: int = 5

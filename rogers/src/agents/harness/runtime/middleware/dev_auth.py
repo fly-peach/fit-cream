@@ -19,6 +19,8 @@ from langchain.tools.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
+from utils.security import mask_phone
+
 logger = logging.getLogger("fitcream.agent.dev_auth")
 
 # 缓存管理员 user_id（避免每次工具调用都查 DB）
@@ -65,10 +67,10 @@ async def _get_admin_user_id() -> Optional[str]:
             user = result.scalar_one_or_none()
             if user:
                 _admin_user_id = str(user.id)
-                logger.info(f"[DevAuth] 管理员身份已加载: {admin_phone} -> {_admin_user_id[:8]}...")
+                logger.info(f"[DevAuth] 管理员身份已加载: {mask_phone(admin_phone)} -> {_admin_user_id[:8]}...")
                 return _admin_user_id
             else:
-                logger.warning(f"[DevAuth] 管理员账号不存在: {admin_phone}")
+                logger.warning(f"[DevAuth] 管理员账号不存在: {mask_phone(admin_phone)}")
                 return None
     except Exception as e:
         logger.error(f"[DevAuth] 获取管理员身份失败: {e}")

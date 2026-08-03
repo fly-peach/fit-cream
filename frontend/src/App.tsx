@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useAuthStore } from "@/stores/auth-store";
@@ -27,6 +28,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const isInitialized = useAuthStore((s) => s.isInitialized);
+  const fetchCurrentUser = useAuthStore((s) => s.fetchCurrentUser);
+
+  // 启动时探测服务端会话（httpOnly Cookie 认证，无法从 localStorage 恢复）
+  useEffect(() => {
+    void fetchCurrentUser();
+  }, [fetchCurrentUser]);
+
+  // 会话探测完成前不渲染路由，避免受保护页面闪跳登录页
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
+        加载中...
+      </div>
+    );
+  }
+
   return (
     <LanguageProvider>
       <BrowserRouter>

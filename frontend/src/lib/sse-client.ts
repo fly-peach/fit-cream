@@ -9,11 +9,9 @@ export async function* streamChat(
   message: string,
   threadId: string | null,
   signal?: AbortSignal,
-  token?: string,
   images?: string[]
 ): AsyncGenerator<SSEEvent> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const body: Record<string, unknown> = { message, thread_id: threadId };
   if (images && images.length > 0) body.images = images;
@@ -73,9 +71,8 @@ export async function* streamChat(
   }
 }
 
-export async function stopGeneration(threadId: string, token?: string): Promise<void> {
+export async function stopGeneration(threadId: string): Promise<void> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   try {
     const res = await fetch(`${API_URL}/chat/stop`, {
