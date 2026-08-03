@@ -221,19 +221,23 @@ const MIME_EXT: Record<string, string> = {
  *
  * 附件在提交时已被转为 base64 data URL，这里还原为 Blob 以 multipart 上传；
  * 后端优先返回 OSS 签名 URL（未配置 OSS 时回退 base64）。上传失败时抛错，
- * 由调用方决定是否回退到原始 data URL。
+ * 由调用方决定是否回退到原始 data URL。传入 thread_id 时图片按会话归目录。
  */
-async function uploadAttachmentImage(file: {
-  url: string;
-  mediaType?: string;
-  filename?: string;
-}): Promise<string> {
+async function uploadAttachmentImage(
+  file: {
+    url: string;
+    mediaType?: string;
+    filename?: string;
+  },
+  threadId?: string | null
+): Promise<string> {
   const blob = await (await fetch(file.url)).blob();
   const mime = file.mediaType || blob.type || "image/jpeg";
   const ext = MIME_EXT[mime] ?? ".jpg";
   const filename = file.filename || `upload${ext}`;
   const fd = new FormData();
   fd.append("file", blob, filename);
+  if (threadId) fd.append("thread_id", threadId);
   const data = await api.upload<{ url: string }>("/chat/upload-image", fd);
   return data.url;
 }
@@ -387,10 +391,11 @@ export default function ChatPage() {
       if (!hasText && attachments.length === 0) return;
 
       // 逐张上传至 OSS；单张失败回退原始 data URL，保证消息仍可发送
+      const threadId = useChatStore.getState().currentThreadId;
       const images = await Promise.all(
         attachments.map(async (f) => {
           try {
-            return await uploadAttachmentImage(f);
+            return await uploadAttachmentImage(f, threadId);
           } catch {
             return f.url;
           }

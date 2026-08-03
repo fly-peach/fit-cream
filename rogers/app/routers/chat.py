@@ -7,7 +7,7 @@ from datetime import date
 from typing import Dict, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -27,6 +27,7 @@ from src.agents.schemas.chat import (
     ThreadTitleIn,
 )
 from src.fitme.schemas.common import ResponseModel
+from utils.exceptions import ForbiddenException
 from utils.oss import is_oss_configured, upload_chat_image
 
 logger = logging.getLogger("fitcream.chat")
@@ -117,6 +118,10 @@ async def send_message(
     """
     thread_id = req.thread_id or str(uuid4())
     user_id_str = str(user.id)
+
+    # 线程归属校验：指定已有线程时必须是当前用户所有，防跨用户注入
+    if req.thread_id and await ConversationService.thread_is_foreign(db, user.id, thread_id):
+        raise ForbiddenException("无权访问该线程")
 
     # 保存用户消息（文本内容 + 图片数量记录到 metadata）
     user_msg_text = req.message or "[图片消息]"
@@ -328,12 +333,17 @@ async def send_message(
 async def stop_generation(
     req: StopRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     停止指定线程的 AI 生成。
 
     前端在用户点击"停止生成"按钮时调用此接口。
     """
+    # 线程归属校验：已存在的线程必须属于当前用户，防越权停止他人会话
+    if await ConversationService.thread_is_foreign(db, user.id, req.thread_id):
+        raise ForbiddenException("无权停止该线程")
+
     stop_event = _active_streams.get(req.thread_id)
     if stop_event:
         stop_event.set()
@@ -361,6 +371,7 @@ def _to_data_url(content: bytes, mime: str) -> str:
 @router.post("/upload-image", response_model=ResponseModel[dict])
 async def upload_image(
     file: UploadFile = File(..., description="图片文件（jpg/png/webp/gif，最大 10MB）"),
+    thread_id: Optional[str] = Form(None, description="所属对话线程 ID（可选）"),
     user: User = Depends(get_current_user),
 ):
     """
@@ -368,6 +379,7 @@ async def upload_image(
 
     OSS 未配置时（开发模式）回退为 base64 data URL。
     前端上传图片后，将返回的 url 放入 ChatRequest.images 数组即可发送多模态消息。
+    传入 thread_id 时图片归入 chat/{user_id}/{thread_id}/ 目录，便于按会话管理。
     """
     # 校验文件类型
     ext = ("." + file.filename.rsplit(".", 1)[-1].lower()) if file.filename and "." in file.filename else ""
@@ -384,7 +396,7 @@ async def upload_image(
     # 优先上传 OSS 返回签名 URL；未配置或上传失败时回退 base64 data URL
     if is_oss_configured():
         try:
-            url = upload_chat_image(content, user.id, content_type=mime)
+            url = upload_chat_image(content, user.id, content_type=mime, thread_id=thread_id)
         except Exception:
             logger.exception("OSS 上传失败，回退 base64 data URL")
             url = _to_data_url(content, mime)
@@ -398,6 +410,7 @@ async def upload_image(
             "filename": file.filename or "upload.jpg",
             "size": len(content),
             "mime_type": mime,
+            "thread_id": thread_id,
         },
     )
 

@@ -60,7 +60,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       token: null,
       user: null,
       isAuthenticated: false,
-      logoutReason: reason ?? null,
+      // 只接受字符串原因，避免事件对象等被误传进 state 渲染报错
+      logoutReason: typeof reason === "string" ? reason : null,
     });
   },
   clearLogoutReason: () => set({ logoutReason: null }),

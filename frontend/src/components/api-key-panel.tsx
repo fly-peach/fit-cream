@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   CheckIcon,
+  ChevronDownIcon,
   CopyIcon,
   KeyIcon,
   Loader2,
@@ -10,6 +11,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ApiError, apiKeyApi, type UserApiKeyCreated, type UserApiKeyOut } from "@/lib/api";
@@ -40,6 +46,7 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 }
 
 export function ApiKeyPanel() {
+  const [open, setOpen] = useState(true);
   const [baseUrl, setBaseUrl] = useState(
     typeof window !== "undefined" ? window.location.origin : ""
   );
@@ -112,12 +119,23 @@ export function ApiKeyPanel() {
 
   return (
     <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-      <CardContent className="space-y-4 p-5">
-        <div className="flex items-center gap-2">
-          <KeyIcon className="size-4 text-emerald-600" />
-          <h3 className="text-sm font-semibold text-emerald-950">API Key（MCP 接入）</h3>
-        </div>
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CardContent className="space-y-4 p-5">
+          <CollapsibleTrigger className="flex w-full items-center gap-2 text-left">
+            <KeyIcon className="size-4 text-emerald-600" />
+            <h3 className="flex-1 text-sm font-semibold text-emerald-950">
+              API Key（MCP 接入）
+            </h3>
+            <ChevronDownIcon
+              className={cn(
+                "size-4 text-emerald-500 transition-transform",
+                open && "rotate-180"
+              )}
+            />
+          </CollapsibleTrigger>
 
+          <CollapsibleContent>
+            <div className="space-y-4">
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
             {error}
@@ -233,7 +251,10 @@ export function ApiKeyPanel() {
             端点 <code className="rounded bg-emerald-50 px-1">{mcpUrl}</code> · 认证：Authorization: Bearer &lt;API Key&gt;
           </p>
         </div>
-      </CardContent>
+            </div>
+          </CollapsibleContent>
+        </CardContent>
+      </Collapsible>
     </Card>
   );
 }

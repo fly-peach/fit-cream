@@ -106,6 +106,10 @@ app = FastAPI(
     version="1.0.0",
     description="FitCream 健身训练管理后端 API",
     lifespan=lifespan,
+    # Swagger UI / OpenAPI 默认关闭，仅当 API_DOCS_ENABLED=true 时开放
+    docs_url="/docs" if settings.API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.API_DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
 )
 
 # 请求日志中间件（记录每次 HTTP 请求到 access.log）

@@ -242,8 +242,9 @@ class AuthService:
                     ErrorCode.BAD_REQUEST, "操作过于频繁，请稍后再试"
                 )
 
-        # 6 位数字验证码（secrets 均匀分布，避免 uuid4 首位仅 1-3 的弱熵）
-        code = f"{secrets.randbelow(1_000_000):06d}"
+        # N 位数字验证码（secrets 均匀分布，避免 uuid4 首位仅 1-3 的弱熵）
+        length = settings.VERIFICATION_CODE_LENGTH
+        code = f"{secrets.randbelow(10**length):0{length}d}"
         expires_at = datetime.utcnow() + timedelta(
             minutes=settings.VERIFICATION_CODE_EXPIRE_MINUTES
         )
@@ -400,7 +401,7 @@ class AuthService:
         failed_result = await db.execute(
             select(func.count()).select_from(LoginAttempt).where(
                 LoginAttempt.phone == phone,
-                LoginAttempt.success == False,
+                LoginAttempt.success.is_(False),
                 LoginAttempt.attempted_at >= lock_time,
             )
         )

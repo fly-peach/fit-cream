@@ -11,6 +11,7 @@ import ExerciseDetailPage from "@/pages/exercise-detail";
 import KnowledgeBasesPage from "@/pages/knowledge-bases";
 import KnowledgeBaseDetailPage from "@/pages/knowledge-base-detail";
 import LoginPage from "@/pages/login";
+import HomePage from "@/pages/home";
 import PlansPage from "@/pages/plans";
 import ProfilePage from "@/pages/profile";
 import KbManagementPage from "@/pages/admin/kb-management";
@@ -32,7 +33,7 @@ export function App() {
         <Toaster position="top-center" richColors />
         <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<HomePage />} />
 
         {/* 用户端 */}
         <Route

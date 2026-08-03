@@ -146,6 +146,23 @@ class ConversationService:
         ).scalar() or 0
 
     @staticmethod
+    async def thread_is_foreign(
+        db: AsyncSession, user_id: UUID, thread_id: str
+    ) -> bool:
+        """线程已存在但不属于当前用户（防跨用户注入 / 越权访问）"""
+        total = (
+            await db.execute(
+                select(func.count(Conversation.id)).where(
+                    Conversation.thread_id == thread_id
+                )
+            )
+        ).scalar() or 0
+        if total == 0:
+            return False
+        owns = await ConversationService.count_thread_messages(db, user_id, thread_id)
+        return owns == 0
+
+    @staticmethod
     async def delete_by_thread(
         db: AsyncSession, user_id: UUID, thread_id: str
     ) -> int:

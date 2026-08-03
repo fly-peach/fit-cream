@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
+import { Logo } from "@/components/logo";
 
 /**
  * 全局导航项
@@ -77,9 +78,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
       >
         {/* Logo */}
         <div className="flex items-center gap-2.5 border-b border-emerald-100 px-4 py-4">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
-            <DumbbellIcon className="size-4 text-white" />
-          </div>
+          <Logo className="size-8 shrink-0 rounded-lg shadow-sm shadow-emerald-500/20" />
           {!collapsed && (
             <span className="text-base font-bold tracking-tight text-emerald-950">
               Fit<span className="text-emerald-600">Cream</span>
@@ -146,7 +145,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
               "w-full text-emerald-700/70 hover:bg-red-50 hover:text-red-600",
               collapsed ? "justify-center px-2" : "justify-start"
             )}
-            onClick={logout}
+            onClick={() => logout()}
           >
             <LogOutIcon className="size-4" />
             {!collapsed && <span className="ml-2 text-xs">退出登录</span>}
@@ -169,9 +168,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
       >
         <div className="flex items-center justify-between border-b border-emerald-100 px-4 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
-              <DumbbellIcon className="size-4 text-white" />
-            </div>
+            <Logo className="size-8 shrink-0 rounded-lg shadow-sm shadow-emerald-500/20" />
             <span className="text-base font-bold tracking-tight text-emerald-950">
               Fit<span className="text-emerald-600">Cream</span>
             </span>
@@ -249,9 +246,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
             <MenuIcon className="size-5" />
           </Button>
           <div className="flex items-center gap-2">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600">
-              <DumbbellIcon className="size-3.5 text-white" />
-            </div>
+            <Logo className="size-7 shrink-0 rounded-lg" />
             <span className="text-sm font-bold tracking-tight text-emerald-950">
               Fit<span className="text-emerald-600">Cream</span>
             </span>

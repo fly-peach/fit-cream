@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     APP_NAME: str = "FitCream"
     DEBUG: bool = False
     API_PREFIX: str = "/api"
+    # 是否开放 Swagger UI / OpenAPI（默认关闭，需后端显式开启）
+    API_DOCS_ENABLED: bool = False
 
     # ---------- 数据库 ----------
     DATABASE_URL: str = "postgresql+asyncpg://fitcream:fitcream@localhost:5432/fitcream"
@@ -34,15 +36,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 7 * 24 * 60  # access token 7 天
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30  # refresh token 30 天
 
-    # ---------- 阿里云 ----------
+    # ---------- 阿里云（SMS 与 OSS 共用同一对 AccessKey） ----------
     ALIBABA_CLOUD_ACCESS_KEY_ID: str = ""
     ALIBABA_CLOUD_ACCESS_KEY_SECRET: str = ""
     ALIBABA_CLOUD_SMS_SIGN_NAME: str = ""
     ALIBABA_CLOUD_SMS_TEMPLATE_CODE: str = ""
 
     # ---------- 阿里云 OSS 对象存储 ----------
-    OSS_ACCESS_KEY_ID: str = ""
-    OSS_ACCESS_KEY_SECRET: str = ""
     OSS_ENDPOINT: str = "oss-cn-hangzhou.aliyuncs.com"
     OSS_BUCKET_NAME: str = ""
     # 签名 URL 有效期（秒）。长期 AccessKey 签名无硬性上限，默认约 100 年即长期有效
@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # ---------- 安全策略 ----------
     LOGIN_MAX_ATTEMPTS: int = 5
     LOGIN_LOCK_MINUTES: int = 15
+    VERIFICATION_CODE_LENGTH: int = 4
     VERIFICATION_CODE_EXPIRE_MINUTES: int = 5
     VERIFICATION_CODE_COOLDOWN: int = 60
     VERIFICATION_CODE_MAX_PER_HOUR: int = 5

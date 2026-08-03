@@ -17,13 +17,14 @@ import {
   ZapIcon,
   ShieldCheckIcon,
 } from "lucide-react";
+import { Logo } from "@/components/logo";
 
 // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
 const API_URL = "/api";
 
 type Mode = "sms" | "password" | "register" | "reset";
 
-const CODE_LENGTH = 6;
+const CODE_LENGTH = 4;
 
 /** 验证码对应的后端 code_type */
 const CODE_TYPE: Record<Exclude<Mode, "password">, string> = {
@@ -182,9 +183,7 @@ function BrandPanel() {
       <div className="relative z-10 flex w-full flex-col justify-between p-12 xl:p-16">
         {/* 品牌 */}
         <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 shadow-lg shadow-emerald-500/40">
-            <DumbbellIcon className="size-6 text-emerald-950" />
-          </div>
+          <Logo className="size-11 rounded-xl shadow-lg shadow-emerald-500/40" />
           <span className="font-display text-2xl font-bold tracking-tight text-white">
             Fit<span className="text-emerald-400">Cream</span>
           </span>
@@ -428,9 +427,7 @@ export default function LoginPage() {
         <div className="relative w-full max-w-md">
           {/* 移动端品牌头 */}
           <div className="mb-8 flex flex-col items-center gap-3 lg:hidden">
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg shadow-emerald-500/30">
-              <DumbbellIcon className="size-7 text-white" />
-            </div>
+            <Logo className="size-14 rounded-2xl shadow-lg shadow-emerald-500/30" />
             <h1 className="font-display text-2xl font-bold tracking-tight text-emerald-950">
               Fit<span className="text-emerald-600">Cream</span>
             </h1>

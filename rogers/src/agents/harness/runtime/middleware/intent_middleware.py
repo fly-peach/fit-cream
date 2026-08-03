@@ -15,7 +15,8 @@
             ┌───────┴────────┐
             |  图片检测       |  关键词匹配
             v                v
-      image_analysis    plan_creation / checkin / ...
+      meal_image_analysis /  plan_creation / checkin / ...
+      image_analysis
                     |
                     v
           注入 INTENT_PROMPTS[intent]
@@ -34,7 +35,11 @@ from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.messages import HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
-from src.agents.harness.orchestration.prompts.system import INTENT_KEYWORDS, INTENT_PROMPTS
+from src.agents.harness.orchestration.prompts.system import (
+    INTENT_KEYWORDS,
+    INTENT_PROMPTS,
+    MEAL_IMAGE_KEYWORDS,
+)
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -44,7 +49,8 @@ def detect_intent(message: HumanMessage) -> str:
     从用户消息中检测意图。
 
     检测策略（按优先级）：
-    1. 图片检测：content 含 image_url 块 -> image_analysis
+    1. 图片检测：content 含 image_url 块 -> 伴随文本命中饮食关键词则 meal_image_analysis，
+       否则 image_analysis
     2. 关键词匹配：按 INTENT_KEYWORDS 表匹配最高优先级意图
     3. 默认：general_chat
 
@@ -52,7 +58,7 @@ def detect_intent(message: HumanMessage) -> str:
         message: 用户消息（HumanMessage）
 
     Returns:
-        意图字符串（如 "plan_creation", "image_analysis", "general_chat"）
+        意图字符串（如 "plan_creation", "image_analysis", "meal_image_analysis", "general_chat"）
 
     Example:
         >>> msg = HumanMessage(content="帮我制定减脂计划")
@@ -65,6 +71,13 @@ def detect_intent(message: HumanMessage) -> str:
         ... ])
         >>> detect_intent(msg)
         'image_analysis'
+
+        >>> msg = HumanMessage(content=[
+        ...     {"type": "text", "text": "帮我看看这餐吃了多少热量"},
+        ...     {"type": "image_url", "image_url": {"url": "data:..."}},
+        ... ])
+        >>> detect_intent(msg)
+        'meal_image_analysis'
     """
     content = message.content
 
@@ -75,6 +88,14 @@ def detect_intent(message: HumanMessage) -> str:
             for block in content
         )
         if has_image:
+            text = " ".join(
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+            # 伴随文本含饮食关键词 -> 饮食热量识别专项流程
+            if any(kw in text for kw in MEAL_IMAGE_KEYWORDS):
+                return "meal_image_analysis"
             return "image_analysis"
 
     # 2. 提取文本内容
