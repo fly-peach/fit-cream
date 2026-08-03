@@ -31,7 +31,6 @@ COPY rogers/ ./rogers/
 COPY run.py build_web.py langgraph.json ./
 
 COPY --from=frontend-builder /app/frontend/dist ./rogers/static/
-COPY rogers/static/exercises ./rogers/static/exercises/
 
 ENV PYTHONPATH=/app/rogers \
     PYTHONUNBUFFERED=1 \

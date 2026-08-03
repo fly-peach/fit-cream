@@ -29,6 +29,31 @@ services:
       LOG_DIR: /data/logs
     volumes:
       - appdata:/data
+      # 动作库媒体(图片+GIF): 绑定挂载, 不进镜像, 更新无需重建容器
+      - /opt/fitcream/rogers/static/exercises:/app/rogers/static/exercises:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # 数据库定时备份: 每天 03:30 备份到 ./backups (宿主机)
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      PGPASSWORD: fitcream
+    volumes:
+      - ./backups:/backups
+    entrypoint: >
+      /bin/sh -c "
+        echo 'backup service started';
+        while true; do
+          NOW=$$(date +%Y%m%d-%H%M%S);
+          pg_dump -h db -U fitcream -d fitcream -F c -f /backups/fitcream-$$NOW.dump &&
+          echo '[backup] ok: fitcream-'$$NOW'.dump' &&
+          find /backups -name 'fitcream-*.dump' -mtime +7 -delete;
+          sleep 86400;
+        done
+      "
     depends_on:
       db:
         condition: service_healthy
