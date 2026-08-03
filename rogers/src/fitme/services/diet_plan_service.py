@@ -441,5 +441,11 @@ class DietPlanService:
                 db.add(meal)
 
         await db.flush()
-        await db.refresh(diet_plan)
-        return diet_plan
+        # 预加载 days -> meals，避免工具层访问关系触发异步懒加载
+        # （async SQLAlchemy 下同步访问关系会抛 greenlet_spawn has not been called）
+        result = await db.execute(
+            select(DietPlan)
+            .options(selectinload(DietPlan.days).selectinload(DietPlanDay.meals))
+            .where(DietPlan.id == diet_plan.id)
+        )
+        return result.scalar_one()

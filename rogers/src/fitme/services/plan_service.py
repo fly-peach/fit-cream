@@ -424,8 +424,18 @@ class PlanService:
                     )
 
         await db.flush()
-        await db.refresh(plan)
-        return plan
+        # 预加载 days -> exercises -> exercise，避免工具层访问关系触发异步懒加载
+        # （async SQLAlchemy 下同步访问关系会抛 greenlet_spawn has not been called）
+        result = await db.execute(
+            select(Plan)
+            .options(
+                selectinload(Plan.days)
+                .selectinload(PlanDay.exercises)
+                .selectinload(PlanDayExercise.exercise)
+            )
+            .where(Plan.id == plan.id)
+        )
+        return result.scalar_one()
 
     @staticmethod
     async def update_exercise(

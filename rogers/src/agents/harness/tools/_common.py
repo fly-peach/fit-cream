@@ -9,6 +9,7 @@
 所有 fitme / knowledge 工具统一复用此处助手。
 memory 工具属独立 MemoryStore 子系统，不适用本模式（见方案 D2）。
 """
+import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Optional
 from uuid import UUID
@@ -17,6 +18,8 @@ from langchain_core.runnables import RunnableConfig
 
 from app.database import async_session_factory
 from utils.exceptions import BusinessException
+
+logger = logging.getLogger("fitcream.tools")
 
 
 def extract_user_id(config: Optional[RunnableConfig]) -> Optional[UUID]:
@@ -44,11 +47,31 @@ def extract_user_id(config: Optional[RunnableConfig]) -> Optional[UUID]:
         return None
 
 
+# 工具失败时回传给 LLM 的统一指引：禁止用大模型编造结果，必须如实告知用户并引导重试
+_FAIL_GUIDE = "请如实告知用户该操作未成功并建议重试，不要编造结果或假装已完成。"
+
+
 def error_response(e: Exception) -> dict:
-    """统一错误返回，保留 BusinessException 的 code + 业务消息。"""
+    """统一错误返回，保留 BusinessException 的 code + 业务消息。
+
+    - 记录日志：业务异常（BusinessException）记 WARNING，未预期异常记 ERROR + 堆栈，
+      避免工具失败被静默吞掉、Agent 日志误报成功。
+    - 在返回中附带 message 指引 LLM：失败时不得编造结果，应告知用户并引导重试。
+    """
     if isinstance(e, BusinessException):
-        return {"success": False, "error": e.message, "error_code": e.code}
-    return {"success": False, "error": str(e)}
+        logger.warning("工具业务异常: %s (code=%s)", e.message, e.code)
+        return {
+            "success": False,
+            "error": e.message,
+            "error_code": e.code,
+            "message": f"操作失败：{e.message}。{_FAIL_GUIDE}",
+        }
+    logger.error("工具执行失败: %s", e, exc_info=True)
+    return {
+        "success": False,
+        "error": str(e),
+        "message": f"工具调用失败：{e}。{_FAIL_GUIDE}",
+    }
 
 
 @asynccontextmanager
