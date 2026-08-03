@@ -1,6 +1,8 @@
 """认证路由 /api/auth/* 测试"""
 from datetime import datetime, timedelta, timezone
 
+from app.config import settings
+
 from src.fitme.models.auth_models import VerificationCode
 from tests.util import biz_code, create_user, unwrap
 
@@ -28,11 +30,12 @@ async def _insert_code(db, phone, code, code_type):
 
 
 async def test_register_success(client):
-    data = unwrap(await _register(client))
-    assert data["user"]["phone"] == PHONE
-    assert data["user"]["name"] == "新用户"
-    assert data["tokens"]["access_token"]
-    assert data["tokens"]["refresh_token"]
+    resp = await _register(client)
+    data = unwrap(resp)
+    assert data["phone"] == PHONE
+    assert data["name"] == "新用户"
+    assert settings.COOKIE_ACCESS_NAME in resp.cookies
+    assert settings.COOKIE_REFRESH_NAME in resp.cookies
 
 
 async def test_register_duplicate_phone(client):
@@ -49,12 +52,12 @@ async def test_register_invalid_phone_too_short(client):
 
 async def test_login_success(client):
     unwrap(await _register(client))
-    data = unwrap(
-        await client.post(
-            "/api/auth/login", json={"phone": PHONE, "password": PASSWORD}
-        )
+    resp = await client.post(
+        "/api/auth/login", json={"phone": PHONE, "password": PASSWORD}
     )
-    assert data["tokens"]["access_token"]
+    data = unwrap(resp)
+    assert data["phone"] == PHONE
+    assert settings.COOKIE_ACCESS_NAME in resp.cookies
 
 
 async def test_login_wrong_password(client):
@@ -69,16 +72,15 @@ async def test_login_nonexistent_user(client):
     resp = await client.post(
         "/api/auth/login", json={"phone": "13999999999", "password": PASSWORD}
     )
-    assert biz_code(resp) == 40103
+    assert biz_code(resp) == 40401
 
 
 async def test_refresh_token(client):
-    data = unwrap(await _register(client))
-    refresh = data["tokens"]["refresh_token"]
-    new_tokens = unwrap(
-        await client.post("/api/auth/refresh", json={"refresh_token": refresh})
-    )
-    assert new_tokens["access_token"]
+    reg = await _register(client)
+    refresh = reg.cookies.get(settings.COOKIE_REFRESH_NAME)
+    resp = await client.post("/api/auth/refresh", json={"refresh_token": refresh})
+    unwrap(resp)
+    assert settings.COOKIE_ACCESS_NAME in resp.cookies
 
 
 async def test_refresh_invalid_token(client):
@@ -115,17 +117,18 @@ async def test_change_password_flow(client, user):
 
 
 async def test_change_password_requires_auth(client):
+    client.cookies.clear()
     resp = await client.post(
         "/api/auth/change-password",
         json={"old_password": "a", "new_password": "newpass123"},
     )
-    # 缺少凭证：新版 FastAPI HTTPBearer 返回 401，旧版 403
-    assert resp.status_code in (401, 403)
+    # 缺少凭证：业务异常统一 HTTP 200 + 40100
+    assert biz_code(resp) == 40100
 
 
 async def test_logout_blacklists_refresh_token(client):
-    data = unwrap(await _register(client))
-    refresh = data["tokens"]["refresh_token"]
+    reg = await _register(client)
+    refresh = reg.cookies.get(settings.COOKIE_REFRESH_NAME)
 
     unwrap(await client.post("/api/auth/logout", json={"refresh_token": refresh}))
 

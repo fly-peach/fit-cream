@@ -71,6 +71,14 @@ export function App() {
           }
         />
         <Route
+          path="/chat/:sessionId"
+          element={
+            <ProtectedRoute>
+              <ChatPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/plans"
           element={
             <ProtectedRoute>

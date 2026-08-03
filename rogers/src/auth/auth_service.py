@@ -80,9 +80,13 @@ class AuthService:
         result = await db.execute(select(User).where(User.phone == phone))
         user = result.scalar_one_or_none()
 
-        if not user or not verify_password(password, user.password_hash):
-            await AuthService._record_failed_attempt(db, user.id if user else None, phone, ip)
-            raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "手机号或密码错误")
+        if not user:
+            await AuthService._record_failed_attempt(db, None, phone, ip)
+            raise BusinessException(ErrorCode.USER_NOT_FOUND, "该手机号尚未注册，请先注册")
+
+        if not verify_password(password, user.password_hash):
+            await AuthService._record_failed_attempt(db, user.id, phone, ip)
+            raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "密码错误，请重试")
 
         await AuthService._finalize_login(db, user, phone, ip, user_agent, action="login")
         tokens = AuthService._generate_tokens(user.id)
@@ -169,7 +173,7 @@ class AuthService:
 
         user.password_hash = hash_password(new_password)
         await db.flush()
-        AuthService._log_audit(db, user.id, "change_password", ip, user_agent)
+        await AuthService._log_audit(db, user.id, "change_password", ip, user_agent)
 
     @staticmethod
     async def logout(
@@ -344,7 +348,7 @@ class AuthService:
         db.add(UserSettings(user_id=user.id))
         await db.flush()
 
-        AuthService._log_audit(db, user.id, audit_action, ip, user_agent)
+        await AuthService._log_audit(db, user.id, audit_action, ip, user_agent)
         return user
 
     @staticmethod
@@ -370,8 +374,8 @@ class AuthService:
         user.last_login_ip = ip
         await db.flush()
 
-        AuthService._log_login_attempt(db, user.id, phone, True, ip)
-        AuthService._log_audit(db, user.id, action, ip, user_agent)
+        await AuthService._log_login_attempt(db, user.id, phone, True, ip)
+        await AuthService._log_audit(db, user.id, action, ip, user_agent)
 
     @staticmethod
     async def _record_failed_attempt(
@@ -381,7 +385,7 @@ class AuthService:
         ip: str | None = None,
     ) -> None:
         """记录失败登录并立即提交，确保锁定机制可见（异常会回滚事务，须单独提交）。"""
-        AuthService._log_login_attempt(db, user_id, phone, False, ip)
+        await AuthService._log_login_attempt(db, user_id, phone, False, ip)
         await db.commit()
 
     @staticmethod

@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -364,6 +364,8 @@ function ChatPromptInner({
 }
 
 export default function ChatPage() {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, setUsage } =
     useChatSSE(currentThreadId);
@@ -462,14 +464,48 @@ export default function ChatPage() {
     }
   }, [setMessages]);
 
-  // 进入页面时若存在上次的会话线程，则自动恢复该对话（需求2）
-  const restoredRef = useRef(false);
+  // 进入页面恢复：URL 会话优先；无 URL 参数时恢复上次会话（保留旧行为）
+  const initRef = useRef(false);
   useEffect(() => {
-    if (restoredRef.current) return;
-    restoredRef.current = true;
-    const id = useChatStore.getState().currentThreadId;
-    if (id) loadThreadMessages(id);
-  }, [loadThreadMessages]);
+    if (initRef.current) return;
+    initRef.current = true;
+    const id = sessionId ?? currentThreadId;
+    if (id) {
+      setThreadId(id);
+      loadThreadMessages(id);
+      const t = threads.find((th) => th.id === id);
+      setUsage({
+        input_tokens: 0,
+        output_tokens: 0,
+        total_tokens: t?.totalTokens ?? 0,
+      });
+    }
+  }, [sessionId, currentThreadId, threads, setThreadId, loadThreadMessages, setUsage]);
+
+  // store → URL：新会话创建（SSE start 返回 thread_id）或新对话时同步地址栏
+  useEffect(() => {
+    if (currentThreadId && currentThreadId !== sessionId) {
+      navigate(`/chat/${currentThreadId}`, { replace: true });
+    } else if (!currentThreadId && sessionId) {
+      navigate("/chat", { replace: true });
+    }
+  }, [currentThreadId, sessionId, navigate]);
+
+  // URL → store：点击历史会话 / 直接访问 / 前进后退时恢复对应会话
+  const prevSessionRef = useRef<string | undefined>(sessionId);
+  useEffect(() => {
+    if (sessionId === prevSessionRef.current) return;
+    prevSessionRef.current = sessionId;
+    if (!sessionId || sessionId === currentThreadId) return;
+    setThreadId(sessionId);
+    loadThreadMessages(sessionId);
+    const t = threads.find((th) => th.id === sessionId);
+    setUsage({
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: t?.totalTokens ?? 0,
+    });
+  }, [sessionId, currentThreadId, threads, setThreadId, loadThreadMessages, setUsage]);
 
   const handleSelectThread = (id: string) => {
     setThreadId(id);
@@ -647,7 +683,10 @@ export default function ChatPage() {
                         isActive={currentThreadId === t.id}
                         isEditing={editingThreadId === t.id}
                         onSelect={() => handleSelectThread(t.id)}
-                        onDelete={() => deleteThread(t.id)}
+                        onDelete={() => {
+                          if (currentThreadId === t.id) handleNewChat();
+                          deleteThread(t.id);
+                        }}
                         onStartEdit={() => setEditingThreadId(t.id)}
                         onCancelEdit={() => setEditingThreadId(null)}
                         onRename={async (title) => {

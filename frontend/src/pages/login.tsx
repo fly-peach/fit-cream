@@ -42,7 +42,10 @@ const QUOTES = [
 
 /** 登录/注册返回的用户数据（token 已由后端写入 httpOnly Cookie，前端不接触） */
 interface AuthData {
-  user?: { id: string; role: string; name?: string | null; phone?: string | null };
+  id: string;
+  role: string;
+  name?: string | null;
+  phone?: string | null;
 }
 
 /**
@@ -64,7 +67,11 @@ async function authFetch<T = unknown>(path: string, body: unknown): Promise<T> {
     throw new Error("网络错误，请检查后端服务是否启动");
   }
   if (json.code !== 200 && json.code !== 0) {
-    throw new Error(json.message || "操作失败");
+    const errors = (json.data as { errors?: Array<{ msg?: string }> } | null)?.errors;
+    const detail = Array.isArray(errors)
+      ? errors.map((e) => e.msg).filter(Boolean).join("；")
+      : "";
+    throw new Error(detail ? `${json.message ?? "操作失败"}：${detail}` : json.message || "操作失败");
   }
   return json.data as T;
 }
@@ -311,15 +318,14 @@ export default function LoginPage() {
 
   /** 完成登录态写入并跳转 */
   const finishAuth = (data: AuthData | null | undefined) => {
-    const user = data?.user;
-    if (user) {
+    if (data?.id) {
       setAuth({
-        id: String(user.id),
-        role: user.role === "admin" ? "admin" : "user",
-        name: user.name,
-        phone: user.phone,
+        id: String(data.id),
+        role: data.role === "admin" ? "admin" : "user",
+        name: data.name,
+        phone: data.phone,
       });
-      navigate(user.role === "admin" ? "/admin/knowledge-bases" : "/knowledge-bases");
+      navigate(data.role === "admin" ? "/admin/knowledge-bases" : "/knowledge-bases");
     } else {
       setError("登录失败，未返回用户信息");
     }
