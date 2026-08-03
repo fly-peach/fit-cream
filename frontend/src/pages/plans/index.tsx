@@ -6,6 +6,14 @@ import { AppLayout } from "@/components/app-layout";
 import { MetadataPreview } from "@/components/metadata-editor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Dumbbell,
   Loader2,
@@ -32,6 +40,19 @@ import {
   type DietPlanDetail,
   type UserSettings,
 } from "./types";
+
+const goalOptions = [
+  { value: "lose_fat", label: "减脂塑形" },
+  { value: "gain_muscle", label: "增肌增重" },
+  { value: "maintain", label: "保持健康" },
+  { value: "improve_health", label: "改善体质" },
+];
+
+const difficultyOptions = [
+  { value: "beginner", label: "初级" },
+  { value: "intermediate", label: "中级" },
+  { value: "advanced", label: "高级" },
+];
 
 export default function PlansPage() {
   const navigate = useNavigate();
@@ -60,6 +81,14 @@ export default function PlansPage() {
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
   const [checkinLoading, setCheckinLoading] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<CalMode>("exercise");
+
+  // 创建首个训练计划的内联表单状态
+  const [creatingPlan, setCreatingPlan] = useState(false);
+  const [newPlanName, setNewPlanName] = useState("我的训练计划");
+  const [newPlanGoal, setNewPlanGoal] = useState<string>("");
+  const [newPlanDifficulty, setNewPlanDifficulty] = useState("beginner");
+  const [newPlanWeeks, setNewPlanWeeks] = useState("");
+  const [planCreating, setPlanCreating] = useState(false);
 
   useEffect(() => {
     if (!exParam || !dietParam) {
@@ -124,6 +153,26 @@ export default function PlansPage() {
       setActivePlan(updated);
     } catch (e) {
       showError((e as Error).message);
+    }
+  };
+
+  const createTrainingPlan = async () => {
+    setPlanCreating(true);
+    try {
+      const weeksNum = newPlanWeeks ? parseInt(newPlanWeeks, 10) : 0;
+      const created = await api.post<PlanDetail>("/plans", {
+        name: newPlanName.trim() || "我的训练计划",
+        goal: newPlanGoal || null,
+        difficulty: newPlanDifficulty,
+        weeks: weeksNum >= 1 && weeksNum <= 52 ? weeksNum : null,
+        days: [],
+      });
+      setActivePlan(created);
+      setCreatingPlan(false);
+    } catch (e) {
+      showError((e as Error).message);
+    } finally {
+      setPlanCreating(false);
     }
   };
 
@@ -219,9 +268,113 @@ export default function PlansPage() {
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {!activePlan ? (
-                      <p className="py-6 text-center text-sm text-emerald-600/60">
-                        暂无训练计划，让 AI 教练为你生成
-                      </p>
+                      <div className="flex flex-col items-center gap-3 py-6 text-center">
+                        <Dumbbell className="size-8 text-emerald-300" />
+                        <p className="text-sm text-emerald-600/60">
+                          暂无训练计划，可手动创建或让 AI 教练为你生成
+                        </p>
+                        {!creatingPlan ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-emerald-200 text-emerald-700"
+                            onClick={() => setCreatingPlan(true)}
+                          >
+                            <Plus className="mr-1 size-4" />
+                            创建训练计划
+                          </Button>
+                        ) : (
+                          <div className="w-full max-w-sm space-y-2.5 rounded-lg border border-emerald-100 bg-emerald-50/30 p-3 text-left">
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-emerald-700">计划名称</label>
+                              <Input
+                                value={newPlanName}
+                                onChange={(e) => setNewPlanName(e.target.value)}
+                                placeholder="我的训练计划"
+                                className="border-emerald-200 focus-visible:ring-emerald-400"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-emerald-700">健身目标</label>
+                                <Select
+                                  value={newPlanGoal}
+                                  onValueChange={(v) => setNewPlanGoal(v ?? "")}
+                                >
+                                  <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
+                                    <SelectValue placeholder="不指定">
+                                      {goalOptions.find((o) => o.value === newPlanGoal)?.label}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {goalOptions.map((o) => (
+                                      <SelectItem key={o.value} value={o.value}>
+                                        {o.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-emerald-700">难度</label>
+                                <Select
+                                  value={newPlanDifficulty}
+                                  onValueChange={(v) => setNewPlanDifficulty(v ?? "beginner")}
+                                >
+                                  <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
+                                    <SelectValue>
+                                      {difficultyOptions.find((o) => o.value === newPlanDifficulty)?.label}
+                                    </SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {difficultyOptions.map((o) => (
+                                      <SelectItem key={o.value} value={o.value}>
+                                        {o.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-emerald-700">周期（周，可选）</label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={52}
+                                value={newPlanWeeks}
+                                onChange={(e) => setNewPlanWeeks(e.target.value)}
+                                placeholder="如 4"
+                                className="border-emerald-200 focus-visible:ring-emerald-400"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2 pt-1">
+                              <Button
+                                size="sm"
+                                className="bg-emerald-600 text-white hover:bg-emerald-700"
+                                onClick={createTrainingPlan}
+                                disabled={planCreating}
+                              >
+                                {planCreating ? (
+                                  <Loader2 className="mr-1 size-3.5 animate-spin" />
+                                ) : (
+                                  <Plus className="mr-1 size-3.5" />
+                                )}
+                                创建
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-emerald-600"
+                                onClick={() => setCreatingPlan(false)}
+                                disabled={planCreating}
+                              >
+                                取消
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     ) : !exDay ? (
                       <div className="flex flex-col items-center gap-2 py-6 text-center">
                         <p className="text-sm text-emerald-600/60">
