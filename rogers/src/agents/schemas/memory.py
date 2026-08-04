@@ -8,6 +8,7 @@
 """
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 class SemanticMemoryOut(BaseModel):
     """语义记忆输出（三元组 + 元数据）"""
 
-    id: str
+    id: UUID
     subject: str
     predicate: str
     object: str
@@ -23,6 +24,6 @@ class SemanticMemoryOut(BaseModel):
     confidence: float
     version: int
     updated_at: datetime
-    source_episodic_id: Optional[str] = None
+    source_episodic_id: Optional[UUID] = None
 
     model_config = {"from_attributes": True}

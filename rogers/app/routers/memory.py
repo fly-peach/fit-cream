@@ -2,6 +2,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 
 from app.dependencies import get_current_user
 from src.agents.harness.runtime.memory.store import get_memory_store
@@ -34,4 +35,7 @@ async def list_semantic_memories(
         return ResponseModel(data=[SemanticMemoryOut.model_validate(r) for r in rows])
     except Exception as e:
         logger.exception("检索语义记忆失败")
-        return ResponseModel(code=500, message=f"检索语义记忆失败：{e}")
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": f"检索语义记忆失败：{e}"},
+        )
