@@ -146,6 +146,24 @@ async def init_agent(database_url: Optional[str] = None):
 
             graph = _graph_with_checkpointer
             logger.info("Agent 初始化完成（对话持久化已启用）")
+
+            # 初始化记忆流水线：注入记忆存储 + LLM 提取器。
+            # 失败仅告警，不影响 Agent 启动（记忆提取为 best-effort）。
+            try:
+                from src.agents.harness.runtime.memory.store import init_memory_store
+                from src.agents.harness.runtime.memory.pipeline import init_memory_pipeline
+                from src.agents.harness.orchestration.model_factory import create_chat_dashscope
+
+                memory_store = await init_memory_store(database_url)
+                extractor_llm = create_chat_dashscope(
+                    temperature=0.3,
+                    streaming=False,
+                    enable_thinking=False,
+                )
+                init_memory_pipeline(store=memory_store, llm=extractor_llm)
+                logger.info("记忆流水线已初始化（extractor 已注入）")
+            except Exception as me:
+                logger.warning(f"记忆流水线初始化失败（记忆提取将跳过）: {me}")
         except Exception:
             # setup() 或 agent 构造失败：必须退出 context manager，避免连接池泄漏
             await cm.__aexit__(None, None, None)
@@ -172,6 +190,13 @@ async def shutdown_agent():
             pass
         _checkpointer_cm = None
         _checkpointer = None
+
+    # 关闭记忆存储引擎（与 checkpointer 对称释放）
+    try:
+        from src.agents.harness.runtime.memory.store import shutdown_memory_store
+        await shutdown_memory_store()
+    except Exception:
+        pass
 
 
 def get_agent():

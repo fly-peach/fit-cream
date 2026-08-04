@@ -179,7 +179,10 @@ def create_fitcream_agent_with_context(
 # Summarization 配置常量
 # ============================================================
 
-# 触发压缩的 token 阈值（qwen3.5-flash 上下文窗口 ~128K，在 100K 时触发压缩）
+# 触发会话压缩的 token 阈值：检查同一 thread 累积消息的 token 数
+# （checkpointer 跨 run 累积，非单次 run）。qwen3.5-flash 上下文窗口 ~128K，
+# 在 100K 时压缩以防溢出。注意：这是"防上下文溢出"的会话压缩，与
+# MemoryUpdateMiddleware（20K 触发的记忆提取/整合）是独立子系统。
 SUMMARIZE_TRIGGER_TOKENS = 100_000
 
 # 触发记忆更新的 token 阈值（每 20K token 触发一次记忆提取）
@@ -191,10 +194,14 @@ SUMMARIZE_KEEP_MESSAGES = 10
 
 def _get_default_middleware() -> list:
     """
-    获取默认中间件列表（无用户上下文版本）。
+    获取默认中间件列表（共享 graph 默认版本）。
 
-    包含：意图识别、日志、限流、Token 追踪、会话压缩。
-    不含对话持久化（需要 user_id/thread_id）。
+    包含：意图识别、日志、限流、Token 追踪、会话压缩、记忆更新。
+    不含对话持久化（仍由 per-user 的 create_agent_with_middleware 提供）。
+
+    记忆更新中间件以共享实例接入，user_id 在运行时从
+    RunnableConfig.configurable 解析（chat.py 已传 user_id/thread_id），
+    以 user_id 为键防重入，并发用户互不干扰。
 
     中间件顺序（before_model 执行顺序）：
     1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
@@ -202,17 +209,24 @@ def _get_default_middleware() -> list:
     3. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
     4. TokenUsageMiddleware：Token 用量追踪
     5. SummarizationMiddleware：会话压缩
+    6. MemoryUpdateMiddleware：分层记忆自动提取（每 20K token / 对话结束触发）
 
     会话压缩策略：
-    - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS (100K) 时触发
+    - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
     - 使用 LLM 将历史消息压缩为摘要
-    - 保留最近 SUMMARIZE_KEEP_MESSAGES (10) 条消息
+    - 保留最近 SUMMARIZE_KEEP_MESSAGES 条消息
+
+    记忆更新策略：
+    - 累计 token 超过 MEMORY_UPDATE_TRIGGER_TOKENS 时触发
+    - 对话结束（after_agent）兜底触发一次
+    - 异步提取分层记忆（情景/语义/程序性），不阻塞对话
     """
     from langchain.agents.middleware import SummarizationMiddleware
     from src.agents.harness.runtime.middleware.logging_middleware import AgentLoggingMiddleware
     from src.agents.harness.runtime.middleware.rate_limit import create_rate_limit_middleware
     from src.agents.harness.runtime.middleware.callbacks import TokenUsageMiddleware
     from src.agents.harness.runtime.middleware.intent_middleware import IntentMiddleware
+    from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
 
     # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
     summary_model = create_chat_dashscope(
@@ -231,6 +245,8 @@ def _get_default_middleware() -> list:
             trigger=("tokens", SUMMARIZE_TRIGGER_TOKENS),
             keep=("messages", SUMMARIZE_KEEP_MESSAGES),
         ),
+        # 记忆更新：共享实例，user_id 运行时从 configurable 解析（见 memory_update.py）
+        MemoryUpdateMiddleware(trigger_tokens=MEMORY_UPDATE_TRIGGER_TOKENS),
     ]
 
 

@@ -20,17 +20,44 @@
     await pipeline.consolidate_memories(user_id)
 """
 
+import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
 
 from langchain_core.messages import BaseMessage
 from langchain_core.language_models import BaseChatModel
+from sqlalchemy import update
 
 from src.agents.harness.runtime.memory.store import MemoryStore, get_memory_store
 from src.agents.harness.runtime.memory.extractor import MemoryExtractor, ExtractionResult
+from src.agents.models.memory import SemanticMemory, MemoryConsolidationLog
 
 logger = logging.getLogger("fitcream.memory")
+
+
+CONSOLIDATE_PROMPT = """\
+你是一个记忆整合专家。以下是对用户的语义记忆（事实三元组）。请从中提炼出更高层次的洞察或规律，作为新的语义记忆。
+
+已有记忆：
+{memories}
+
+要求：
+- 只提炼有充分依据的洞察，不要臆测
+- 每条洞察为三元组 (subject, predicate, object)
+- subject 通常为 "用户"
+- predicate 描述模式/规律（如 "运动偏好"、"饮食倾向"）
+- object 具体内容
+- 最多 5 条
+- 若无值得提炼的洞察，返回空数组
+
+输出 JSON（不要包含 markdown 代码块标记）：
+{{
+  "insights": [
+    {{"subject": "用户", "predicate": "...", "object": "...", "category": "insight", "confidence": 0.7}}
+  ]
+}}
+"""
 
 
 class MemoryPipeline:
@@ -55,6 +82,7 @@ class MemoryPipeline:
             llm: LLM 模型（用于创建 extractor）
         """
         self.store = store or get_memory_store()
+        self.llm = llm
         
         if extractor is None and llm is not None:
             extractor = MemoryExtractor(llm)
@@ -156,36 +184,135 @@ class MemoryPipeline:
     ) -> dict:
         """
         整合记忆
-        
-        定期运行，用于：
-        1. 合并重复记忆
-        2. 解决冲突
-        3. 生成更高层次的洞察
-        
+
+        1. 合并重复：同 (subject, predicate) 的多条 active，保留 version 最大，
+           其余标记 superseded（建立版本链）。
+        2. LLM 升华：从已有语义记忆提炼更高层次洞察，去重后存为新记忆。
+        3. 记录整合日志到 memory_consolidation_logs。
+
         Args:
             user_id: 用户 ID
-            
+
         Returns:
-            整合结果统计
+            整合结果统计 {"merged", "conflicts_resolved", "insights"}
         """
         stats = {"merged": 0, "conflicts_resolved": 0, "insights": 0}
 
-        # TODO: 当前仅基于 subject + predicate 去重，后续可引入 LLM 生成更高层次洞察
-        # 获取所有语义记忆
         semantics = await self.store.retrieve_semantic(user_id, limit=100)
+        if not semantics:
+            return stats
 
-        # 检测并合并重复记忆
-        # （简单实现：基于 subject + predicate 去重，保留最新版本）
-        seen = {}
+        # 1. 合并重复 active：同 (subject, predicate) 保留 version 最大
+        groups: dict[str, list] = {}
         for mem in semantics:
-            key = f"{mem.subject}:{mem.predicate}"
-            if key in seen:
-                # 保留较新的版本
-                seen[key] = mem
-            else:
-                seen[key] = mem
+            groups.setdefault(f"{mem.subject}:{mem.predicate}", []).append(mem)
+        merged_pairs: list[tuple] = []
+        for mems in groups.values():
+            if len(mems) <= 1:
+                continue
+            mems.sort(key=lambda m: (m.version or 0), reverse=True)
+            keeper = mems[0]
+            for m in mems[1:]:
+                merged_pairs.append((m.id, keeper.id))
+                stats["merged"] += 1
+        if merged_pairs:
+            async with self.store.async_session() as session:
+                for mid, keeper_id in merged_pairs:
+                    await session.execute(
+                        update(SemanticMemory)
+                        .where(SemanticMemory.id == mid)
+                        .values(
+                            status="superseded",
+                            superseded_by=keeper_id,
+                            updated_at=datetime.utcnow(),
+                        )
+                    )
+                await session.commit()
+
+        # 2. LLM 升华：提炼更高层洞察
+        llm = self.llm or (self.extractor.llm if self.extractor else None)
+        result_ids: list = []
+        if llm is not None:
+            try:
+                triples = "\n".join(
+                    f"- {m.to_triple_string()} [{m.category}]" for m in semantics
+                )
+                resp = await llm.ainvoke(
+                    [("human", CONSOLIDATE_PROMPT.format(memories=triples))]
+                )
+                insights = self._parse_insights(resp.content)
+            except Exception as e:
+                logger.warning(f"consolidate LLM insight failed: {e}")
+                insights = []
+
+            for ins in insights:
+                # 去重：同 (subject, predicate) 已有 active 则跳过
+                existing = await self.store.retrieve_semantic(
+                    user_id,
+                    subject=ins.get("subject"),
+                    predicate=ins.get("predicate"),
+                    limit=1,
+                )
+                if existing:
+                    continue
+                try:
+                    rid = await self.store.store_semantic(
+                        user_id=user_id,
+                        subject=ins.get("subject", "用户"),
+                        predicate=ins.get("predicate", ""),
+                        object=ins.get("object", ""),
+                        category=ins.get("category", "insight"),
+                        confidence=float(ins.get("confidence", 0.7)),
+                    )
+                    result_ids.append(rid)
+                    stats["insights"] += 1
+                except Exception as e:
+                    logger.error(f"consolidate store insight failed: {e}")
+
+        # 3. 记录整合日志
+        try:
+            async with self.store.async_session() as session:
+                log = MemoryConsolidationLog(
+                    id=uuid.uuid4(),
+                    user_id=user_id,
+                    consolidation_type="reflect",
+                    source_memory_ids=[m.id for m in semantics[:20]],
+                    result_memory_id=result_ids[0] if result_ids else None,
+                    details=stats,
+                )
+                session.add(log)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"consolidate log failed: {e}")
 
         return stats
+
+    def _parse_insights(self, content: str) -> list[dict]:
+        """解析 LLM 升华响应，容错 markdown 代码块"""
+        import json
+        import re
+
+        content = content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            m = re.search(r"\{[\s\S]*\}", content)
+            if not m:
+                return []
+            try:
+                data = json.loads(m.group())
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(data, dict):
+            return []
+        return data.get("insights", []) or []
     
     async def apply_forgetting_curve(
         self,
