@@ -3,8 +3,10 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from datetime import date
 from typing import Dict, Optional
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
@@ -42,6 +44,61 @@ _active_streams: Dict[str, asyncio.Event] = {}
 def _get_agent():
     from src.agents.agent_graph import get_agent
     return get_agent()
+
+
+def _image_url_expired(url: str) -> bool:
+    """判断 OSS 签名 URL 是否已过期（解析 Expires 查询参数）。"""
+    if not url or not url.startswith("http"):
+        return False
+    try:
+        qs = parse_qs(urlparse(url).query)
+        expires = qs.get("Expires")
+        if not expires:
+            return False
+        return float(expires[0]) < time.time()
+    except Exception:
+        return False
+
+
+async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
+    """Agent 发送前清理 checkpoint 中已过期的多模态 image_url。
+
+    过期的图片签名 URL 已无法被模型读取，替换为占位文本，
+    避免每轮重复发送无效图片浪费 token。无修改则不写 checkpoint。
+    """
+    if checkpointer is None:
+        return
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        tup = await checkpointer.aget_tuple(config)
+    except Exception as e:
+        logger.warning(f"[Chat] aget_tuple failed: {e}")
+        return
+    if not tup:
+        return
+    checkpoint = tup.checkpoint or {}
+    messages = (checkpoint.get("channel_values") or {}).get("messages") or []
+    modified = False
+    for msg in messages:
+        content = getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict) or block.get("type") != "image_url":
+                continue
+            img = block.get("image_url") or {}
+            url = img.get("url", "") if isinstance(img, dict) else ""
+            if url and _image_url_expired(url):
+                block["type"] = "text"
+                block["text"] = "[图片已分析完毕]"
+                modified = True
+    if modified:
+        try:
+            new_versions = checkpoint.get("channel_versions") or {}
+            await checkpointer.aput(tup.config, checkpoint, tup.metadata, new_versions)
+            logger.info(f"[Chat] Cleaned expired image_urls | thread={thread_id[:8]}")
+        except Exception as e:
+            logger.warning(f"[Chat] aput failed: {e}")
 
 
 async def _build_user_context(user: User) -> str:
@@ -94,9 +151,9 @@ async def send_message(
     if req.thread_id and await ConversationService.thread_is_foreign(db, user.id, thread_id):
         raise ForbiddenException("无权访问该线程")
 
-    # 保存用户消息（文本内容 + 图片数量记录到 metadata）
+    # 保存用户消息（文本内容 + 图片 URL 列表记录到 metadata，供前端历史渲染）
     user_msg_text = req.message or "[图片消息]"
-    user_msg_metadata = {"images": len(req.images)} if req.images else None
+    user_msg_metadata = {"images": list(req.images)} if req.images else None
     await ConversationService.save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
 
     agent = _get_agent()
@@ -104,6 +161,9 @@ async def send_message(
         "configurable": {"thread_id": thread_id, "user_id": user_id_str},
         "recursion_limit": 50,
     }
+
+    # Agent 发送前清理 checkpoint 中已过期的图片签名 URL，避免无效图片随历史重复发送
+    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
 
     # 构建动态上下文注入到对话首条消息之前
     context_msg = await _build_user_context(user)
@@ -139,6 +199,8 @@ async def send_message(
         full_content = ""       # 累积正式回复文本
         full_thinking = ""     # 累积思考内容（reasoning_content）
         tool_calls = []         # 完整工具调用记录 [{id, name, input, output, status}]
+        steps: list[dict] = []  # ReAct 步骤序列 [{type: thought|tool|tool_result, ...}]
+        pending_thought: Optional[dict] = None  # 当前流式累积的 thought 步骤（分轮封存）
         _current_tool: Optional[dict] = None
         # Token 使用量追踪：按 LLM 调用（run_id）聚合后累加。
         # ReAct 多轮会触发多次 on_chat_model_end，旧实现用 max() 只保留最大那次调用会少计 token。
@@ -155,11 +217,12 @@ async def send_message(
                         if full_content or full_thinking:
                             await ConversationService.save_message(
                                 stream_db, user.id, thread_id, "assistant", full_content,
-                                metadata={
-                                    "thinking": full_thinking or None,
-                                    "tool_calls": tool_calls or None,
-                                    "stopped": True,
-                                },
+                            metadata={
+                                "thinking": full_thinking or None,
+                                "tool_calls": tool_calls or None,
+                                "steps": steps or None,
+                                "stopped": True,
+                            },
                             )
                         yield _sse_event("stopped", {"thread_id": thread_id, "partial_content": full_content})
                         return
@@ -170,8 +233,14 @@ async def send_message(
                         chunk = event["data"]["chunk"]
                         reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                         if reasoning:
+                            # 新一轮思考 = 新建独立 thought 步骤，与上一轮工具步骤按序交替
+                            if pending_thought is None:
+                                pending_thought = {"type": "thought", "content": ""}
+                                steps.append(pending_thought)
+                            pending_thought["content"] += reasoning
                             full_thinking += reasoning
                             yield _sse_event("thinking", {"content": reasoning})
+                            yield _sse_event("step", {"type": "thought", "delta": reasoning})
                         if chunk.content:
                             full_content += chunk.content
                             yield _sse_event("token", {"content": chunk.content})
@@ -197,6 +266,8 @@ async def send_message(
                             usage["input_tokens"] += final.get("input_tokens", 0) or 0
                             usage["output_tokens"] += final.get("output_tokens", 0) or 0
                             usage["total_tokens"] += final.get("total_tokens", 0) or 0
+                        # 封存本轮思考步骤：下一轮 on_chat_model_stream 的 reasoning 会新建 thought 步骤
+                        pending_thought = None
 
                     elif kind == "on_tool_start":
                         tool_name = event["name"]
@@ -208,15 +279,25 @@ async def send_message(
                             tool_input = raw_input
                         except (TypeError, ValueError):
                             tool_input = {"raw": str(raw_input)} if raw_input else {}
-                        _current_tool = {
+                        # 工具作为独立 ReAct 步骤入列（保留 name 字段兼容旧 tool_calls 格式）
+                        tool_step = {
+                            "type": "tool",
                             "id": run_id,
                             "name": tool_name,
+                            "tool": tool_name,
                             "input": tool_input or {},
                             "output": None,
                             "status": "running",
-                            "thinking_offset": len(full_thinking),
                         }
-                        tool_calls.append(_current_tool)
+                        steps.append(tool_step)
+                        _current_tool = tool_step
+                        tool_calls.append(tool_step)
+                        yield _sse_event("step", {
+                            "type": "tool",
+                            "id": run_id,
+                            "tool": tool_name,
+                            "input": tool_input or {},
+                        })
                         yield _sse_event("tool_start", {
                             "id": run_id,
                             "tool": tool_name,
@@ -238,6 +319,12 @@ async def send_message(
                             tool_id = _current_tool["id"]
                             _current_tool["output"] = output_str[:2000]
                             _current_tool["status"] = "completed"
+                            yield _sse_event("step", {
+                                "type": "tool_result",
+                                "id": tool_id,
+                                "tool": event["name"],
+                                "data": output_str[:2000],
+                            })
                             _current_tool = None
                         yield _sse_event("tool_result", {
                             "id": tool_id,
@@ -251,6 +338,7 @@ async def send_message(
                         metadata={
                             "thinking": full_thinking or None,
                             "tool_calls": tool_calls or None,
+                            "steps": steps or None,
                         },
                     )
 

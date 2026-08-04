@@ -52,8 +52,8 @@ class Settings(BaseSettings):
     # ---------- 阿里云 OSS 对象存储 ----------
     OSS_ENDPOINT: str = "oss-cn-hangzhou.aliyuncs.com"
     OSS_BUCKET_NAME: str = ""
-    # 签名 URL 有效期（秒）。默认 7 天，避免 URL 泄露后图片被长期访问
-    OSS_SIGN_URL_EXPIRES: int = 7 * 24 * 3600
+    # 签名 URL 有效期（秒）。默认 15 天，兼顾跨天对话图片可见与泄露风险
+    OSS_SIGN_URL_EXPIRES: int = 1296000
 
     # ---------- 安全策略 ----------
     LOGIN_MAX_ATTEMPTS: int = 5

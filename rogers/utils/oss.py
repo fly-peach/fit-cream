@@ -2,7 +2,7 @@
 阿里云 OSS 对象存储工具
 
 封装聊天图片上传：上传到私有路径（chat/{user_id}/{uuid}.{ext}），
-设置 ACL 为私有，返回短期有效的签名 URL（默认 7 天，由 OSS_SIGN_URL_EXPIRES 控制）供访问 / 传给 DashScope 多模态接口。
+设置 ACL 为私有，返回短期有效的签名 URL（默认 15 天，由 OSS_SIGN_URL_EXPIRES 控制）供访问 / 传给 DashScope 多模态接口。
 
 未配置 OSS（缺少 AccessKey 等）时 is_oss_configured() 返回 False，
 调用方应回退到 base64 data URL（开发模式）。
@@ -73,7 +73,7 @@ def upload_chat_image(
     """上传聊天图片到 OSS 私有路径，返回短期有效签名的完整 URL。
 
     聊天图片涉及用户隐私，ACL 设为私有；签名 URL 有效期由 settings.OSS_SIGN_URL_EXPIRES
-    控制（默认 7 天），可直接嵌入前端或传给 DashScope。
+    控制（默认 15 天），可直接嵌入前端或传给 DashScope。
     传入 thread_id 时图片归入 chat/{user_id}/{thread_id}/ 目录，便于按会话管理。
     """
     bucket = _get_bucket()

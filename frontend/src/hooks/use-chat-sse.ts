@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
-import type { ChatMessage, ToolCall, TokenUsage } from "@/types/chat";
+import type { AgentStep, ChatMessage, ToolCall, TokenUsage } from "@/types/chat";
 
 export function useChatSSE(
   threadId: string | null,
@@ -111,6 +111,55 @@ export function useChatSSE(
                 )
               );
               break;
+
+            case "step": {
+              const s = event.data as {
+                type: string;
+                id?: string;
+                delta?: string;
+                tool?: string;
+                input?: Record<string, unknown>;
+                data?: unknown;
+              };
+              setMessages((prev) =>
+                prev.map((m) => {
+                  if (m.id !== assistantId) return m;
+                  const steps = [...(m.steps || [])];
+                  if (s.type === "thought") {
+                    const last = steps[steps.length - 1];
+                    if (last && last.type === "thought") {
+                      steps[steps.length - 1] = {
+                        ...last,
+                        content: (last.content || "") + (s.delta || ""),
+                      };
+                    } else {
+                      steps.push({ type: "thought", content: s.delta || "" });
+                    }
+                  } else if (s.type === "tool") {
+                    steps.push({
+                      type: "tool",
+                      id: (s.id as string) || nanoid(),
+                      tool: s.tool,
+                      input: (s.input as Record<string, unknown>) || {},
+                      status: "running",
+                    });
+                  } else if (s.type === "tool_result") {
+                    const idx = steps.findIndex(
+                      (st) => st.type === "tool" && st.id === s.id
+                    );
+                    if (idx !== -1) {
+                      steps[idx] = {
+                        ...steps[idx],
+                        output: s.data,
+                        status: "completed",
+                      } as AgentStep;
+                    }
+                  }
+                  return { ...m, steps };
+                })
+              );
+              break;
+            }
 
             case "tool_start": {
               const toolCall: ToolCall = {

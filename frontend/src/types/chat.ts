@@ -9,6 +9,7 @@ export type SSEEventType =
   | "token"
   | "tool_start"
   | "tool_result"
+  | "step"
   | "usage"
   | "done"
   | "stopped"
@@ -45,6 +46,25 @@ export interface ToolCall {
   thinkingOffset?: number;
 }
 
+/** ReAct 步骤类型（步骤流中的节点类型） */
+export type AgentStepType = "thought" | "tool";
+
+/** ReAct 步骤：思考段或工具调用，按 agent loop 轮次顺序交错 */
+export interface AgentStep {
+  type: AgentStepType;
+  /** tool 步骤的后端 run_id */
+  id?: string;
+  /** thought 步骤文本 */
+  content?: string;
+  /** tool 步骤的工具名 */
+  tool?: string;
+  input?: Record<string, unknown>;
+  output?: unknown;
+  status?: ToolCallStatus;
+  /** 实时增量事件里携带的文本（thought 增量 / tool result 数据） */
+  delta?: string;
+}
+
 /** 聊天消息 */
 export interface ChatMessage {
   id: string;
@@ -54,6 +74,8 @@ export interface ChatMessage {
   images?: string[];
   thinking?: string;
   toolCalls?: ToolCall[];
+  /** ReAct 步骤流（新格式优先；历史消息缺失时回退 thinking/toolCalls 旧格式） */
+  steps?: AgentStep[];
   createdAt: number;
   isStreaming?: boolean;
 }

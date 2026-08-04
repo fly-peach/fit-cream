@@ -68,7 +68,7 @@ import {
   BrainIcon,
   LoaderCircleIcon,
 } from "lucide-react";
-import type { ChatMessage, ToolCall } from "@/types/chat";
+import type { AgentStep, ChatMessage, ToolCall } from "@/types/chat";
 
 /**
  * 清理模型回复中误以纯文本形式输出的工具调用标记。
@@ -156,13 +156,7 @@ function MessageItem({ message }: { message: ChatMessage }) {
           {hasImages && (
             <div className="mb-2 flex flex-wrap justify-end gap-2">
               {message.images!.map((url, i) => (
-                <img
-                  key={i}
-                  src={url}
-                  alt={`图片 ${i + 1}`}
-                  loading="lazy"
-                  className="max-h-52 rounded-lg border border-emerald-100 object-cover shadow-sm"
-                />
+                <ChatImage key={i} url={url} alt={`图片 ${i + 1}`} />
               ))}
             </div>
           )}
@@ -176,14 +170,19 @@ function MessageItem({ message }: { message: ChatMessage }) {
   const cleaned = cleanContent(message.content);
   const hasThinking = !!message.thinking;
   const hasToolCalls = !!message.toolCalls?.length;
-  // 只要有 thinking 或 toolCalls，就展示 Reasoning 折叠块（chain-of-thought 模式）
-  const showReasoning = hasThinking || hasToolCalls;
+  // 新格式：steps 步骤流优先直接平铺；无 steps 时回退旧 thinking+toolCalls 折叠块
+  const hasSteps = !!message.steps?.length;
+  const showLegacyReasoning = !hasSteps && (hasThinking || hasToolCalls);
   const isThinking = message.isStreaming && !message.content;
 
   return (
     <Message from="assistant">
       <MessageContent>
-        {showReasoning && (
+        {/* 新格式：直接平铺 ReAct 步骤流（思考段 + 工具卡交错，默认可见） */}
+        {hasSteps && <AgentTrace steps={message.steps!} />}
+
+        {/* 旧格式降级：保持原折叠块 */}
+        {showLegacyReasoning && (
           <Reasoning isStreaming={isThinking}>
             <ReasoningTrigger />
             <ReasoningContent>
@@ -197,7 +196,7 @@ function MessageItem({ message }: { message: ChatMessage }) {
 
         {cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
-        {message.isStreaming && !message.content && !showReasoning && (
+        {message.isStreaming && !message.content && !hasSteps && !showLegacyReasoning && (
           <span className="animate-pulse text-muted-foreground">▊</span>
         )}
       </MessageContent>
@@ -231,11 +230,34 @@ interface HistoryMessageRow {
       status: string;
       thinking_offset?: number;
     }>;
+    images?: string[];
+    steps?: AgentStep[];
   } | null;
   created_at: string;
 }
 
-/** 将后端消息行还原为前端 ChatMessage（恢复 thinking / toolCalls） */
+/** 历史消息图片：加载失败（签名 URL 过期等）时回退为占位提示 */
+function ChatImage({ url, alt }: { url: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="flex h-24 w-40 items-center justify-center rounded-lg border border-dashed border-border/70 bg-muted/40 text-center text-xs text-muted-foreground">
+        图片已过期
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={alt}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="max-h-52 rounded-lg border border-emerald-100 object-cover shadow-sm"
+    />
+  );
+}
+
+/** 将后端消息行还原为前端 ChatMessage（恢复 thinking / toolCalls / images） */
 function restoreMessage(m: HistoryMessageRow): ChatMessage {
   return {
     id: m.id,
@@ -255,8 +277,39 @@ function restoreMessage(m: HistoryMessageRow): ChatMessage {
             : "completed") as "running" | "completed" | "error",
         thinkingOffset: tc.thinking_offset ?? undefined,
       })) || undefined,
+    images: m.metadata_json?.images,
+    steps: m.metadata_json?.steps,
     createdAt: new Date(m.created_at).getTime(),
   };
+}
+
+/** 把 AgentStep 的 tool 步骤适配为 ToolCall，复用现有 ToolCallCard 渲染 */
+function toolCallFromStep(step: AgentStep): ToolCall {
+  return {
+    id: step.id || "",
+    name: step.tool || "unknown",
+    input: step.input || {},
+    output: step.output,
+    status: step.status || "completed",
+    error: undefined,
+  };
+}
+
+/** ReAct 步骤流：按顺序渲染 thought 浅色段落 + tool 卡片（默认可见，不折叠） */
+function AgentTrace({ steps }: { steps: AgentStep[] }) {
+  return (
+    <div className="space-y-3">
+      {steps.map((step, i) =>
+        step.type === "tool" ? (
+          <ToolCallCard key={i} tc={toolCallFromStep(step)} />
+        ) : step.content ? (
+          <div key={i} className="rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+            {step.content}
+          </div>
+        ) : null
+      )}
+    </div>
+  );
 }
 
 /**
