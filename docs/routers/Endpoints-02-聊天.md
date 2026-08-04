@@ -30,6 +30,7 @@ prefix: `/chat`
 | start | 流开始 | `{"thread_id": str}` |
 | thinking | 模型推理中 | `{"content": str}`（reasoning_content 逐块） |
 | token | 文本生成中 | `{"content": str}`（回复文本逐块） |
+| step | ReAct 步骤流（与 thinking/tool_* 并行） | `{"type": str, ...}`，type 为 `thought`（含 `delta` 推理增量）/ `tool`（含 `id/tool/input` 工具开始）/ `tool_result`（含 `id/tool/data` 工具结果，data 截断 2000 字符） |
 | tool_start | 工具调用开始 | `{"id": str, "tool": str, "input": dict}` |
 | tool_result | 工具调用完成 | `{"id": str, "tool": str, "data": str}`（输出截断 2000 字符） |
 | usage | 流结束前 | `{"input_tokens": int, "output_tokens": int, "total_tokens": int}` |
@@ -38,11 +39,12 @@ prefix: `/chat`
 | error | 异常 | `{"message": str}` |
 
 **执行流程：**
-1. 构建用户动态上下文（日期、目标、BMI、打卡连续天数、活跃计划）
-2. 保存用户消息到 DB（conversations 表）
-3. 调用 LangGraph Agent 的 `astream_events` 流式输出
-4. 按 SSE 事件类型逐帧转发
-5. 流结束时保存助手消息并累加 Token 用量到 thread_usages
+1. 构建用户动态上下文（当前日期 + 用户称呼，身体数据/打卡/计划改为按需工具获取）
+2. Agent 发送前清理 checkpoint 中已过期的多模态图片签名 URL（替换为占位文本，避免无效图片重复发送）
+3. 保存用户消息到 DB（conversations 表，图片 URL 列表记录到 metadata_json.images 供历史渲染）
+4. 调用 LangGraph Agent 的 `astream_events` 流式输出
+5. 按 SSE 事件类型逐帧转发（thinking/token/step/tool_start/tool_result）
+6. 流结束时保存助手消息（metadata 含 thinking/tool_calls/steps），累加 Token 用量到 thread_usages
 
 ## 停止生成
 
@@ -76,12 +78,14 @@ prefix: `/chat`
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| url | str | OSS 签名 URL（长期有效，约 100 年）；OSS 未配置或上传失败时回退为 base64 data URL |
+| url | str | OSS 签名 URL（有效期由 `OSS_SIGN_URL_EXPIRES` 控制，默认 15 天）；OSS 未配置或上传失败时回退为 base64 data URL |
 | filename | str | 文件名 |
 | size | int | 文件大小 |
 | mime_type | str | MIME 类型 |
 
-逻辑：图片涉及用户隐私，上传至 OSS 私有路径 `chat/{user_id}/{uuid}.{ext}`，ACL 设为私有，返回长期有效签名 URL（`OSS_SIGN_URL_EXPIRES` 控制，默认约 100 年）。该 URL 可直接嵌入前端或传给 DashScope 多模态接口。OSS 未配置（缺 AccessKey 等）或上传异常时回退 base64 data URL（开发模式）。
+逻辑：图片涉及用户隐私，上传至 OSS 私有路径 `chat/{user_id}/{uuid}.{ext}`，ACL 设为私有，返回签名 URL（`OSS_SIGN_URL_EXPIRES` 控制，默认 1296000 秒 = 15 天，兼顾跨天对话图片可见与泄露风险）。该 URL 可直接嵌入前端或传给 DashScope 多模态接口。OSS 未配置（缺 AccessKey 等）或上传异常时回退 base64 data URL（开发模式）。
+
+过期清理：每次 Agent 发送前解析历史多模态消息中的签名 URL 的 `Expires` 参数，已过期图片替换为占位文本 `[图片已分析完毕]`，避免每轮重复发送无效图片浪费 token（`chat.py::_clean_expired_image_urls`）。
 
 ## 线程列表
 
@@ -144,8 +148,10 @@ MessageOut：
 | id | UUID | 主键 |
 | role | str | user / assistant / tool |
 | content | Optional[str] | 消息内容 |
-| metadata_json | Optional[dict] | 元数据（thinking、tool_calls、stopped、images） |
+| metadata_json | Optional[dict] | 元数据（thinking、tool_calls、steps、stopped、images） |
 | created_at | datetime | 创建时间 |
+
+说明：`metadata_json.images` 记录用户消息附带的历史图片 URL（前端历史消息按原图渲染）；`metadata_json.steps` 记录助手消息的 ReAct 步骤序列（前端 AgentTrace 组件平铺渲染）。
 
 ## 更新线程标题
 

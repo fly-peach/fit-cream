@@ -65,11 +65,13 @@ frontend/src/
 │   ├── admin-route.tsx       # 管理员路由守卫
 │   ├── thread-history-item.tsx # 线程列表项（含内联改名）
 │   ├── metadata-editor.tsx   # 元数据编辑/预览组件
-│   └── kb-mcp-panel.tsx      # MCP 集成面板
+│   ├── kb-mcp-panel.tsx      # MCP 集成面板
+│   └── memory-panel.tsx      # 聊天页「我的记忆」面板（语义记忆分组卡片）
 │
 ├── hooks/                    # 自定义 Hooks
 │   ├── use-threads.ts        # 线程列表管理
-│   └── use-chat-sse.ts       # SSE 流式对话核心 Hook
+│   ├── use-chat-sse.ts       # SSE 流式对话核心 Hook
+│   └── use-memories.ts       # 语义记忆只读查询
 │
 ├── stores/                   # Zustand 状态管理
 │   ├── auth-store.ts         # 认证状态（Token/User/Logout）
@@ -85,7 +87,8 @@ frontend/src/
 │   └── meta-utils.ts         # 元数据工具函数
 │
 └── types/
-    ├── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程）
+    ├── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程/AgentStep）
+    ├── memory.ts             # 语义记忆类型（SemanticMemoryItem）
     └── exercise.ts           # 动作库类型定义（Exercise/统计）
 ```
 

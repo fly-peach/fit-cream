@@ -36,15 +36,19 @@
 | 路径 | `/chat` |
 | 守卫 | ProtectedRoute |
 
-AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、工具调用块渲染、图片附件（相册 + 摄像头，发送前自动上传 OSS 获取签名 URL 再提交）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
+AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、Agent ReAct 步骤流可视化（AgentTrace 平铺 thought/tool/tool_result 步骤）、工具调用块渲染、图片附件（相册 + 摄像头，发送前自动上传 OSS 获取签名 URL 再提交，历史消息按 metadata.images 原图渲染）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
 
-**子组件：** ToolBlock、InterleavedReasoning、MessageItem、AttachmentItem、ChatPromptInner
+历史消息分页：首屏仅加载最近 10 条（HISTORY_PAGE_SIZE=10，请求 `page=1&size=10` 后取最后一页），向上滚动触发加载更早分页，无更多时停止。
+
+右侧「我的记忆」面板：Tab 展示语义记忆列表（MemoryPanel，按偏好/事实/规则/状态分组，显示置信度/版本/相对时间，支持刷新与错误重试）。
+
+**子组件：** ToolBlock、InterleavedReasoning、AgentTrace、ToolCallCard、MemoryPanel、MessageItem、AttachmentItem、ChatPromptInner
 
 **使用 vendored ai-elements：** Conversation、Message、Reasoning、Tool、Attachments、PromptInput、Context
 
-**API 调用：** `POST /api/chat/message`（SSE 流式）、`POST /api/chat/stop`、`POST /api/chat/upload-image`、`GET /api/chat/threads`、`GET /api/chat/threads/{id}/messages`、`PATCH /api/chat/threads/{id}/title`、`DELETE /api/chat/threads/{id}`、`DELETE /api/chat/history`
+**API 调用：** `POST /api/chat/message`（SSE 流式）、`POST /api/chat/stop`、`POST /api/chat/upload-image`、`GET /api/chat/threads`、`GET /api/chat/threads/{id}/messages`、`PATCH /api/chat/threads/{id}/title`、`DELETE /api/chat/threads/{id}`、`DELETE /api/chat/history`、`GET /api/memory/semantic`
 
-**依赖：** useChatSSE（流式 Hook）、useThreads（线程管理）、useChatStore（线程 ID 持久化）
+**依赖：** useChatSSE（流式 Hook）、useThreads（线程管理）、useMemories（语义记忆）、useChatStore（线程 ID 持久化）
 
 ## PlansPage
 

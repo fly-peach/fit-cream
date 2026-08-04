@@ -133,6 +133,17 @@
 
 公式：`新衰减 = max(最小衰减, 原衰减因子 × (1 - 衰减率 × 经过天数/30))`
 
+### 容量上限与淘汰策略
+
+情景记忆与程序记忆无去重机制，为控制存储增长，每用户设置上限条数（可通过环境变量配置，0 表示不限制）：
+
+| 记忆类型 | 配置项 | 默认上限 | 淘汰策略 |
+|----------|--------|----------|----------|
+| 情景记忆 | `MEMORY_EPISODIC_MAX` | 200 | 超出后按 重要性升序 → 时间升序 删除（低重要性且最旧的先删） |
+| 程序记忆 | `MEMORY_PROCEDURAL_MAX` | 50 | 超出后按 最久未使用 → 创建时间升序 删除 |
+
+淘汰在写入时触发（`store_episodic` / `store_procedural` 提交后执行 `_trim_memories`）。删除情景记忆前会先清空语义记忆中对应的 `source_episodic_id` 引用（无 ON DELETE 约束，避免外键冲突）。语义记忆走版本管理不设上限。
+
 ## 记忆管道 (MemoryPipeline)
 
 编排完整的记忆生命周期：
@@ -140,7 +151,7 @@
 | 操作 | 方法 | 说明 |
 |------|------|------|
 | 处理对话 | process_conversation() | 提取并分类存储 |
-| 整理记忆 | consolidate_memories() | 去重合并（基础版） |
+| 整理记忆 | consolidate_memories() | 合并重复（同 subject/predicate 保留 version 最大，其余标 superseded）+ LLM 升华（从已有记忆提炼更高层洞察，去重后存入）+ 记录 memory_consolidation_logs |
 | 应用遗忘 | apply_forgetting_curve() | 定期衰减 |
 | 生成上下文 | get_memory_context() | 格式化注入 System Prompt |
 
@@ -154,3 +165,18 @@
 ## 可用技能
 - 哑铃训练: 如何使用哑铃进行...
 ```
+
+## 语义记忆只读接口
+
+语义记忆支持只读查询接口，供前端「我的记忆」面板使用：
+
+| 项目 | 值 |
+|------|-----|
+| 端点 | GET `/api/memory/semantic` |
+| 认证 | get_current_user（Cookie JWT / Header JWT / API Key 多态） |
+| 参数 | category 可选（preference/fact/rule/status） |
+| 逻辑 | 仅返回 status="active" 记录，按 updated_at 倒序，最多 100 条 |
+| 数据源 | MemoryStore（独立 MemoryBase，非 app Base） |
+| 异常 | 检索失败返回 HTTP 500（JSONResponse，code=500） |
+
+接口契约详见 `docs/routers/Endpoints-09-记忆.md`。记忆提取由 `MemoryUpdateMiddleware` 在累计 token 达到阈值（100,000）时触发（详见 Overview-03-中间件管道.md）。

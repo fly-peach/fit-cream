@@ -107,7 +107,10 @@ agent、artifact、audio-player、canvas/node/edge/connection/controls/panel/too
 | NutritionCard | DashboardPage | pages/dashboard.tsx | 营养环形图卡片 |
 | ToolBlock | ChatPage | pages/chat.tsx | 工具调用内联渲染 |
 | InterleavedReasoning | ChatPage | pages/chat.tsx | 推理链与工具调用交错渲染 |
-| MessageItem | ChatPage | pages/chat.tsx | 单条消息渲染（含角色/内容/元数据） |
+| AgentTrace | ChatPage | pages/chat.tsx | ReAct 步骤流平铺渲染（type=tool 转 ToolCallCard，thought 展示推理增量） |
+| ToolCallCard | ChatPage | pages/chat.tsx | 单条工具调用卡片（输入/输出/状态） |
+| MemoryPanel | ChatPage | components/memory-panel.tsx | 「我的记忆」面板（语义记忆按分类分组卡片，支持刷新/重试/空态） |
+| MessageItem | ChatPage | pages/chat.tsx | 单条消息渲染（含角色/内容/元数据，历史图片按 metadata.images 渲染） |
 | AttachmentItem | ChatPage | pages/chat.tsx | 图片附件缩略图 |
 | ChatPromptInner | ChatPage | pages/chat.tsx | 聊天输入框内部（附件预览） |
 | PromptInputAttachmentsDisplay | ChatPage | pages/chat.tsx | 输入框附件显示（memo 优化） |

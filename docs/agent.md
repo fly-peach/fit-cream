@@ -233,6 +233,27 @@
 - [x] 前端登录页重构为四模式（验证码/密码/注册/重置）+ 分格验证码 + 品牌面板
 - [x] 文档同步：Endpoints-01、auth/Overview、auth/Database、auth/Services、Endpoints-02、routers/Overview、fitme/Services、frontend/Pages
 
+### 2026-08-04 - 情景记忆与程序记忆容量上限
+
+- [x] store.py 新增 `_trim_memories` 裁剪方法（删除前清空 semantic 的 source_episodic_id 引用）
+- [x] store_episodic 写入后按 重要性升序→时间升序 裁剪到 MEMORY_EPISODIC_MAX（默认 200）
+- [x] store_procedural 写入后按 最久未使用→创建时间升序 裁剪到 MEMORY_PROCEDURAL_MAX（默认 50）
+- [x] config.py / .env.example 新增 MEMORY_EPISODIC_MAX / MEMORY_PROCEDURAL_MAX 配置
+- [x] Services-02-Memory系统.md 新增「容量上限与淘汰策略」章节；Overview-01-架构.md 配置常量表同步
+
+### 2026-08-04 - 语义记忆路由 + 聊天 SSE step 事件 + OSS 有效期 + 记忆阈值文档同步
+
+- [x] routers/Overview-01-路由总览.md：路由注册表补 memory（第 11 项）；OSS_SIGN_URL_EXPIRES 默认值 3153600000 → 1296000（15 天）；认证依赖链补 Cookie JWT → Header JWT → API Key 多态说明
+- [x] 新建 routers/Endpoints-09-记忆.md：GET /api/memory/semantic 端点契约
+- [x] routers/Endpoints-02-聊天.md：SSE 事件表补 step（thought/tool/tool_result）；上传图片 OSS URL 改为 15 天 + 过期 image_url 清理；MessageOut metadata 补 steps/images
+- [x] rogers/agent/Overview-01-架构.md：记忆提取触发阈值 20,000 → 100,000；调用流程补步骤流 metadata 与过期图片清理
+- [x] rogers/agent/Overview-03-中间件管道.md：MemoryUpdateMiddleware 阈值 20,000 → 100,000
+- [x] rogers/agent/Services-02-Memory系统.md：consolidate_memories 补 LLM 升华与版本合并说明；新增「语义记忆只读接口」章节
+- [x] frontend/Pages-01-页面.md：ChatPage 补「我的记忆」面板、历史分页（首屏 10 条向上滚动）、AgentTrace、历史图片、API 调用与依赖
+- [x] frontend/Components-01-组件.md：补 AgentTrace / ToolCallCard / MemoryPanel 组件
+- [x] frontend/Services-01-服务层.md：useChatSSE 事件分发补 step；新增 useMemories hook
+- [x] frontend/Overview-01-架构.md：项目结构补 memory-panel.tsx、use-memories.ts、types/memory.ts
+
 ### 2026-07-30 - 动作库 dataset 文档补全
 
 - [x] 新建 Endpoints-08-动作库.md（exercises 路由 8 端点：列表/分类/肌群/器械统计/详情/创建/更新/删除）

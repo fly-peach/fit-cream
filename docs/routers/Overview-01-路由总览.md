@@ -16,6 +16,7 @@
 | 8 | stats | `/stats` | stats | 训练统计 + 饮食趋势 |
 | 9 | exercises | `/exercises` | exercises | 动作库查询 + 管理 CRUD + 分类/肌群/器械统计（1324 条中英双语 dataset） |
 | 10 | knowledge_bases | `/knowledge-bases` | knowledge-bases | 知识库管理 |
+| 11 | memory | `/memory` | memory | 语义记忆只读查询 |
 
 ## 响应格式
 
@@ -88,10 +89,10 @@
 
 | 依赖 | 来源 | 校验方式 | 用途 |
 |------|------|----------|------|
-| get_current_user | Header `Authorization: Bearer <token>` | 多态：先解码 Access JWT，再尝试用户 API Key（sha256 哈希匹配） | 普通用户接口（App JWT / MCP API Key） |
+| get_current_user | 多态：httpOnly Cookie JWT（浏览器）→ Header JWT（API 客户端）→ 用户 API Key | 先读 Cookie（`fitcream_access`），再解 Header Bearer JWT，最后尝试 API Key（sha256 哈希匹配） | 普通用户接口（App JWT / MCP API Key） |
 | get_admin_user | get_current_user + role 校验 | user.role == "admin" | 管理员接口 |
 
-所有 JWT 签名为 HS256，Access Token 有效期 7 天，Refresh Token 有效期 30 天。
+所有 JWT 签名为 HS256，Access Token 有效期 7 天，Refresh Token 有效期 30 天，均写入 httpOnly Cookie（浏览器端 XSS 不可读）。
 用户 API Key（一人一把）用于 MCP 外部接入，明文仅创建时返回一次，存储 sha256 哈希。
 
 ## 全局异常处理器
@@ -117,7 +118,7 @@
 | ALIBABA_CLOUD_SMS_TEMPLATE_CODE | "" | 短信模板 Code |
 | OSS_ENDPOINT | oss-cn-hangzhou.aliyuncs.com | OSS 接入点 |
 | OSS_BUCKET_NAME | "" | OSS Bucket（留空时聊天图片回退 base64） |
-| OSS_SIGN_URL_EXPIRES | 3153600000（约 100 年） | OSS 签名 URL 有效期(秒) |
+| OSS_SIGN_URL_EXPIRES | 1296000（15 天） | OSS 签名 URL 有效期(秒) |
 | LOGIN_MAX_ATTEMPTS | 5 | 连续失败锁定阈值 |
 | LOGIN_LOCK_MINUTES | 15 | 锁定时长(分钟) |
 | VERIFICATION_CODE_COOLDOWN | 60 | 验证码发送冷却(秒) |

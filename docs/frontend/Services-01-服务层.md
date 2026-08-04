@@ -150,6 +150,7 @@ KBListItem、KB、KBDocument、KBDocumentContent、KBSearchResult、KBGraphNode�
 3. 事件分发：
    - `start` → 同步 thread_id 到 useChatStore
    - `thinking` → 累积推理内容，记录 thinkingOffset
+   - `step` → 追加 AgentStep（thought 增量累积 / tool 新建步骤 / tool_result 匹配更新）
    - `token` → 追加助手回复文本
    - `tool_start` → 添加 ToolCall（run_id 为 id，记录 thinkingOffset）
    - `tool_result` → 按 id 匹配 → 更新为 completed
@@ -175,3 +176,18 @@ KBListItem、KB、KBDocument、KBDocumentContent、KBSearchResult、KBGraphNode�
 **类型 Thread：** id, title, lastMessage, createdAt, updatedAt, messageCount, totalTokens
 
 **API 调用：** `GET /api/chat/threads`、`DELETE /api/chat/threads/{id}`、`DELETE /api/chat/history`、`PATCH /api/chat/threads/{id}/title`
+
+### useMemories（use-memories.ts）
+
+「我的记忆」面板数据 Hook（语义记忆只读查询）。
+
+| 返回 | 类型 | 说明 |
+|------|------|------|
+| data | SemanticMemoryItem[] | 语义记忆列表 |
+| loading | boolean | 加载中 |
+| error | string \| null | 加载错误（认证失败由 api 层自动登出） |
+| refetch | () => void | 重新拉取 |
+
+**类型 SemanticMemoryItem：** id, subject, predicate, object, category(preference/fact/rule/status), confidence, version, updated_at, source_episodic_id
+
+**API 调用：** `GET /api/memory/semantic`（挂载时自动拉取）

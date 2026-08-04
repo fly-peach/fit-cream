@@ -70,7 +70,7 @@ Agent 运行时需要一个配置字典，格式为：
 
 ```
 POST /api/chat/message
-  → _build_user_context() 构建用户动态上下文（身体数据、打卡天数、活跃计划）
+  → _build_user_context() 构建用户动态上下文（仅当前日期 + 用户称呼；身体数据/打卡/计划改为按需工具获取）
   → agent.astream_events(input_msg, config, version="v2")
     → IntentMiddleware.before_model() 检测意图，注入意图提示词
     → LLM 调用（流式输出 token + thinking + tool_calls）
@@ -79,7 +79,7 @@ POST /api/chat/message
     → MemoryUpdateMiddleware.after_model() 触发记忆提取
     → 循环（LLM → Tool → LLM ...）
     → SummarizationMiddleware 在 token 超量时压缩对话
-  → _save_message() 持久化用户/助手消息
+  → _save_message() 持久化用户/助手消息（metadata 含 thinking/tool_calls/steps）
   → upsert ThreadUsage 累积 token 用量
 ```
 
@@ -88,8 +88,10 @@ POST /api/chat/message
 | 常量 | 默认值 | 用途 |
 |------|--------|------|
 | 对话压缩触发阈值 | 100,000 tokens | SummarizationMiddleware 触发压缩 |
-| 记忆提取触发阈值 | 20,000 tokens | MemoryUpdateMiddleware 触发记忆提取 |
+| 记忆提取触发阈值 | 100,000 tokens | MemoryUpdateMiddleware 触发记忆提取 |
 | 压缩后保留消息数 | 10 条 | 压缩后保留的最近消息数量 |
+| 情景记忆上限 | 200 条/用户 | MEMORY_EPISODIC_MAX，超出按重要性/时间淘汰 |
+| 程序记忆上限 | 50 条/用户 | MEMORY_PROCEDURAL_MAX，超出按最久未使用淘汰 |
 | LLM 调用上限 | 15 次/轮 | ModelCallLimitMiddleware 拦截 |
 | 工具调用上限 | 10 次/轮 | ToolCallLimitMiddleware 拦截 |
 | 同一工具上限 | 5 次/轮 | SameToolLimitMiddleware 返回错误 |

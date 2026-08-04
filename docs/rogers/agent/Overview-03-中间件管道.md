@@ -78,7 +78,7 @@ Token 用量追踪中间件。无状态，每次 after_model 钩子中从最后�
 
 ### MemoryUpdateMiddleware
 
-记忆提取触发器。在 after_model 钩子中累积 token 用量，达到阈值（20,000）时异步触发记忆提取：
+记忆提取触发器。在 after_model 钩子中累积 token 用量，达到阈值（100,000）时异步触发记忆提取：
 
 1. 通过全局 `MemoryPipeline` 实例调用 `process_conversation()`
 2. 传入当前用户的所有对话消息
