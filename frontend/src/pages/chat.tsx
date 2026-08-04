@@ -1,5 +1,6 @@
-import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -65,6 +66,7 @@ import {
   CameraIcon,
   BookOpenIcon,
   BrainIcon,
+  LoaderCircleIcon,
 } from "lucide-react";
 import type { ChatMessage, ToolCall } from "@/types/chat";
 
@@ -210,6 +212,99 @@ const MAX_CONTEXT_TOKENS = 100_000;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 /** 最多同时上传图片数量：与后端 ChatRequest.images 限制一致 */
 const MAX_IMAGE_FILES = 10;
+
+/** 历史消息分页大小：首屏仅加载最近 10 条，向上滚动再加载更早的分页 */
+const HISTORY_PAGE_SIZE = 10;
+
+/** 后端 /chat/threads/{id}/messages 返回的原始消息行 */
+interface HistoryMessageRow {
+  id: string;
+  role: string;
+  content: string | null;
+  metadata_json?: {
+    thinking?: string;
+    tool_calls?: Array<{
+      id: string;
+      name: string;
+      input: Record<string, unknown>;
+      output?: unknown;
+      status: string;
+      thinking_offset?: number;
+    }>;
+  } | null;
+  created_at: string;
+}
+
+/** 将后端消息行还原为前端 ChatMessage（恢复 thinking / toolCalls） */
+function restoreMessage(m: HistoryMessageRow): ChatMessage {
+  return {
+    id: m.id,
+    role: m.role as "user" | "assistant",
+    content: m.content || "",
+    thinking: m.metadata_json?.thinking || undefined,
+    toolCalls:
+      m.metadata_json?.tool_calls?.map((tc) => ({
+        id: tc.id,
+        name: tc.name,
+        input: tc.input,
+        output: tc.output,
+        status: (tc.status === "running"
+          ? "running"
+          : tc.status === "error"
+            ? "error"
+            : "completed") as "running" | "completed" | "error",
+        thinkingOffset: tc.thinking_offset ?? undefined,
+      })) || undefined,
+    createdAt: new Date(m.created_at).getTime(),
+  };
+}
+
+/**
+ * 历史消息向上加载哨兵（渲染在消息列表顶部）。
+ *
+ * - 通过 useStickToBottomContext 拿到滚动容器并上报给父组件（prepend 后锚定滚动位置用）
+ * - IntersectionObserver 监测哨兵可见（提前 300px 预载），触发加载上一页
+ */
+function OlderMessagesLoader({
+  hasMore,
+  loading,
+  onLoadOlder,
+  onScrollEl,
+}: {
+  hasMore: boolean;
+  loading: boolean;
+  onLoadOlder: () => void;
+  onScrollEl: (el: HTMLElement | null) => void;
+}) {
+  const { scrollRef } = useStickToBottomContext();
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    onScrollEl(scrollRef.current);
+    return () => onScrollEl(null);
+  }, [scrollRef, onScrollEl]);
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = scrollRef.current;
+    if (!sentinel || !root || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadOlder();
+      },
+      { root, rootMargin: "300px 0px 0px 0px" }
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+  }, [hasMore, onLoadOlder, scrollRef]);
+
+  if (!hasMore) return null;
+  return (
+    <div ref={sentinelRef} className="flex h-6 shrink-0 items-center justify-center">
+      {loading && <LoaderCircleIcon className="size-4 animate-spin text-emerald-400" />}
+    </div>
+  );
+}
 
 /** content_type -> 上传文件名后缀 */
 const MIME_EXT: Record<string, string> = {
@@ -377,6 +472,28 @@ export default function ChatPage() {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "memories">("chat");
 
+  // ---- 历史消息分页（首屏最近 10 条，向上滚动加载更早分页） ----
+  /** 是否还有更早的消息可加载 */
+  const [hasMore, setHasMore] = useState(false);
+  /** 正在加载更早分页 */
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  /** 下一个要加载的更早分页页码（0 表示没有更多） */
+  const nextOlderPageRef = useRef(0);
+  /** 当前已加载消息所属线程（快速切换会话时丢弃过期响应） */
+  const loadedThreadIdRef = useRef<string | null>(null);
+  /** 防止并发触发加载上一页 */
+  const loadingOlderRef = useRef(false);
+  /** 滚动容器（StickToBottom 内部 scroll element，由 OlderMessagesLoader 上报） */
+  const scrollElRef = useRef<HTMLElement | null>(null);
+  /** prepend 旧消息前的滚动度量，用于渲染后恢复视口锚点 */
+  const scrollMetricsRef = useRef<{ height: number; top: number } | null>(null);
+  /** prepend 后跳过一次"滚动到底部"，避免把用户拽回底部 */
+  const skipBottomScrollRef = useRef(false);
+
+  const handleScrollEl = useCallback((el: HTMLElement | null) => {
+    scrollElRef.current = el;
+  }, []);
+
   // 已 seed usage 的会话 id：仅真正切换到新会话时重置 usage，
   // 同一会话内 threads 列表刷新不应覆盖实时累计值
   const seededThreadRef = useRef<string | null>(null);
@@ -396,11 +513,28 @@ export default function ChatPage() {
   );
 
   useEffect(() => {
+    if (skipBottomScrollRef.current) {
+      skipBottomScrollRef.current = false;
+      return;
+    }
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // prepend 旧消息后恢复视口锚点：保持用户正在看的内容不动
+  useLayoutEffect(() => {
+    const metrics = scrollMetricsRef.current;
+    if (!metrics) return;
+    scrollMetricsRef.current = null;
+    const el = scrollElRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight - metrics.height + metrics.top;
   }, [messages]);
 
   const handleNewChat = () => {
     seededThreadRef.current = null;
+    loadedThreadIdRef.current = null;
+    nextOlderPageRef.current = 0;
+    setHasMore(false);
     setThreadId(null);
     clearMessages();
     setTab("chat");
@@ -433,58 +567,77 @@ export default function ChatPage() {
     [sendMessage]
   );
 
-  // 加载指定线程的历史消息（恢复 thinking / toolCalls）
+  // 加载指定线程的历史消息：仅取最近一页（10 条），更早的由向上滚动按需加载。
+  // 后端按 created_at 升序 + offset 分页，最后一页即最新消息。
   const loadThreadMessages = useCallback(async (id: string) => {
     // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
     const API_URL = "/api";
+    loadedThreadIdRef.current = id;
+    nextOlderPageRef.current = 0;
+    setHasMore(false);
     try {
-      const res = await fetch(`${API_URL}/chat/threads/${id}/messages`);
-      if (res.ok) {
-        const json = await res.json();
-        checkAuthEnvelope(json);
-        const data = json.data || {};
-        const restored: ChatMessage[] = (data.messages || []).map(
-          (m: {
-            id: string;
-            role: string;
-            content: string | null;
-            metadata_json?: {
-              thinking?: string;
-              tool_calls?: Array<{
-                id: string;
-                name: string;
-                input: Record<string, unknown>;
-                output?: unknown;
-                status: string;
-                thinking_offset?: number;
-              }>;
-            } | null;
-            created_at: string;
-          }) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content || "",
-            thinking: m.metadata_json?.thinking || undefined,
-            toolCalls:
-              m.metadata_json?.tool_calls?.map((tc) => ({
-                id: tc.id,
-                name: tc.name,
-                input: tc.input,
-                output: tc.output,
-                status: (tc.status === "running"
-                  ? "running"
-                  : tc.status === "error"
-                    ? "error"
-                    : "completed") as "running" | "completed" | "error",
-                thinkingOffset: tc.thinking_offset ?? undefined,
-              })) || undefined,
-            createdAt: new Date(m.created_at).getTime(),
-          }),
+      // 首页请求顺带拿 total；消息数不超过一页时它就是完整消息列表
+      const res = await fetch(
+        `${API_URL}/chat/threads/${id}/messages?page=1&size=${HISTORY_PAGE_SIZE}`
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      checkAuthEnvelope(json);
+      const data = json.data || {};
+      const total: number = typeof data.total === "number" ? data.total : 0;
+      const lastPage = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+      let rows: HistoryMessageRow[] = data.messages || [];
+      if (lastPage > 1) {
+        const res2 = await fetch(
+          `${API_URL}/chat/threads/${id}/messages?page=${lastPage}&size=${HISTORY_PAGE_SIZE}`
         );
-        setMessages(restored);
+        if (res2.ok) {
+          const json2 = await res2.json();
+          checkAuthEnvelope(json2);
+          rows = json2.data?.messages || [];
+        }
+      }
+      // 快速切换会话时丢弃过期响应
+      if (loadedThreadIdRef.current !== id) return;
+      setMessages(rows.map(restoreMessage));
+      nextOlderPageRef.current = lastPage - 1;
+      setHasMore(lastPage > 1);
+    } catch {
+      // ignore
+    }
+  }, [setMessages]);
+
+  // 向上滚动加载更早的一页消息，prepend 到列表头部并锚定滚动位置
+  const loadOlder = useCallback(async () => {
+    const id = loadedThreadIdRef.current;
+    const page = nextOlderPageRef.current;
+    if (!id || page < 1 || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const res = await fetch(
+        `/api/chat/threads/${id}/messages?page=${page}&size=${HISTORY_PAGE_SIZE}`
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      checkAuthEnvelope(json);
+      if (loadedThreadIdRef.current !== id) return;
+      const rows: HistoryMessageRow[] = json.data?.messages || [];
+      nextOlderPageRef.current = page - 1;
+      setHasMore(page - 1 >= 1);
+      if (rows.length > 0) {
+        const el = scrollElRef.current;
+        if (el) {
+          scrollMetricsRef.current = { height: el.scrollHeight, top: el.scrollTop };
+        }
+        skipBottomScrollRef.current = true;
+        setMessages((prev) => [...rows.map(restoreMessage), ...prev]);
       }
     } catch {
       // ignore
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
     }
   }, [setMessages]);
 
@@ -637,6 +790,12 @@ export default function ChatPage() {
           <>
         <Conversation className="flex-1">
           <ConversationContent>
+            <OlderMessagesLoader
+              hasMore={hasMore}
+              loading={loadingOlder}
+              onLoadOlder={loadOlder}
+              onScrollEl={handleScrollEl}
+            />
             {messages.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center gap-5">
                 <div className="flex size-20 items-center justify-center rounded-3xl bg-gradient-to-br from-emerald-100 to-teal-100 shadow-inner">
