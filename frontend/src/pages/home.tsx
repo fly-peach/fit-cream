@@ -26,6 +26,7 @@ import {
   CalendarDaysIcon,
   ClipboardListIcon,
   SparkleIcon,
+  GithubIcon,
 } from "lucide-react";
 
 /** 首页专用的独立动效（仅作用于本页元素，不影响其他路由） */
@@ -136,6 +137,21 @@ function HomeNav({
           >
             动作库
           </Link>
+          <a
+            href="https://github.com/fly-peach/fit-cream"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub 仓库"
+            className={cn(
+              "inline-flex items-center gap-1.5 text-sm font-medium transition-colors",
+              scrolled
+                ? "text-emerald-800/70 hover:text-emerald-600"
+                : "text-emerald-100/70 hover:text-white",
+            )}
+          >
+            <GithubIcon className="size-4" />
+            <span className="hidden lg:inline">GitHub</span>
+          </a>
           {!isAuthenticated && (
             <Link
               to="/login"
@@ -182,11 +198,14 @@ function HomeNav({
               { label: "功能特性", href: "#features" },
               { label: "使用流程", href: "#how" },
               { label: "动作库", href: "/exercises" },
+              { label: "GitHub", href: "https://github.com/fly-peach/fit-cream" },
               ...(isAuthenticated ? [] : [{ label: "登录", href: "/login" }]),
             ].map((item) => (
               <a
                 key={item.label}
                 href={item.href}
+                target={item.href.startsWith("http") ? "_blank" : undefined}
+                rel={item.href.startsWith("http") ? "noopener noreferrer" : undefined}
                 className="rounded-lg px-3 py-2.5 text-sm font-medium text-emerald-900 transition-colors hover:bg-emerald-50"
               >
                 {item.label}
