@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, func, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from llama_index.vector_stores.postgres import PGVectorStore
@@ -86,6 +86,10 @@ class MemoryStore:
         
         self.database_url = database_url
         self.embed_model = embed_model or get_embedding_model()
+
+        # 每用户记忆容量上限（0 表示不限制）
+        self.episodic_max = int(_get_setting("MEMORY_EPISODIC_MAX", "200"))
+        self.procedural_max = int(_get_setting("MEMORY_PROCEDURAL_MAX", "50"))
         
         # 创建异步引擎
         self.engine = create_async_engine(database_url, echo=False)
@@ -132,7 +136,57 @@ class MemoryStore:
     # ============================================================
     # 情景记忆 (Episodic Memory)
     # ============================================================
-    
+
+    async def _trim_memories(
+        self,
+        user_id: str,
+        model,
+        max_count: int,
+        order_by,
+        clear_episodic_refs: bool = False,
+    ) -> int:
+        """
+        裁剪记忆到上限条数，删除多余记录。
+
+        Args:
+            user_id: 用户 ID
+            model: 记忆模型（EpisodicMemory / ProceduralMemory）
+            max_count: 上限条数（0 表示不限制）
+            order_by: 删除优先级排序（排在最前的先删，即最旧的/最低重要性的）
+            clear_episodic_refs: 删除情景记忆前清空 semantic 的 source_episodic_id 引用
+
+        Returns:
+            删除条数
+        """
+        if max_count <= 0:
+            return 0
+        async with self.async_session() as session:
+            total = await session.scalar(
+                select(func.count()).select_from(model).where(model.user_id == user_id)
+            )
+            excess = int(total or 0) - max_count
+            if excess <= 0:
+                return 0
+            ids = (
+                await session.scalars(
+                    select(model.id)
+                    .where(model.user_id == user_id)
+                    .order_by(*order_by)
+                    .limit(excess)
+                )
+            ).all()
+            if not ids:
+                return 0
+            if clear_episodic_refs:
+                await session.execute(
+                    update(SemanticMemory)
+                    .where(SemanticMemory.source_episodic_id.in_(ids))
+                    .values(source_episodic_id=None)
+                )
+            await session.execute(delete(model).where(model.id.in_(ids)))
+            await session.commit()
+            return len(ids)
+
     async def store_episodic(
         self,
         user_id: str,
@@ -182,6 +236,19 @@ class MemoryStore:
         async with self.async_session() as session:
             session.add(memory)
             await session.commit()
+        
+        # 裁剪：超出上限时按 重要性升序 → 时间升序 删除（低重要性且最旧的先删）
+        await self._trim_memories(
+            user_id,
+            EpisodicMemory,
+            self.episodic_max,
+            [
+                EpisodicMemory.importance_score.asc(),
+                EpisodicMemory.timestamp.asc(),
+                EpisodicMemory.created_at.asc(),
+            ],
+            clear_episodic_refs=True,
+        )
         
         return memory.id
     
@@ -479,6 +546,17 @@ class MemoryStore:
         async with self.async_session() as session:
             session.add(memory)
             await session.commit()
+        
+        # 裁剪：超出上限时按 最久未使用 → 创建时间升序 删除
+        await self._trim_memories(
+            user_id,
+            ProceduralMemory,
+            self.procedural_max,
+            [
+                ProceduralMemory.last_used.asc().nullsfirst(),
+                ProceduralMemory.created_at.asc(),
+            ],
+        )
         
         return memory.id
     

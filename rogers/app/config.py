@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     DASHSCOPE_TEMPERATURE: float = 1.2
     DASHSCOPE_ENABLE_THINKING: bool = True
 
+    # ---------- 记忆容量上限 ----------
+    # 每用户各类记忆的上限条数，超过上限时按淘汰策略删除多余记录
+    MEMORY_EPISODIC_MAX: int = 200
+    MEMORY_PROCEDURAL_MAX: int = 50
+
     # ---------- CORS ----------
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"]
 
