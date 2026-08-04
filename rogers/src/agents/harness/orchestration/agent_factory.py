@@ -182,11 +182,11 @@ def create_fitcream_agent_with_context(
 # 触发会话压缩的 token 阈值：检查同一 thread 累积消息的 token 数
 # （checkpointer 跨 run 累积，非单次 run）。qwen3.5-flash 上下文窗口 ~128K，
 # 在 100K 时压缩以防溢出。注意：这是"防上下文溢出"的会话压缩，与
-# MemoryUpdateMiddleware（20K 触发的记忆提取/整合）是独立子系统。
+# MemoryUpdateMiddleware（100K 触发的记忆提取/整合）是独立子系统。
 SUMMARIZE_TRIGGER_TOKENS = 100_000
 
-# 触发记忆更新的 token 阈值（每 20K token 触发一次记忆提取）
-MEMORY_UPDATE_TRIGGER_TOKENS = 20_000
+# 触发记忆更新的 token 阈值（每 100K token 触发一次记忆提取）
+MEMORY_UPDATE_TRIGGER_TOKENS = 100_000
 
 # 压缩后保留的最近消息数（保留足够上下文让对话连贯）
 SUMMARIZE_KEEP_MESSAGES = 10
@@ -209,7 +209,7 @@ def _get_default_middleware() -> list:
     3. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
     4. TokenUsageMiddleware：Token 用量追踪
     5. SummarizationMiddleware：会话压缩
-    6. MemoryUpdateMiddleware：分层记忆自动提取（每 20K token / 对话结束触发）
+    6. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
 
     会话压缩策略：
     - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发

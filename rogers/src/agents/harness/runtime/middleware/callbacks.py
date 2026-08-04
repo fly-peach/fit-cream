@@ -231,7 +231,7 @@ def create_agent_middleware(
     save_conversation: bool = True,
     enable_summarization: bool = True,
     enable_memory_update: bool = True,
-    memory_trigger_tokens: int = 20_000,
+    memory_trigger_tokens: int = 100_000,
 ) -> list:
     """
     创建 Agent 中间件列表（编译时注入）。
@@ -246,7 +246,7 @@ def create_agent_middleware(
         save_conversation: 是否保存对话到数据库
         enable_summarization: 是否启用会话压缩（默认 True）
         enable_memory_update: 是否启用记忆自动更新（默认 True）
-        memory_trigger_tokens: 记忆更新触发的 token 阈值（默认 20K）
+        memory_trigger_tokens: 记忆更新触发的 token 阈值（默认 100K）
 
     Returns:
         中间件列表，传给 create_agent(middleware=[...])
@@ -261,7 +261,7 @@ def create_agent_middleware(
     - 保留最近 10 条消息确保对话连贯性
 
     记忆更新策略：
-    - 当累计 token 超过 memory_trigger_tokens (默认 20K) 时触发
+    - 当累计 token 超过 memory_trigger_tokens (默认 100K) 时触发
     - 异步提取分层记忆（情景/语义/程序性）
     - 不阻塞主对话流
     """

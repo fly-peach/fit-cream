@@ -6,7 +6,7 @@
 
 工作流程：
 1. after_model hook 追踪 token 使用量（存入 AgentState）
-2. 当累计 token 超过 trigger_tokens (默认 20K) 时触发
+2. 当累计 token 超过 trigger_tokens (默认 100K) 时触发
 3. 异步调用 MemoryPipeline.process_conversation 提取记忆
 4. 重置计数器，等待下一次触发
 
@@ -24,10 +24,10 @@ done_callback 中按 user_id 清理键值（修 1.8 竞态），不再使用 asy
 用法：
     # per-user
     middleware = MemoryUpdateMiddleware(
-        user_id="user-123", thread_id="thread-456", trigger_tokens=20_000,
+        user_id="user-123", thread_id="thread-456", trigger_tokens=100_000,
     )
     # 共享 graph（运行时解析）
-    middleware = MemoryUpdateMiddleware(trigger_tokens=20_000)
+    middleware = MemoryUpdateMiddleware(trigger_tokens=100_000)
 """
 
 import asyncio
@@ -58,7 +58,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
     使用 MemoryPipeline 进行分层记忆提取（情景/语义/程序性）。
 
     触发条件：
-    - 累计 token 数超过 trigger_tokens（默认 20,000）
+    - 累计 token 数超过 trigger_tokens（默认 100,000）
     - 每次触发后重置计数器
     - after_agent 兜底：对话结束时若有未处理消息也触发一次
 
@@ -74,7 +74,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         self,
         user_id: Optional[str] = None,
         thread_id: Optional[str] = None,
-        trigger_tokens: int = 20_000,
+        trigger_tokens: int = 100_000,
     ):
         """
         初始化记忆更新中间件
@@ -84,7 +84,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                 共享 graph 下从 RunnableConfig.configurable 运行时解析。
             thread_id: 对话线程 ID。为 None 时优先取 runtime.execution_info.thread_id，
                 再回退到 configurable.thread_id。
-            trigger_tokens: 触发记忆更新的 token 阈值（默认 20K）
+            trigger_tokens: 触发记忆更新的 token 阈值（默认 100K）
         """
         super().__init__()
         self.user_id = user_id
@@ -306,7 +306,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
 def create_memory_update_middleware(
     user_id: Optional[str] = None,
     thread_id: Optional[str] = None,
-    trigger_tokens: int = 20_000,
+    trigger_tokens: int = 100_000,
 ) -> MemoryUpdateMiddleware:
     """
     工厂函数：创建记忆更新中间件
@@ -314,7 +314,7 @@ def create_memory_update_middleware(
     Args:
         user_id: 用户 ID（per-user 模式传入；共享 graph 模式留空运行时解析）
         thread_id: 对话线程 ID
-        trigger_tokens: 触发阈值（默认 20K）
+        trigger_tokens: 触发阈值（默认 100K）
 
     Returns:
         MemoryUpdateMiddleware 实例
