@@ -42,6 +42,9 @@ from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT
 # ============================================================
 
 # 默认 Agent（无 checkpointer，用于开发/测试）
+# 注意：无 checkpointer 时 _get_default_middleware(include_hitl=False)，
+# HumanInTheLoopMiddleware 不启用--副作用工具（create_plan_tool 等）自动放行，
+# 不会触发审批中断。HITL 审批流程仅在 init_agent() 构造的带 checkpointer 生产 graph 中可用。
 graph = create_fitcream_agent(
     system_prompt=SYSTEM_PROMPT,
     enable_thinking=True,

@@ -113,13 +113,18 @@ def create_fitcream_agent(
     if tools is None:
         tools = _get_default_tools()
 
-    # 3. 系统提示词（默认使用 system.py 中的完整 SYSTEM_PROMPT）
+    # 3. 系统提示词（默认使用 system.py 中的完整 SYSTEM_PROMPT + skills catalog）
     if system_prompt is None:
-        system_prompt = SYSTEM_PROMPT
+        from src.agents.harness.skills.skills_loader import get_catalog_prompt
+
+        catalog = get_catalog_prompt()
+        system_prompt = SYSTEM_PROMPT + (f"\n\n{catalog}" if catalog else "")
 
     # 4. 中间件（默认：日志 + 限流 + Token追踪 + 会话压缩，编译时注入）
     if middleware is None:
-        middleware = _get_default_middleware()
+        # HITL 仅在存在 checkpointer 时启用（中断状态需 checkpoint 持久化）；
+        # 无 checkpointer 的 dev_graph / graph 会跳过 HITL，副作用工具自动放行。
+        middleware = _get_default_middleware(include_hitl=checkpointer is not None)
 
     # 5. 构建 ReAct Agent（middleware 在编译时注入，运行时无需 callbacks）
     agent = create_agent(
@@ -192,12 +197,17 @@ MEMORY_UPDATE_TRIGGER_TOKENS = 100_000
 SUMMARIZE_KEEP_MESSAGES = 10
 
 
-def _get_default_middleware() -> list:
+def _get_default_middleware(include_hitl: bool = False) -> list:
     """
     获取默认中间件列表（共享 graph 默认版本）。
 
-    包含：意图识别、日志、限流、Token 追踪、会话压缩、记忆更新。
+    包含：意图识别、技能占位、日志、限流、Token 追踪、会话压缩、记忆更新。
     不含对话持久化（仍由 per-user 的 create_agent_with_middleware 提供）。
+
+    Args:
+        include_hitl: 是否启用 HumanInTheLoopMiddleware。仅在存在 checkpointer
+            （生产 graph）时启用——中断状态依赖 checkpoint 持久化，dev_graph /
+            graph（无 checkpointer）下应保持 False，副作用工具自动放行。
 
     记忆更新中间件以共享实例接入，user_id 在运行时从
     RunnableConfig.configurable 解析（chat.py 已传 user_id/thread_id），
@@ -205,11 +215,13 @@ def _get_default_middleware() -> list:
 
     中间件顺序（before_model 执行顺序）：
     1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
-    2. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
-    3. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
-    4. TokenUsageMiddleware：Token 用量追踪
-    5. SummarizationMiddleware：会话压缩
-    6. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
+    2. SkillsMiddleware：纯占位（catalog 已烘焙进 system_prompt）
+    3. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
+    4. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    5. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    6. TokenUsageMiddleware：Token 用量追踪
+    7. SummarizationMiddleware：会话压缩
+    8. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
 
     会话压缩策略：
     - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
@@ -227,6 +239,7 @@ def _get_default_middleware() -> list:
     from src.agents.harness.runtime.middleware.callbacks import TokenUsageMiddleware
     from src.agents.harness.runtime.middleware.intent_middleware import IntentMiddleware
     from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
+    from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
 
     # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
     summary_model = create_chat_dashscope(
@@ -235,8 +248,27 @@ def _get_default_middleware() -> list:
         enable_thinking=False,
     )
 
-    return [
+    middleware = [
         IntentMiddleware(),
+        SkillsMiddleware(),
+    ]
+
+    # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/调整计划）中断等待用户审批。
+    if include_hitl:
+        from langchain.agents.middleware import HumanInTheLoopMiddleware
+
+        middleware.append(
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    "create_plan_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "create_diet_plan_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "adjust_plan_tool": {"allowed_decisions": ["approve", "reject"]},
+                },
+                description_prefix="即将执行计划操作，需要你确认",
+            )
+        )
+
+    middleware.extend([
         AgentLoggingMiddleware(),
         *create_rate_limit_middleware(),
         TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
@@ -247,7 +279,8 @@ def _get_default_middleware() -> list:
         ),
         # 记忆更新：共享实例，user_id 运行时从 configurable 解析（见 memory_update.py）
         MemoryUpdateMiddleware(trigger_tokens=MEMORY_UPDATE_TRIGGER_TOKENS),
-    ]
+    ])
+    return middleware
 
 
 def _get_default_tools() -> list:
@@ -302,7 +335,7 @@ def _get_default_tools() -> list:
 
     # 2. 记忆工具（分层认知记忆架构）
     try:
-        from src.agents.harness.tools.memory_tools import create_memory_tools
+        from src.agents.harness.tools.memory.memory_tools import create_memory_tools
 
         memory_tools = create_memory_tools()
         tools.extend(memory_tools)
@@ -311,12 +344,22 @@ def _get_default_tools() -> list:
 
     # 3. 知识库工具
     try:
-        from src.agents.harness.tools.knowledge_tools import (
+        from src.agents.harness.tools.knowledge.knowledge_tools import (
             read_kb_document,
             search_knowledge_base,
         )
 
         tools.extend([search_knowledge_base, read_kb_document])
+    except ImportError:
+        pass
+
+    # 4. Skill 加载工具 + 用户画像摘要工具 + 计划提案展示工具
+    try:
+        from src.agents.harness.tools.skill.skill_load_tool import skill_load_tool
+        from src.agents.harness.tools.user.summary_tools import get_user_summary_tool
+        from src.agents.harness.tools.plan.present_plan_tool import present_plan_tool
+
+        tools.extend([skill_load_tool, get_user_summary_tool, present_plan_tool])
     except ImportError:
         pass
 

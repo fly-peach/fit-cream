@@ -7,87 +7,16 @@ import {
 import { cn } from "@/lib/utils";
 import type { ToolCall } from "@/types/chat";
 import {
-  BrainIcon,
-  CalendarCheckIcon,
   CheckCircle2Icon,
   ChevronDownIcon,
-  ClipboardListIcon,
   CodeIcon,
-  DumbbellIcon,
-  FileTextIcon,
-  FlameIcon,
   Loader2Icon,
-  SaladIcon,
-  ScaleIcon,
-  SearchIcon,
-  SparklesIcon,
-  TrendingUpIcon,
-  UserIcon,
-  UtensilsIcon,
   WrenchIcon,
   XCircleIcon,
-  type LucideIcon,
 } from "lucide-react";
 
-/** 工具名 -> 中文展示名映射（含历史旧名，保证旧会话兼容） */
-const toolNameMap: Record<string, string> = {
-  checkin_tool: "训练打卡",
-  create_checkin_tool: "训练打卡",
-  get_streak_tool: "连续打卡",
-  query_checkins_tool: "打卡记录",
-  query_stats_tool: "训练统计",
-  list_plans_tool: "训练计划",
-  query_plan_tool: "训练计划",
-  create_plan_tool: "生成训练计划",
-  create_diet_plan_tool: "生成饮食计划",
-  adjust_plan_tool: "调整计划",
-  update_plan_tool: "调整计划",
-  get_user_profile_tool: "用户档案",
-  update_user_profile_tool: "更新档案",
-  query_body_tool: "身体数据",
-  record_meal_tool: "记录饮食",
-  query_diet_summary_tool: "饮食汇总",
-  manage_meal_tool: "管理饮食",
-  set_nutrition_goals_tool: "营养目标",
-  get_exercises_tool: "动作库",
-  search_knowledge_base: "知识库检索",
-  read_kb_document: "知识库文档",
-  recall_memory: "回忆记忆",
-  save_preference: "记录偏好",
-  save_user_fact: "记录信息",
-  list_user_profile: "用户画像",
-  save_event: "记录事件",
-};
-
-/** 工具名 -> 图标 */
-const toolIconMap: Record<string, LucideIcon> = {
-  checkin_tool: CalendarCheckIcon,
-  create_checkin_tool: CalendarCheckIcon,
-  get_streak_tool: FlameIcon,
-  query_checkins_tool: CalendarCheckIcon,
-  query_stats_tool: TrendingUpIcon,
-  list_plans_tool: ClipboardListIcon,
-  query_plan_tool: ClipboardListIcon,
-  create_plan_tool: ClipboardListIcon,
-  create_diet_plan_tool: SaladIcon,
-  adjust_plan_tool: ClipboardListIcon,
-  update_plan_tool: ClipboardListIcon,
-  get_user_profile_tool: UserIcon,
-  update_user_profile_tool: UserIcon,
-  query_body_tool: ScaleIcon,
-  record_meal_tool: UtensilsIcon,
-  query_diet_summary_tool: UtensilsIcon,
-  manage_meal_tool: UtensilsIcon,
-  set_nutrition_goals_tool: UtensilsIcon,
-  get_exercises_tool: DumbbellIcon,
-  search_knowledge_base: SearchIcon,
-  read_kb_document: FileTextIcon,
-  recall_memory: BrainIcon,
-  save_preference: SparklesIcon,
-  save_user_fact: SparklesIcon,
-  list_user_profile: BrainIcon,
-  save_event: SparklesIcon,
-};
+/** 工具名 -> 中文展示名 / 图标映射（与 chat.tsx 步骤节点共用，独立模块避免 react-refresh 告警） */
+import { toolIconMap, toolNameMap } from "@/components/tool-meta";
 
 /** 图标底色（emerald 系内做细微变化，保持整体调性一致） */
 const iconTintMap: Record<string, string> = {
@@ -109,6 +38,8 @@ const iconTintMap: Record<string, string> = {
   save_user_fact: "from-emerald-400 to-teal-500",
   list_user_profile: "from-emerald-400 to-teal-500",
   save_event: "from-emerald-400 to-teal-500",
+  skill_load_tool: "from-teal-500 to-cyan-600",
+  get_user_summary_tool: "from-emerald-400 to-teal-500",
 };
 
 /** 常见输出字段的中文标签 */
@@ -474,8 +405,11 @@ function RawData({ tc }: { tc: ToolCall }) {
  * - 正文：结构化、中文化的结果渲染（键值对 / 分组 / 列表），不直接暴露字典
  * - 内容较多时默认折叠为 expander，点开头部展开
  * - 原始入参 / 返回字典收进「原始数据」二级折叠，默认隐藏
+ *
+ * embedded 模式：嵌入 ChainOfThought 步骤节点时使用，仅渲染结果正文
+ *（无卡片外壳与头部，节点标题/图标/状态由外层步骤承载，避免重复）。
  */
-export function ToolCallCard({ tc }: { tc: ToolCall }) {
+export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?: boolean }) {
   const { obj, text } = useMemo(() => parseOutput(tc.output), [tc.output]);
 
   const running = tc.status === "running";
@@ -502,6 +436,42 @@ export function ToolCallCard({ tc }: { tc: ToolCall }) {
   const errorMsg = failed
     ? tc.error || (obj && String(obj.error || "")) || "执行失败"
     : "";
+
+  if (embedded) {
+    if (!hasBody) return null;
+    return (
+      <div className="not-prose w-full space-y-2">
+        {failed && errorMsg && (
+          <div className="flex items-start gap-2 rounded-md bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700 ring-1 ring-red-200/60">
+            <XCircleIcon className="mt-0.5 size-3.5 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+        {large && !failed ? (
+          <Collapsible open={open} onOpenChange={setOpen}>
+            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-emerald-600/70 transition-colors hover:text-emerald-700">
+              {open ? "收起详情" : "查看详情"}
+              <ChevronDownIcon
+                className={cn("size-3 transition-transform duration-200", open && "rotate-180")}
+              />
+            </CollapsibleTrigger>
+            {open && (
+              <CollapsibleContent className="pt-1.5">
+                {obj && <ReadableFields data={obj} />}
+                {text && <TextBlock label="结果" value={text} />}
+              </CollapsibleContent>
+            )}
+          </Collapsible>
+        ) : (
+          <>
+            {obj && <ReadableFields data={obj} />}
+            {text && <TextBlock label="结果" value={text} />}
+          </>
+        )}
+        <RawData tc={tc} />
+      </div>
+    );
+  }
 
   const header = (
     <div className="flex w-full items-center gap-3 px-3 py-2.5 text-left">

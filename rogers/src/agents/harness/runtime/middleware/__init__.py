@@ -7,6 +7,7 @@ FitCream Agent Middleware
 - Token 追踪：追踪和限制 Token 使用量
 - 对话持久化：将对话保存到 Conversation 表
 - 意图识别：渐进式提示词注入（IntentMiddleware）
+- 技能管理：catalog 烘焙进 system_prompt（SkillsMiddleware，纯占位）
 
 使用方式：
     from src.agents.harness.runtime.middleware import create_agent_middleware
@@ -29,6 +30,7 @@ from src.agents.harness.runtime.middleware.intent_middleware import (
     IntentMiddleware,
     detect_intent,
 )
+from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
 
 __all__ = [
     "AgentLoggingMiddleware",
@@ -39,4 +41,5 @@ __all__ = [
     "create_agent_middleware",
     "IntentMiddleware",
     "detect_intent",
+    "SkillsMiddleware",
 ]

@@ -40,7 +40,7 @@ from src.agents.harness.runtime.memory.embeddings import (
 from src.agents.harness.runtime.memory.store import MemoryStore, get_memory_store
 from src.agents.harness.runtime.memory.extractor import MemoryExtractor, ExtractionResult
 from src.agents.harness.runtime.memory.pipeline import MemoryPipeline
-from src.agents.harness.tools.memory_tools import create_memory_tools
+from src.agents.harness.tools.memory.memory_tools import create_memory_tools
 
 __all__ = [
     # Embeddings

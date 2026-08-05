@@ -10,12 +10,6 @@ from src.agents.harness.orchestration.prompts.system import (
     INTENT_PROMPTS,
     INTENT_KEYWORDS,
     build_system_prompt,
-    IDENTITY_SECTION,
-    CAPABILITIES_SECTION,
-    CORE_RULES_SECTION,
-    OUTPUT_FORMAT_SECTION,
-    CONSTRAINTS_SECTION,
-    EXAMPLES_SECTION,
 )
 
 __all__ = [
@@ -24,10 +18,4 @@ __all__ = [
     "INTENT_PROMPTS",
     "INTENT_KEYWORDS",
     "build_system_prompt",
-    "IDENTITY_SECTION",
-    "CAPABILITIES_SECTION",
-    "CORE_RULES_SECTION",
-    "OUTPUT_FORMAT_SECTION",
-    "CONSTRAINTS_SECTION",
-    "EXAMPLES_SECTION",
 ]

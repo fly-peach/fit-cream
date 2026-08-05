@@ -19,6 +19,29 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import {
+  Plan,
+  PlanContent,
+  PlanDescription,
+  PlanHeader,
+  PlanTitle,
+  PlanTrigger,
+} from "@/components/ai-elements/plan";
+import {
+  Confirmation,
+  ConfirmationAccepted,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationRejected,
+  ConfirmationTitle,
+} from "@/components/ai-elements/confirmation";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+} from "@/components/ai-elements/chain-of-thought";
+import {
   Attachments,
   Attachment,
   AttachmentPreview,
@@ -54,6 +77,7 @@ import { AppLayout } from "@/components/app-layout";
 import { MemoryPanel } from "@/components/memory-panel";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { ToolCallCard } from "@/components/tool-call-card";
+import { toolIconMap, toolNameMap } from "@/components/tool-meta";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -67,8 +91,9 @@ import {
   BookOpenIcon,
   BrainIcon,
   LoaderCircleIcon,
+  WrenchIcon,
 } from "lucide-react";
-import type { AgentStep, ChatMessage, ToolCall } from "@/types/chat";
+import type { AgentStep, ChatMessage, ToolApproval, ToolCall } from "@/types/chat";
 
 /**
  * 清理模型回复中误以纯文本形式输出的工具调用标记。
@@ -146,7 +171,15 @@ function InterleavedReasoning({
   return <div className="space-y-2">{nodes}</div>;
 }
 
-function MessageItem({ message }: { message: ChatMessage }) {
+function MessageItem({
+  message,
+  pendingApproval,
+  onResume,
+}: {
+  message: ChatMessage;
+  pendingApproval?: { messageId: string } | null;
+  onResume?: (decisions: { type: "approve" | "reject"; reason?: string }[]) => void;
+}) {
   if (message.role === "user") {
     const hasImages = !!message.images && message.images.length > 0;
     const hasText = !!message.content && message.content !== "[图片消息]";
@@ -175,11 +208,23 @@ function MessageItem({ message }: { message: ChatMessage }) {
   const showLegacyReasoning = !hasSteps && (hasThinking || hasToolCalls);
   const isThinking = message.isStreaming && !message.content;
 
+  // present_plan_tool 步骤单独渲染为 Plan 卡片（不进思考时间线）
+  const planSteps = (message.steps || []).filter(
+    (s) => s.type === "tool" && s.tool === "present_plan_tool"
+  );
+  // 修改时预填的计划正文：取最近一个 present_plan_tool 的 content
+  const planContent = planSteps.length
+    ? ((planSteps[planSteps.length - 1].input || {}) as { content?: string }).content
+    : undefined;
+
+  const approvals = message.approvals || [];
+  const interactive = !!pendingApproval && pendingApproval.messageId === message.id && !!onResume;
+
   return (
     <Message from="assistant">
       <MessageContent>
-        {/* 新格式：直接平铺 ReAct 步骤流（思考段 + 工具卡交错，默认可见） */}
-        {hasSteps && <AgentTrace steps={message.steps!} />}
+        {/* 新格式：ChainOfThought 时间线平铺 ReAct 步骤流（思考段 + 工具步骤交错） */}
+        {hasSteps && <AgentTrace steps={message.steps!} isStreaming={message.isStreaming} />}
 
         {/* 旧格式降级：保持原折叠块 */}
         {showLegacyReasoning && (
@@ -193,6 +238,24 @@ function MessageItem({ message }: { message: ChatMessage }) {
             </ReasoningContent>
           </Reasoning>
         )}
+
+        {/* 计划提案卡片 */}
+        {planSteps.map((s, i) => (
+          <PlanCard key={`plan-${s.id || i}`} step={s} />
+        ))}
+
+        {/* HITL 审批卡片 */}
+        {approvals.map((a, i) => (
+          <ApprovalCard
+            key={`approval-${a.id || i}`}
+            approval={a}
+            interactive={interactive}
+            planContent={planContent}
+            onApprove={() => onResume?.([{ type: "approve" }])}
+            onReject={() => onResume?.([{ type: "reject" }])}
+            onEdit={(text) => onResume?.([{ type: "reject", reason: text }])}
+          />
+        ))}
 
         {cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
@@ -232,6 +295,17 @@ interface HistoryMessageRow {
     }>;
     images?: string[];
     steps?: AgentStep[];
+    approvals?: Array<{
+      id: string;
+      tool: string;
+      input: Record<string, unknown>;
+      description?: string;
+      allowed_decisions?: string[];
+      state: string;
+      approved?: boolean;
+      decision?: string;
+    }>;
+    approval_state?: string;
   } | null;
   created_at: string;
 }
@@ -279,6 +353,18 @@ function restoreMessage(m: HistoryMessageRow): ChatMessage {
       })) || undefined,
     images: m.metadata_json?.images,
     steps: m.metadata_json?.steps,
+    approvals: m.metadata_json?.approvals?.map((a) => ({
+      id: a.id,
+      tool: a.tool,
+      input: a.input || {},
+      description: a.description,
+      allowedDecisions: a.allowed_decisions || ["approve", "reject"],
+      state: (a.state === "output-available" || a.state === "output-denied" || a.state === "approval-responded"
+        ? a.state
+        : "approval-responded") as ToolApproval["state"],
+      approved: a.approved,
+      decision: a.decision as "approve" | "reject" | undefined,
+    })),
     createdAt: new Date(m.created_at).getTime(),
   };
 }
@@ -295,20 +381,180 @@ function toolCallFromStep(step: AgentStep): ToolCall {
   };
 }
 
-/** ReAct 步骤流：按顺序渲染 thought 浅色段落 + tool 卡片（默认可见，不折叠） */
-function AgentTrace({ steps }: { steps: AgentStep[] }) {
+/**
+ * ReAct 步骤流：ChainOfThought 时间线渲染（思考段 + 工具步骤交错）。
+ *
+ * - 默认展开；流式结束 1s 后自动折叠一次（历史消息保持展开）
+ * - thought 步骤：BrainIcon + 思考文本；流式中最新一段标记 active
+ * - tool 步骤：工具图标 + 中文名 + 运行态 spinner，结果正文以 embedded
+ *   ToolCallCard 嵌入步骤 children（无卡片外壳，避免与节点头部重复）
+ */
+function AgentTrace({ steps, isStreaming }: { steps: AgentStep[]; isStreaming?: boolean }) {
+  const [open, setOpen] = useState(true);
+  const prevStreamingRef = useRef(false);
+
+  useEffect(() => {
+    const was = prevStreamingRef.current;
+    prevStreamingRef.current = !!isStreaming;
+    if (was && !isStreaming) {
+      const timer = setTimeout(() => setOpen(false), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isStreaming]);
+
   return (
-    <div className="space-y-3">
-      {steps.map((step, i) =>
-        step.type === "tool" ? (
-          <ToolCallCard key={i} tc={toolCallFromStep(step)} />
-        ) : step.content ? (
-          <div key={i} className="rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-            {step.content}
-          </div>
-        ) : null
+    <ChainOfThought open={open} onOpenChange={setOpen}>
+      <ChainOfThoughtHeader>思考过程</ChainOfThoughtHeader>
+      <ChainOfThoughtContent>
+        {steps.map((step, i) => {
+          const isLast = i === steps.length - 1;
+          if (step.type === "tool") {
+            const tool = step.tool || "unknown";
+            // present_plan_tool 不在思考时间线里渲染，由消息体的 Plan 卡片单独展示
+            if (tool === "present_plan_tool") return null;
+            const running = step.status === "running";
+            const failed = step.status === "error";
+            return (
+              <ChainOfThoughtStep
+                key={step.id || i}
+                icon={toolIconMap[tool] ?? WrenchIcon}
+                label={
+                  <span className="inline-flex items-center gap-1.5">
+                    {toolNameMap[tool] ?? tool}
+                    {running && <LoaderCircleIcon className="size-3 animate-spin" />}
+                  </span>
+                }
+                status={running ? "active" : "complete"}
+                className={failed ? "text-red-600" : undefined}
+              >
+                <ToolCallCard tc={toolCallFromStep(step)} embedded />
+              </ChainOfThoughtStep>
+            );
+          }
+          if (!step.content) return null;
+          return (
+            <ChainOfThoughtStep
+              key={i}
+              icon={BrainIcon}
+              label={<span className="whitespace-pre-wrap">{step.content}</span>}
+              status={isStreaming && isLast ? "active" : "complete"}
+            />
+          );
+        })}
+      </ChainOfThoughtContent>
+    </ChainOfThought>
+  );
+}
+
+/**
+ * 计划提案卡片：把 present_plan_tool 步骤渲染为可折叠 Plan 卡片。
+ * title/description/content 取自工具入参；running 时标题/摘要 shimmer。
+ */
+function PlanCard({ step }: { step: AgentStep }) {
+  const input = (step.input || {}) as {
+    title?: string;
+    description?: string;
+    content?: string;
+  };
+  const streaming = step.status === "running";
+  return (
+    <Plan isStreaming={streaming} defaultOpen>
+      <PlanHeader>
+        <div className="flex flex-col gap-0.5">
+          <PlanTitle>{input.title || "计划提案"}</PlanTitle>
+          {input.description ? <PlanDescription>{input.description}</PlanDescription> : null}
+        </div>
+        <PlanTrigger />
+      </PlanHeader>
+      <PlanContent>
+        <MessageResponse>{input.content || ""}</MessageResponse>
+      </PlanContent>
+    </Plan>
+  );
+}
+
+/**
+ * HITL 审批卡片：用 Confirmation 组件呈现审批请求与结果。
+ * - approval-requested 且 interactive（当前待审批消息）：显示批准/拒绝/修改按钮
+ * - 已响应态：ConfirmationAccepted/Rejected 展示结果（历史消息只读，无按钮）
+ * - 修改：textarea 预填计划正文，提交即 reject + 修订稿，agent 重新提案
+ */
+function ApprovalCard({
+  approval,
+  interactive,
+  planContent,
+  onApprove,
+  onReject,
+  onEdit,
+}: {
+  approval: ToolApproval;
+  interactive: boolean;
+  planContent?: string;
+  onApprove: () => void;
+  onReject: () => void;
+  onEdit: (text: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState("");
+  const state = approval.state as
+    | "approval-requested"
+    | "approval-responded"
+    | "output-available"
+    | "output-denied";
+  const toolName = toolNameMap[approval.tool] ?? approval.tool;
+  const showActions = interactive && state === "approval-requested" && !editing;
+
+  const startEdit = () => {
+    setEditText(planContent || "");
+    setEditing(true);
+  };
+  const submitEdit = () => {
+    const text = editText.trim();
+    if (!text) return;
+    onEdit(text);
+    setEditing(false);
+  };
+
+  return (
+    <Confirmation
+      approval={{ id: approval.id, approved: approval.approved }}
+      state={state}
+      className="border-emerald-200 bg-emerald-50/40"
+    >
+      <ConfirmationTitle>
+        {state === "approval-requested" ? `需要确认：${toolName}` : toolName}
+      </ConfirmationTitle>
+      {showActions && (
+        <ConfirmationActions>
+          <ConfirmationAction onClick={onApprove}>批准</ConfirmationAction>
+          <ConfirmationAction variant="outline" onClick={onReject}>
+            拒绝
+          </ConfirmationAction>
+          <ConfirmationAction variant="outline" onClick={startEdit}>
+            修改
+          </ConfirmationAction>
+        </ConfirmationActions>
       )}
-    </div>
+      {interactive && state === "approval-requested" && editing && (
+        <div className="space-y-2">
+          <Textarea
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            rows={6}
+            placeholder="修改后的计划方案…"
+            className="bg-white text-sm"
+          />
+          <ConfirmationActions>
+            <ConfirmationAction onClick={submitEdit}>提交修改</ConfirmationAction>
+            <ConfirmationAction variant="outline" onClick={() => setEditing(false)}>
+              取消
+            </ConfirmationAction>
+          </ConfirmationActions>
+        </div>
+      )}
+      <ConfirmationAccepted>已批准</ConfirmationAccepted>
+      <ConfirmationRejected>已拒绝</ConfirmationRejected>
+    </Confirmation>
   );
 }
 
@@ -519,7 +765,7 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { threads, loadThreads, deleteThread, renameThread } = useThreads();
-  const { messages, sendMessage, stop, clearMessages, isStreaming, setMessages, usage, seedUsage } =
+  const { messages, sendMessage, stop, resume, clearMessages, isStreaming, setMessages, usage, seedUsage, pendingApproval } =
     useChatSSE(currentThreadId, loadThreads);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -879,7 +1125,12 @@ export default function ChatPage() {
               </div>
             )}
             {messages.map((msg) => (
-              <MessageItem key={msg.id} message={msg} />
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                pendingApproval={pendingApproval}
+                onResume={resume}
+              />
             ))}
             <div ref={bottomRef} />
           </ConversationContent>

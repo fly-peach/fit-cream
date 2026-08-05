@@ -10,6 +10,7 @@ export type SSEEventType =
   | "tool_start"
   | "tool_result"
   | "step"
+  | "approval_needed"
   | "usage"
   | "done"
   | "stopped"
@@ -65,6 +66,33 @@ export interface AgentStep {
   delta?: string;
 }
 
+/** HITL 审批状态（对齐 AI SDK ToolUIPart["state"]） */
+export type ApprovalState =
+  | "approval-requested"
+  | "approval-responded"
+  | "output-available"
+  | "output-denied";
+
+/** 单个待审批的工具操作（HITL） */
+export interface ToolApproval {
+  /** 中断 id（后端 Interrupt.id） */
+  id: string;
+  /** 工具名，如 create_plan_tool */
+  tool: string;
+  /** 工具入参 */
+  input: Record<string, unknown>;
+  /** 审批请求描述 */
+  description?: string;
+  /** 允许的决策类型 */
+  allowedDecisions: string[];
+  /** 审批状态 */
+  state: ApprovalState;
+  /** 是否批准（state 进入 responded/output 后填充） */
+  approved?: boolean;
+  /** 用户决策类型 */
+  decision?: "approve" | "reject";
+}
+
 /** 聊天消息 */
 export interface ChatMessage {
   id: string;
@@ -76,6 +104,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   /** ReAct 步骤流（新格式优先；历史消息缺失时回退 thinking/toolCalls 旧格式） */
   steps?: AgentStep[];
+  /** HITL 审批请求列表（present_plan_tool 提案 + create_plan_tool 中断） */
+  approvals?: ToolApproval[];
   createdAt: number;
   isStreaming?: boolean;
 }

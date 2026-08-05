@@ -39,7 +39,7 @@
 
 ### 记忆工具
 
-由 `harness/memory/tools.py` 定义，共 5 个工具：
+由 `harness/tools/memory/memory_tools.py` 定义，共 5 个工具：
 
 | 工具 | 功能 | 底层方法 |
 |------|------|----------|
@@ -51,7 +51,7 @@
 
 ### 知识库工具
 
-由 `harness/tools/knowledge_tools.py` 定义，共 2 个工具：
+由 `harness/tools/knowledge/knowledge_tools.py` 定义，共 2 个工具：
 
 | 工具 | 功能 | 调用的 Service |
 |------|------|---------------|

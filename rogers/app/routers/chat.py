@@ -118,9 +118,323 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+# ============================================================
+# HITL（Human-in-the-Loop）中断检测与审批载荷
+# ============================================================
+
+def _extract_pending_approvals(state_snapshot) -> list[dict]:
+    """从 agent state snapshot 提取待审批的 HITL 中断，转为前端 approval_needed 载荷。
+
+    遍历 ``state.tasks[*].interrupts``，每个中断的 ``value`` 是 HITLRequest：
+    ``{"action_requests": [...], "review_configs": [...]}``（同序对齐）。
+
+    Returns:
+        ``[{id, tool, input, description, allowed_decisions}, ...]``
+    """
+    approvals: list[dict] = []
+    if state_snapshot is None:
+        return approvals
+
+    tasks = getattr(state_snapshot, "tasks", ()) or ()
+    for task in tasks:
+        interrupts = getattr(task, "interrupts", ()) or ()
+        for intr in interrupts:
+            value = getattr(intr, "value", None) or {}
+            if not isinstance(value, dict):
+                continue
+            action_requests = value.get("action_requests", []) or []
+            review_configs = value.get("review_configs", []) or []
+            intr_id = getattr(intr, "id", None) or getattr(task, "id", "")
+            for idx, ar in enumerate(action_requests):
+                rc = review_configs[idx] if idx < len(review_configs) else {}
+                approvals.append({
+                    "id": str(intr_id),
+                    "tool": ar.get("name", ""),
+                    "input": ar.get("args", {}) or {},
+                    "description": ar.get("description", ""),
+                    "allowed_decisions": rc.get("allowed_decisions") or ["approve", "reject"],
+                })
+    return approvals
+
+
+async def _detect_interrupts(agent, config) -> list[dict]:
+    """流结束后检查 agent state 是否有待审批中断，返回 approval 载荷（空表表示无中断）。"""
+    try:
+        state = await agent.aget_state(config)
+    except Exception as e:
+        logger.warning(f"[Chat] aget_state failed: {e}")
+        return []
+    return _extract_pending_approvals(state)
+
+
 class StopRequest(BaseModel):
     """停止生成请求"""
     thread_id: str
+
+
+class ResumeDecision(BaseModel):
+    """单个审批决策。
+
+    - type=approve：批准执行
+    - type=reject：拒绝；reason 为修改说明/修订稿时，后端作为 reject 消息注入，
+      引导 agent 按修订稿重新提案并再次中断（edit 语义）
+    """
+    type: str  # "approve" | "reject"
+    reason: Optional[str] = None
+
+
+class ResumeRequest(BaseModel):
+    """恢复被中断对话的请求"""
+    thread_id: str
+    decisions: list[ResumeDecision]
+
+
+def _build_resume_command(decisions: list[ResumeDecision]):
+    """把前端 decisions 转为 LangGraph Command(resume=...)。
+
+    reject 的 reason 映射为 RejectDecision.message（注入给模型的拒绝说明）。
+    """
+    from langgraph.types import Command
+
+    lc_decisions: list[dict] = []
+    for d in decisions:
+        if d.type == "approve":
+            lc_decisions.append({"type": "approve"})
+        elif d.type == "reject":
+            if d.reason:
+                lc_decisions.append({
+                    "type": "reject",
+                    "message": f"用户修改了方案，请按以下内容重新设计并再次提交提案：\n{d.reason}",
+                })
+            else:
+                lc_decisions.append({"type": "reject"})
+        else:
+            lc_decisions.append({"type": d.type})
+
+    return Command(resume={"decisions": lc_decisions})
+
+
+async def _run_agent_sse(
+    agent,
+    config: dict,
+    input_or_command,
+    *,
+    thread_id: str,
+    user_id,
+    user,
+    stop_event: "asyncio.Event",
+    stream_db: AsyncSession,
+    is_resume: bool = False,
+):
+    """共享 SSE 流式生成器：逐 token 转发 Agent 回复 + 中断检测 + 落库。
+
+    被 /chat/message（普通消息）与 /chat/resume（恢复中断）复用。
+    input_or_command 为 dict（新消息）或 Command(resume=...)（恢复）。
+
+    yields SSE 事件字符串。
+    """
+    yield _sse_event("start", {"thread_id": thread_id})
+
+    full_content = ""        # 累积正式回复文本（本阶段）
+    full_thinking = ""       # 累积思考内容
+    tool_calls = []          # 完整工具调用记录 [{id, name, input, output, status}]
+    steps: list[dict] = []   # ReAct 步骤序列
+    pending_thought: Optional[dict] = None
+    _current_tool: Optional[dict] = None
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    run_usage: dict[str, dict[str, int]] = {}
+
+    try:
+        async for event in agent.astream_events(input_or_command, config=config, version="v2"):
+            if stop_event.is_set():
+                if full_content or full_thinking:
+                    await ConversationService.save_message(
+                        stream_db, user.id, thread_id, "assistant", full_content,
+                        metadata={
+                            "thinking": full_thinking or None,
+                            "tool_calls": tool_calls or None,
+                            "steps": steps or None,
+                            "stopped": True,
+                        },
+                    )
+                yield _sse_event("stopped", {"thread_id": thread_id, "partial_content": full_content})
+                return
+
+            kind = event["event"]
+
+            if kind == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                reasoning = chunk.additional_kwargs.get("reasoning_content", "")
+                if reasoning:
+                    if pending_thought is None:
+                        pending_thought = {"type": "thought", "content": ""}
+                        steps.append(pending_thought)
+                    pending_thought["content"] += reasoning
+                    full_thinking += reasoning
+                    yield _sse_event("thinking", {"content": reasoning})
+                    yield _sse_event("step", {"type": "thought", "delta": reasoning})
+                if chunk.content:
+                    full_content += chunk.content
+                    yield _sse_event("token", {"content": chunk.content})
+                chunk_usage = getattr(chunk, "usage_metadata", None) or {}
+                if chunk_usage:
+                    cur = run_usage.setdefault(
+                        event.get("run_id", "_"),
+                        {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                    )
+                    cur["input_tokens"] = max(cur["input_tokens"], chunk_usage.get("input_tokens", 0) or 0)
+                    cur["output_tokens"] = max(cur["output_tokens"], chunk_usage.get("output_tokens", 0) or 0)
+                    cur["total_tokens"] = max(cur["total_tokens"], chunk_usage.get("total_tokens", 0) or 0)
+
+            elif kind == "on_chat_model_end":
+                run_id = event.get("run_id", "_")
+                output = event.get("data", {}).get("output")
+                end_usage = getattr(output, "usage_metadata", None) if output else None
+                stream_usage = run_usage.pop(run_id, None)
+                final = end_usage or stream_usage
+                if final:
+                    usage["input_tokens"] += final.get("input_tokens", 0) or 0
+                    usage["output_tokens"] += final.get("output_tokens", 0) or 0
+                    usage["total_tokens"] += final.get("total_tokens", 0) or 0
+                pending_thought = None
+
+            elif kind == "on_tool_start":
+                tool_name = event["name"]
+                run_id = event.get("run_id", str(len(tool_calls)))
+                raw_input = event.get("data", {}).get("input")
+                try:
+                    json.dumps(raw_input, ensure_ascii=False)
+                    tool_input = raw_input
+                except (TypeError, ValueError):
+                    tool_input = {"raw": str(raw_input)} if raw_input else {}
+                tool_step = {
+                    "type": "tool",
+                    "id": run_id,
+                    "name": tool_name,
+                    "tool": tool_name,
+                    "input": tool_input or {},
+                    "output": None,
+                    "status": "running",
+                }
+                steps.append(tool_step)
+                _current_tool = tool_step
+                tool_calls.append(tool_step)
+                yield _sse_event("step", {
+                    "type": "tool",
+                    "id": run_id,
+                    "tool": tool_name,
+                    "input": tool_input or {},
+                })
+                yield _sse_event("tool_start", {
+                    "id": run_id,
+                    "tool": tool_name,
+                    "input": tool_input or {},
+                })
+
+            elif kind == "on_tool_end":
+                raw_output = event["data"].get("output", "")
+                if isinstance(raw_output, str):
+                    output_str = raw_output
+                else:
+                    try:
+                        output_str = json.dumps(raw_output, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        output_str = str(raw_output)
+                tool_id = None
+                if _current_tool is not None:
+                    tool_id = _current_tool["id"]
+                    _current_tool["output"] = output_str[:2000]
+                    _current_tool["status"] = "completed"
+                    yield _sse_event("step", {
+                        "type": "tool_result",
+                        "id": tool_id,
+                        "tool": event["name"],
+                        "data": output_str[:2000],
+                    })
+                    _current_tool = None
+                yield _sse_event("tool_result", {
+                    "id": tool_id,
+                    "tool": event["name"],
+                    "data": output_str[:2000],
+                })
+
+        # ---- 流结束：检测 HITL 中断 ----
+        approvals = await _detect_interrupts(agent, config)
+
+        if approvals:
+            # 中断：保存当前阶段的 assistant 消息（含审批请求状态），等待 /chat/resume
+            if full_content or full_thinking or tool_calls:
+                await ConversationService.save_message(
+                    stream_db, user.id, thread_id, "assistant", full_content,
+                    metadata={
+                        "thinking": full_thinking or None,
+                        "tool_calls": tool_calls or None,
+                        "steps": steps or None,
+                        "approvals": approvals or None,
+                        "approval_state": "approval-requested",
+                    },
+                )
+            yield _sse_event("approval_needed", {
+                "thread_id": thread_id,
+                "action_requests": approvals,
+            })
+            # 中断态下不发 done（流程未结束），但发 usage 供上下文统计
+            if not usage["total_tokens"]:
+                usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+            if usage["total_tokens"] > 0:
+                yield _sse_event("usage", usage)
+                await _upsert_thread_usage(stream_db, user.id, thread_id, usage)
+            return
+
+        # ---- 无中断：正常结束，落库 assistant 消息 ----
+        if full_content or full_thinking:
+            await ConversationService.save_message(
+                stream_db, user.id, thread_id, "assistant", full_content,
+                metadata={
+                    "thinking": full_thinking or None,
+                    "tool_calls": tool_calls or None,
+                    "steps": steps or None,
+                    # resume 阶段结束：记录审批已解决（前端据 decisions 已知结果）
+                    "approvals": None,
+                    "approval_state": "approval-responded" if is_resume else None,
+                },
+            )
+
+        if not usage["total_tokens"]:
+            usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
+        if usage["total_tokens"] > 0:
+            await _upsert_thread_usage(stream_db, user.id, thread_id, usage)
+
+        yield _sse_event("usage", usage)
+        yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
+
+    except Exception as e:
+        logger.error(f"[Chat] SSE error: {e}", exc_info=True)
+        yield _sse_event("error", {"message": str(e)})
+
+
+async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str, usage: dict) -> None:
+    """累加 thread_usage（流式独立 session 内）。"""
+    try:
+        existing = (await stream_db.execute(
+            select(ThreadUsage).where(ThreadUsage.thread_id == thread_id)
+        )).scalar_one_or_none()
+        if existing:
+            existing.total_tokens += usage["total_tokens"]
+            existing.input_tokens += usage["input_tokens"]
+            existing.output_tokens += usage["output_tokens"]
+        else:
+            stream_db.add(ThreadUsage(
+                user_id=user_id,
+                thread_id=thread_id,
+                total_tokens=usage["total_tokens"],
+                input_tokens=usage["input_tokens"],
+                output_tokens=usage["output_tokens"],
+            ))
+        await stream_db.commit()
+    except Exception as e:
+        logger.warning(f"[Chat] Failed to upsert thread_usage: {e}")
+
 
 @router.post("/message")
 async def send_message(
@@ -140,6 +454,7 @@ async def send_message(
     - token: 正式回复 token
     - tool_start: Tool 调用开始
     - tool_result: Tool 调用结果
+    - approval_needed: HITL 中断，前端弹出审批卡片（含 action_requests）
     - done: 对话结束
     - stopped: 用户手动停止
     - error: 错误
@@ -193,188 +508,15 @@ async def send_message(
     _active_streams[thread_id] = stop_event
 
     async def event_stream():
-        """SSE 流式生成器：逐 token 转发 Agent 回复"""
-        yield _sse_event("start", {"thread_id": thread_id})
-
-        full_content = ""       # 累积正式回复文本
-        full_thinking = ""     # 累积思考内容（reasoning_content）
-        tool_calls = []         # 完整工具调用记录 [{id, name, input, output, status}]
-        steps: list[dict] = []  # ReAct 步骤序列 [{type: thought|tool|tool_result, ...}]
-        pending_thought: Optional[dict] = None  # 当前流式累积的 thought 步骤（分轮封存）
-        _current_tool: Optional[dict] = None
-        # Token 使用量追踪：按 LLM 调用（run_id）聚合后累加。
-        # ReAct 多轮会触发多次 on_chat_model_end，旧实现用 max() 只保留最大那次调用会少计 token。
-        usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-        # 单次调用内 usage（流式 chunk 单调递增取最终值），调用结束累加到 usage
-        run_usage: dict[str, dict[str, int]] = {}
-
-        # 使用独立 session，避免请求级 session 在流式响应期间被关闭
+        """SSE 流式生成器：委托共享 runner（含 HITL 中断检测与落库）"""
         async with async_session_factory() as stream_db:
             try:
-                async for event in agent.astream_events(input_msg, config=config, version="v2"):
-                    # 检查是否需要停止
-                    if stop_event.is_set():
-                        if full_content or full_thinking:
-                            await ConversationService.save_message(
-                                stream_db, user.id, thread_id, "assistant", full_content,
-                            metadata={
-                                "thinking": full_thinking or None,
-                                "tool_calls": tool_calls or None,
-                                "steps": steps or None,
-                                "stopped": True,
-                            },
-                            )
-                        yield _sse_event("stopped", {"thread_id": thread_id, "partial_content": full_content})
-                        return
-
-                    kind = event["event"]
-
-                    if kind == "on_chat_model_stream":
-                        chunk = event["data"]["chunk"]
-                        reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-                        if reasoning:
-                            # 新一轮思考 = 新建独立 thought 步骤，与上一轮工具步骤按序交替
-                            if pending_thought is None:
-                                pending_thought = {"type": "thought", "content": ""}
-                                steps.append(pending_thought)
-                            pending_thought["content"] += reasoning
-                            full_thinking += reasoning
-                            yield _sse_event("thinking", {"content": reasoning})
-                            yield _sse_event("step", {"type": "thought", "delta": reasoning})
-                        if chunk.content:
-                            full_content += chunk.content
-                            yield _sse_event("token", {"content": chunk.content})
-                        # 单次调用内 usage（流式 chunk 单调递增，取最终值，按 run_id 隔离）
-                        chunk_usage = getattr(chunk, "usage_metadata", None) or {}
-                        if chunk_usage:
-                            cur = run_usage.setdefault(
-                                event.get("run_id", "_"),
-                                {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
-                            )
-                            cur["input_tokens"] = max(cur["input_tokens"], chunk_usage.get("input_tokens", 0) or 0)
-                            cur["output_tokens"] = max(cur["output_tokens"], chunk_usage.get("output_tokens", 0) or 0)
-                            cur["total_tokens"] = max(cur["total_tokens"], chunk_usage.get("total_tokens", 0) or 0)
-
-                    elif kind == "on_chat_model_end":
-                        # 每次调用结束累加到总量：优先 end 的最终 usage，回退 stream 累积值
-                        run_id = event.get("run_id", "_")
-                        output = event.get("data", {}).get("output")
-                        end_usage = getattr(output, "usage_metadata", None) if output else None
-                        stream_usage = run_usage.pop(run_id, None)
-                        final = end_usage or stream_usage
-                        if final:
-                            usage["input_tokens"] += final.get("input_tokens", 0) or 0
-                            usage["output_tokens"] += final.get("output_tokens", 0) or 0
-                            usage["total_tokens"] += final.get("total_tokens", 0) or 0
-                        # 封存本轮思考步骤：下一轮 on_chat_model_stream 的 reasoning 会新建 thought 步骤
-                        pending_thought = None
-
-                    elif kind == "on_tool_start":
-                        tool_name = event["name"]
-                        run_id = event.get("run_id", str(len(tool_calls)))
-                        # 透传工具入参，便于前端展示真实参数
-                        raw_input = event.get("data", {}).get("input")
-                        try:
-                            json.dumps(raw_input, ensure_ascii=False)
-                            tool_input = raw_input
-                        except (TypeError, ValueError):
-                            tool_input = {"raw": str(raw_input)} if raw_input else {}
-                        # 工具作为独立 ReAct 步骤入列（保留 name 字段兼容旧 tool_calls 格式）
-                        tool_step = {
-                            "type": "tool",
-                            "id": run_id,
-                            "name": tool_name,
-                            "tool": tool_name,
-                            "input": tool_input or {},
-                            "output": None,
-                            "status": "running",
-                        }
-                        steps.append(tool_step)
-                        _current_tool = tool_step
-                        tool_calls.append(tool_step)
-                        yield _sse_event("step", {
-                            "type": "tool",
-                            "id": run_id,
-                            "tool": tool_name,
-                            "input": tool_input or {},
-                        })
-                        yield _sse_event("tool_start", {
-                            "id": run_id,
-                            "tool": tool_name,
-                            "input": tool_input or {},
-                        })
-
-                    elif kind == "on_tool_end":
-                        raw_output = event["data"].get("output", "")
-                        if isinstance(raw_output, str):
-                            output_str = raw_output
-                        else:
-                            try:
-                                output_str = json.dumps(raw_output, ensure_ascii=False)
-                            except (TypeError, ValueError):
-                                output_str = str(raw_output)
-                        # 更新当前工具调用状态，并记录其 id 以便前端精确匹配
-                        tool_id = None
-                        if _current_tool is not None:
-                            tool_id = _current_tool["id"]
-                            _current_tool["output"] = output_str[:2000]
-                            _current_tool["status"] = "completed"
-                            yield _sse_event("step", {
-                                "type": "tool_result",
-                                "id": tool_id,
-                                "tool": event["name"],
-                                "data": output_str[:2000],
-                            })
-                            _current_tool = None
-                        yield _sse_event("tool_result", {
-                            "id": tool_id,
-                            "tool": event["name"],
-                            "data": output_str[:2000],
-                        })
-
-                if full_content or full_thinking:
-                    await ConversationService.save_message(
-                        stream_db, user.id, thread_id, "assistant", full_content,
-                        metadata={
-                            "thinking": full_thinking or None,
-                            "tool_calls": tool_calls or None,
-                            "steps": steps or None,
-                        },
-                    )
-
-                # 若 total 缺失则用 input+output 兜底
-                if not usage["total_tokens"]:
-                    usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
-
-                # Upsert thread_usage 到数据库（累加模式，记录对话总 token 消耗）
-                if usage["total_tokens"] > 0:
-                    try:
-                        from sqlalchemy import select as sa_select
-                        existing = (await stream_db.execute(
-                            sa_select(ThreadUsage).where(ThreadUsage.thread_id == thread_id)
-                        )).scalar_one_or_none()
-                        if existing:
-                            existing.total_tokens += usage["total_tokens"]
-                            existing.input_tokens += usage["input_tokens"]
-                            existing.output_tokens += usage["output_tokens"]
-                        else:
-                            stream_db.add(ThreadUsage(
-                                user_id=user.id,
-                                thread_id=thread_id,
-                                total_tokens=usage["total_tokens"],
-                                input_tokens=usage["input_tokens"],
-                                output_tokens=usage["output_tokens"],
-                            ))
-                        await stream_db.commit()
-                    except Exception as e:
-                        logger.warning(f"[Chat] Failed to upsert thread_usage: {e}")
-
-                yield _sse_event("usage", usage)
-                yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
-
-            except Exception as e:
-                logger.error(f"[Chat] SSE error: {e}", exc_info=True)
-                yield _sse_event("error", {"message": str(e)})
+                async for sse in _run_agent_sse(
+                    agent, config, input_msg,
+                    thread_id=thread_id, user_id=user_id_str, user=user,
+                    stop_event=stop_event, stream_db=stream_db, is_resume=False,
+                ):
+                    yield sse
             finally:
                 _active_streams.pop(thread_id, None)
 
@@ -387,6 +529,67 @@ async def send_message(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/resume")
+async def resume_conversation(
+    req: ResumeRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    恢复被 HITL 中断的对话（用户对计划操作做了审批决策）。
+
+    入参 thread_id + decisions（approve/reject，reject 可带 reason 作为修订稿）。
+    复用同一 SSE 流式逻辑转发 token/tool 事件，结束后落库 assistant 消息。
+    若 reject 带修订稿，agent 会重新提案并可能再次中断（发新的 approval_needed）。
+
+    SSE 事件类型同 /chat/message，额外：
+    - approval_needed: 恢复后再次中断时（如 reject 后重新提案）
+    - done: 审批流程结束（approve 落库完成 / reject 终结）
+    """
+    thread_id = req.thread_id
+    user_id_str = str(user.id)
+
+    # 线程归属校验：必须是当前用户的线程
+    if await ConversationService.thread_is_foreign(db, user.id, thread_id):
+        raise ForbiddenException("无权访问该线程")
+
+    agent = _get_agent()
+    config = {
+        "configurable": {"thread_id": thread_id, "user_id": user_id_str},
+        "recursion_limit": 50,
+    }
+
+    # 构建 resume 命令（decisions 顺序须与 approval_needed 的 action_requests 对齐）
+    resume_command = _build_resume_command(req.decisions)
+
+    stop_event = asyncio.Event()
+    _active_streams[thread_id] = stop_event
+
+    async def event_stream():
+        """SSE 流式生成器：恢复中断并续流"""
+        async with async_session_factory() as stream_db:
+            try:
+                async for sse in _run_agent_sse(
+                    agent, config, resume_command,
+                    thread_id=thread_id, user_id=user_id_str, user=user,
+                    stop_event=stop_event, stream_db=stream_db, is_resume=True,
+                ):
+                    yield sse
+            finally:
+                _active_streams.pop(thread_id, None)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 @router.post("/stop", response_model=ResponseModel[None])
 async def stop_generation(

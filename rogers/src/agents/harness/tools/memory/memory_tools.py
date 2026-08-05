@@ -9,7 +9,7 @@
 - save_event: 记录重要事件
 
 用法：
-    from src.agents.harness.tools.memory_tools import create_memory_tools
+    from src.agents.harness.tools.memory.memory_tools import create_memory_tools
 
     tools = create_memory_tools()
     agent = create_react_agent(llm, tools=tools)
