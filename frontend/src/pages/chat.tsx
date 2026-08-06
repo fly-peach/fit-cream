@@ -1129,6 +1129,17 @@ export default function ChatPage() {
     loadThreadMessages(id);
   }, [sessionId, currentThreadId, setThreadId, loadThreadMessages]);
 
+  // 消息加载后触发 StickToBottom 重新测量高度（解决初始渲染空白问题）
+  useEffect(() => {
+    if (messages.length > 0) {
+      // 延迟触发 resize 事件，让 StickToBottom 的 ResizeObserver 重新测量
+      const timer = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length]);
+
   // 目标会话确定且 threads 列表加载完成（能拿到历史 totalTokens）后，seed usage 一次
   useEffect(() => {
     const id = sessionId ?? currentThreadId;
