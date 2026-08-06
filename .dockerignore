@@ -5,7 +5,7 @@
 node_modules
 frontend/node_modules
 frontend/dist
-rogers/static
+rogers/static/exercises
 rogers/__pycache__
 rogers/**/__pycache__
 __pycache__

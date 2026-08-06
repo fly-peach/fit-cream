@@ -1,21 +1,8 @@
 # ============================================================
-# Stage 1: Build frontend
-# ============================================================
-FROM node:22-slim AS frontend-builder
-
-WORKDIR /app/frontend
-
-# 配置 pnpm 镜像源，加速依赖安装
-RUN corepack enable && pnpm config set registry https://registry.npmmirror.com
-
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-COPY frontend/ ./
-RUN pnpm build
-
-# ============================================================
-# Stage 2: Backend + static files
+# Runtime: backend + 前端静态产物
+# 前端 dist 由部署脚本本地构建后上传到服务器构建上下文 rogers/static/，
+# 镜像不在服务器上构建前端（无 Node/pnpm 依赖）。exercises 为绑定挂载，
+# 由 .dockerignore 排除不进镜像。
 # ============================================================
 FROM python:3.12-slim AS runtime
 
@@ -36,10 +23,9 @@ ENV UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# 复制后端代码 + 前端 dist（rogers/static/assets 等，由部署脚本上传到构建上下文）
 COPY rogers/ ./rogers/
 COPY run.py build_web.py langgraph.json ./
-
-COPY --from=frontend-builder /app/frontend/dist ./rogers/static/
 
 ENV PYTHONPATH=/app/rogers \
     PYTHONUNBUFFERED=1 \
