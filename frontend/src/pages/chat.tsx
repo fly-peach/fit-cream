@@ -925,6 +925,7 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "memories">("chat");
+  const [conversationKey, setConversationKey] = useState(0);
   const [designPlanOpen, setDesignPlanOpen] = useState(false);
 
   // 最新一条助手消息 id：仅此消息上的表单卡可交互（提交后新消息追加即转只读）
@@ -1132,10 +1133,11 @@ export default function ChatPage() {
   // 消息加载后触发 StickToBottom 重新测量高度（解决初始渲染空白问题）
   useEffect(() => {
     if (messages.length > 0) {
-      // 延迟触发 resize 事件，让 StickToBottom 的 ResizeObserver 重新测量
+      // 延迟触发，让 DOM 更新后 StickToBottom 的 ResizeObserver 能正确测量
       const timer = setTimeout(() => {
-        window.dispatchEvent(new Event('resize'));
-      }, 100);
+        // 通过改变 Conversation 的 key 强制重新挂载，触发正确的初始测量
+        setConversationKey((k) => k + 1);
+      }, 50);
       return () => clearTimeout(timer);
     }
   }, [messages.length]);
@@ -1283,7 +1285,7 @@ export default function ChatPage() {
 
         {tab === "chat" ? (
           <>
-        <Conversation className="flex-1">
+        <Conversation key={conversationKey} className="flex-1">
           <ConversationContent>
             <OlderMessagesLoader
               hasMore={hasMore}
