@@ -202,7 +202,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     获取默认中间件列表（共享 graph 默认版本）。
 
     包含：意图识别、技能占位、日志、限流、Token 追踪、会话压缩、记忆更新。
-    不含对话持久化（仍由 per-user 的 create_agent_with_middleware 提供）。
+    不含对话持久化--对话消息由 SSE 流（chat.py _run_agent_sse）同步落库。
 
     Args:
         include_hitl: 是否启用 HumanInTheLoopMiddleware。仅在存在 checkpointer

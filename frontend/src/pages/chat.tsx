@@ -1158,7 +1158,7 @@ export default function ChatPage() {
     setThreadId(id);
     loadThreadMessages(id);
     setSidebarOpen(false);
-    // 真正切换到新会话时才用该会话历史累计值重置 usage（seedUsage 内部有切换守卫）
+    // 真正切换到新会话时才用该会话上次「上下文大小」重置 usage（seedUsage 内部有切换守卫）
     seedUsageForThread(id);
   };
 

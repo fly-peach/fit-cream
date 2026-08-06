@@ -149,7 +149,6 @@ Agent 编译时注入以下中间件：
 | `RateLimitMiddleware` | 单次对话 LLM/Tool 调用次数上限 + 同工具重复调用限制 |
 | `TokenUsageMiddleware` | Token 消耗追踪与统计 |
 | `SummarizationMiddleware` | 长对话自动压缩（100K token 触发，保留最近 10 条） |
-| `ConversationPersistenceMiddleware` | 对话持久化到数据库 |
 | `MemoryUpdateMiddleware` | 定期触发记忆提取（每 20K token） |
 | `DevAuthMiddleware` | 开发环境自动注入管理员身份（仅 LangGraph Studio） |
 

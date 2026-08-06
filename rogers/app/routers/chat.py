@@ -325,9 +325,13 @@ async def _run_agent_sse(
                 stream_usage = run_usage.pop(run_id, None)
                 final = end_usage or stream_usage
                 if final:
-                    usage["input_tokens"] += final.get("input_tokens", 0) or 0
-                    usage["output_tokens"] += final.get("output_tokens", 0) or 0
-                    usage["total_tokens"] += final.get("total_tokens", 0) or 0
+                    # 覆盖为「最近一次 LLM 调用」的用量（非累加）：
+                    # input_tokens = 当前上下文大小（系统提示+全部消息+工具定义），
+                    # 压缩（SummarizationMiddleware）后下一次调用的 input 回落，
+                    # 使前端进度条回到 100% 以内，而非累加消费越过 100% 不回。
+                    usage["input_tokens"] = final.get("input_tokens", 0) or 0
+                    usage["output_tokens"] = final.get("output_tokens", 0) or 0
+                    usage["total_tokens"] = final.get("total_tokens", 0) or 0
                 pending_thought = None
 
             elif kind == "on_tool_start":
@@ -446,15 +450,17 @@ async def _run_agent_sse(
 
 
 async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str, usage: dict) -> None:
-    """累加 thread_usage（流式独立 session 内）。"""
+    """覆盖 thread_usage 为「当前上下文大小」（最近一次调用用量），非累加消费：
+    压缩后值回落，使前端进度条回到 100% 以内。
+    """
     try:
         existing = (await stream_db.execute(
             select(ThreadUsage).where(ThreadUsage.thread_id == thread_id)
         )).scalar_one_or_none()
         if existing:
-            existing.total_tokens += usage["total_tokens"]
-            existing.input_tokens += usage["input_tokens"]
-            existing.output_tokens += usage["output_tokens"]
+            existing.total_tokens = usage["total_tokens"]
+            existing.input_tokens = usage["input_tokens"]
+            existing.output_tokens = usage["output_tokens"]
         else:
             stream_db.add(ThreadUsage(
                 user_id=user_id,
@@ -881,9 +887,12 @@ async def delete_thread(
 ):
     """删除指定线程的所有消息"""
     deleted = await ConversationService.delete_by_thread(db, user.id, thread_id)
-    # 同步清理线程元信息（标题），避免残留孤立记录
+    # 同步清理线程元信息与 token 用量，避免删除后残留孤立记录（幽灵 token）
     await db.execute(
         delete(ThreadMeta).where(ThreadMeta.thread_id == thread_id)
+    )
+    await db.execute(
+        delete(ThreadUsage).where(ThreadUsage.thread_id == thread_id)
     )
     await db.commit()
 
@@ -899,9 +908,12 @@ async def clear_history(
 ):
     """清空当前用户的所有对话历史"""
     deleted = await ConversationService.clear_by_user(db, user.id)
-    # 同步清理该用户所有线程元信息
+    # 同步清理该用户所有线程元信息与 token 用量，避免残留孤立记录（幽灵 token）
     await db.execute(
         delete(ThreadMeta).where(ThreadMeta.user_id == user.id)
+    )
+    await db.execute(
+        delete(ThreadUsage).where(ThreadUsage.user_id == user.id)
     )
     await db.commit()
 

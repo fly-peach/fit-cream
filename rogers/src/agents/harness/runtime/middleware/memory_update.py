@@ -11,7 +11,6 @@
 4. 重置计数器，等待下一次触发
 
 两种部署形态：
-- per-user 实例：__init__ 传入 user_id/thread_id（如 create_agent_with_middleware）
 - 共享 graph 单例：__init__ 留空，运行时从 RunnableConfig.configurable 解析
   user_id，thread_id 再回退到 runtime.execution_info。适配生产环境所有用户复用
   同一编译后 graph 的场景。

@@ -17,7 +17,7 @@ Notes for AI agents working in this repo.
   - Compile-check a file: `python -m py_compile rogers/src/.../file.py`.
   - Import-check (compiles the agent graph, validates middleware `state_schema`): from `rogers/` run `python -c "import src.agents.agent_graph as g; print(type(g.graph).__name__)"` with `PYTHONPATH=.`.
 - Start dev server: `uvicorn app.main:app --reload` from `rogers/` (or `langgraph dev` for the Studio graph).
-- Entry points: production chat via `app/routers/chat.py` -> `get_agent()` (`agent_graph.py`); `create_agent_with_middleware` (per-user middleware with MemoryUpdate/ConversationPersistence) is NOT used by chat.py.
+- Entry points: production chat via `app/routers/chat.py` -> `get_agent()` (`agent_graph.py`). 对话持久化由 SSE 流（chat.py `_run_agent_sse`）同步落库，不经中间件（历史 `ConversationPersistenceMiddleware` 已移除）。
 - Memory subsystem (`src/agents/harness/runtime/memory/`) uses its own `MemoryBase`, separate from the app `Base`, and is NOT under Alembic - tables/indexes are created via `MemoryStore.init_db()` (`create_all`). Schema changes need manual SQL or folding into Alembic.
 - Build frontend into backend: `python build_web.py` (runs `npm run build` in `frontend/`, copies `dist/` to `rogers/static/`).
 

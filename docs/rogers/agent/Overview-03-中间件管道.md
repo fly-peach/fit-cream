@@ -14,7 +14,8 @@
 | 6 | TokenUsageMiddleware | after_model | 追踪 Token 用量，超限警告 |
 | 7 | MemoryUpdateMiddleware | after_model | 达到阈值时触发记忆提取 |
 | 8 | SummarizationMiddleware | after_model | Token 超量时压缩对话历史 |
-| 9 | ConversationPersistenceMiddleware | after_agent | 异步持久化对话消息到数据库 |
+
+> 注：对话持久化不在此管道内，由 SSE 流（chat.py `_run_agent_sse`）同步落库到 `conversations` 表。
 
 ## 各中间件详情
 
@@ -91,12 +92,3 @@ Token 用量追踪中间件。无状态，每次 after_model 钩子中从最后�
 - 使用独立的 DashScope 实例（低温 `0.3` + 非流式 + 禁用思考）生成摘要
 - 摘要替换旧消息的位置
 - 保留最近 10 条原始消息以维持对话连贯性
-
-### ConversationPersistenceMiddleware
-
-对话消息持久化中间件。在 after_agent 钩子中异步将本轮对话消息写入 `conversations` 表：
-
-- 保存机制：`loop.create_task()` 非阻塞写入
-- 使用 `app.database.async_session_factory` 创建独立数据库会话
-- 记录字段：id (UUID4)、user_id、thread_id、role、content、metadata_json（含 tool_calls 列表）
-- 写入失败仅记录错误，不中断主流程

@@ -70,11 +70,13 @@ export function useChatSSE(
   );
 
   /** 累加 usage 到会话总量（sendMessage 与 resume 共用） */
-  const accumulateUsage = useCallback((u: TokenUsage) => {
+  // usage SSE 为「当前上下文大小」绝对值（最近一次 LLM 调用的 input≈上下文窗口占用），
+  // 非增量，故直接覆盖 usage：压缩后值回落，进度条回到 100% 以内。
+  const applyUsage = useCallback((u: TokenUsage) => {
     const next = {
-      input_tokens: usageRef.current.input_tokens + (u.input_tokens || 0),
-      output_tokens: usageRef.current.output_tokens + (u.output_tokens || 0),
-      total_tokens: usageRef.current.total_tokens + (u.total_tokens || 0),
+      input_tokens: u.input_tokens || 0,
+      output_tokens: u.output_tokens || 0,
+      total_tokens: u.total_tokens || 0,
     };
     usageRef.current = next;
     setUsage(next);
@@ -294,7 +296,7 @@ export function useChatSSE(
             }
 
             case "usage": {
-              accumulateUsage(event.data as unknown as TokenUsage);
+              applyUsage(event.data as unknown as TokenUsage);
               break;
             }
 
@@ -342,7 +344,7 @@ export function useChatSSE(
         abortRef.current = null;
       }
     },
-    [threadId, isStreaming, setThreadId, applyStreamDelta, buildApprovals, accumulateUsage]
+    [threadId, isStreaming, setThreadId, applyStreamDelta, buildApprovals, applyUsage]
   );
 
   const stop = useCallback(async () => {
@@ -444,7 +446,7 @@ export function useChatSSE(
             }
 
             case "usage":
-              accumulateUsage(event.data as unknown as TokenUsage);
+              applyUsage(event.data as unknown as TokenUsage);
               break;
 
             case "done":
@@ -503,7 +505,7 @@ export function useChatSSE(
         abortRef.current = null;
       }
     },
-    [isStreaming, applyStreamDelta, buildApprovals, accumulateUsage]
+    [isStreaming, applyStreamDelta, buildApprovals, applyUsage]
   );
 
   const clearMessages = useCallback(() => {
@@ -513,8 +515,8 @@ export function useChatSSE(
     setUsage(zero);
   }, []);
 
-  // 会话切换时用历史累计值（threads.totalTokens）seed usage；
-  // 若本页面已对该会话实时累计过（usageCache），优先用实时值，避免历史快照覆盖。
+  // 会话切换时用该会话上次「上下文大小」（threads.totalTokens，非累计消费）seed usage；
+  // 若本页面已对该会话实时设置过（usageCache），优先用实时值，避免历史快照覆盖。
   const seedUsage = useCallback((threadId: string | null, seed: TokenUsage) => {
     activeThreadIdRef.current = threadId;
     const cached = threadId ? usageCacheRef.current.get(threadId) : undefined;
