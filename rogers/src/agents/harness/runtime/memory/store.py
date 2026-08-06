@@ -90,6 +90,10 @@ class MemoryStore:
         # 每用户记忆容量上限（0 表示不限制）
         self.episodic_max = int(_get_setting("MEMORY_EPISODIC_MAX", "200"))
         self.procedural_max = int(_get_setting("MEMORY_PROCEDURAL_MAX", "50"))
+        # 语义记忆每分类（preference/fact/rule）上限，超出按 低置信度→最旧 裁剪
+        self.semantic_cap_each = int(_get_setting("MEMORY_SEMANTIC_MAX", "15"))
+        # 受上限约束的语义分类（status 为瞬时状态不裁剪）
+        self.semantic_capped_categories = ("preference", "fact", "rule")
         
         # 创建异步引擎（使用与主应用相同的连接池配置）
         pool_size = int(_get_setting("DB_POOL_SIZE", "10"))
@@ -193,6 +197,64 @@ class MemoryStore:
                     .values(source_episodic_id=None)
                 )
             await session.execute(delete(model).where(model.id.in_(ids)))
+            await session.commit()
+            return len(ids)
+
+    async def _trim_semantic_by_category(
+        self,
+        user_id: str,
+        category: str,
+        max_count: int,
+    ) -> int:
+        """
+        裁剪某分类的语义记忆到上限，删除多余的 active 记录。
+
+        删除优先级：低置信度 → 更新时间最旧 → 创建时间最旧。
+
+        Args:
+            user_id: 用户 ID
+            category: 语义分类（preference/fact/rule）
+            max_count: 上限条数（0 表示不限制）
+
+        Returns:
+            删除条数
+        """
+        if max_count <= 0:
+            return 0
+        async with self.async_session() as session:
+            total = await session.scalar(
+                select(func.count())
+                .select_from(SemanticMemory)
+                .where(
+                    SemanticMemory.user_id == user_id,
+                    SemanticMemory.category == category,
+                    SemanticMemory.status == "active",
+                )
+            )
+            excess = int(total or 0) - max_count
+            if excess <= 0:
+                return 0
+            ids = (
+                await session.scalars(
+                    select(SemanticMemory.id)
+                    .where(
+                        SemanticMemory.user_id == user_id,
+                        SemanticMemory.category == category,
+                        SemanticMemory.status == "active",
+                    )
+                    .order_by(
+                        SemanticMemory.confidence.asc(),
+                        SemanticMemory.updated_at.asc(),
+                        SemanticMemory.created_at.asc(),
+                    )
+                    .limit(excess)
+                )
+            ).all()
+            if not ids:
+                return 0
+            await session.execute(
+                delete(SemanticMemory).where(SemanticMemory.id.in_(ids))
+            )
             await session.commit()
             return len(ids)
 
@@ -437,8 +499,16 @@ class MemoryStore:
             session.add(memory)
             await session.commit()
 
-            return memory.id
-    
+            memory_id = memory.id
+
+        # 裁剪：超出分类上限（preference/fact/rule）时删除多余 active 记录
+        if category in self.semantic_capped_categories:
+            await self._trim_semantic_by_category(
+                user_id, category, self.semantic_cap_each
+            )
+
+        return memory_id
+
     async def retrieve_semantic(
         self,
         user_id: str,

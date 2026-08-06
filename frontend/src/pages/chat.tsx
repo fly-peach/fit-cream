@@ -506,7 +506,7 @@ function PlanCard({ step }: { step: AgentStep }) {
   const streaming = step.status === "running";
   const changes = Array.isArray(input.changes) ? input.changes : [];
   return (
-    <Plan isStreaming={streaming} defaultOpen>
+    <Plan isStreaming={streaming} defaultOpen={streaming}>
       <PlanHeader>
         <div className="flex flex-col gap-0.5">
           <PlanTitle>{input.title || "计划提案"}</PlanTitle>
@@ -516,7 +516,7 @@ function PlanCard({ step }: { step: AgentStep }) {
       </PlanHeader>
       <PlanContent>
         {changes.length > 0 && (
-          <div className="mb-3 overflow-hidden rounded-lg border border-emerald-200">
+          <div className="mb-3 overflow-x-auto rounded-lg border border-emerald-200">
             <div className="border-b border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-semibold text-emerald-900">
               即将执行的数据变更
             </div>
