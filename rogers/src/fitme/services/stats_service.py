@@ -110,7 +110,7 @@ class StatsService:
         checkins = list(result.scalars().all())
 
         total_workouts = len(checkins)
-        total_duration = sum(c.duration_min for c in checkins)
+        total_duration = sum(c.duration_min or 0 for c in checkins)
         total_calories = sum(c.calories_burned or 0 for c in checkins)
 
         total_sets = 0
@@ -132,7 +132,7 @@ class StatsService:
                 {
                     "date": str(d),
                     "completed": day_checkin is not None,
-                    "duration_min": day_checkin.duration_min if day_checkin else 0,
+                    "duration_min": (day_checkin.duration_min or 0) if day_checkin else 0,
                     "calories_burned": day_checkin.calories_burned or 0 if day_checkin else 0,
                     "intensity": day_checkin.actual_intensity if day_checkin else None,
                 }

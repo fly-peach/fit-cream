@@ -95,7 +95,7 @@ interface CheckinExercise {
 interface CheckinItem {
   id: string;
   date: string;
-  duration_min: number;
+  duration_min: number | null;
   mood: number | null;
   note: string | null;
   exercises: CheckinExercise[];
@@ -145,13 +145,15 @@ function TodayTraining({ checkin }: { checkin: CheckinItem | null }) {
     <DashCard icon={<Dumbbell className="size-4 text-emerald-500" />} title="今日训练">
       {checkin ? (
         <div className="space-y-2 sm:space-y-3">
-          <div className="flex flex-col gap-1 rounded-lg bg-emerald-50/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
-            <span className="text-xs text-emerald-700 sm:text-sm">训练时长</span>
-            <span className="flex items-center gap-1.5 text-base font-bold text-emerald-950 sm:text-lg">
-              <Clock className="size-4 text-emerald-500" />
-              {checkin.duration_min} 分钟
-            </span>
-          </div>
+          {checkin.duration_min != null && (
+            <div className="flex flex-col gap-1 rounded-lg bg-emerald-50/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
+              <span className="text-xs text-emerald-700 sm:text-sm">训练时长</span>
+              <span className="flex items-center gap-1.5 text-base font-bold text-emerald-950 sm:text-lg">
+                <Clock className="size-4 text-emerald-500" />
+                {checkin.duration_min} 分钟
+              </span>
+            </div>
+          )}
           {checkin.mood && (
             <div className="flex flex-col gap-1 rounded-lg bg-emerald-50/60 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
               <span className="text-xs text-emerald-700 sm:text-sm">心情评分</span>
@@ -691,7 +693,7 @@ export default function DashboardPage() {
       api.get<OverviewStats>("/stats/overview").catch(() => null),
       api.get<WeeklyStats>("/stats/weekly").catch(() => null),
       api.get<BodyStats>("/stats/body").catch(() => null),
-      api.get<{ items: CheckinItem[] }>("/checkins?limit=50").catch(() => null),
+      api.get<{ items: CheckinItem[] }>("/checkins?size=50").catch(() => null),
     ]).then(([ov, wk, bd, checkinRes]) => {
       setOverview(ov);
       setWeekly(wk);

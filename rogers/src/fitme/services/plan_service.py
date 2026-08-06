@@ -6,6 +6,7 @@
 - 根据用户目标自动生成计划（Agent create_plan_tool 调用）
 - 计划调整（Agent adjust_plan_tool 调用）
 """
+from datetime import date as date_type
 from typing import List, Optional, Tuple
 from uuid import UUID, uuid4
 
@@ -117,9 +118,13 @@ class PlanService:
                 plan_day_id=day_id,
                 exercise_id=ex_data.exercise_id,
                 custom_name=ex_data.custom_name,
+                exercise_type=ex_data.exercise_type,
                 sets=ex_data.sets,
                 reps=ex_data.reps,
                 weight_kg=ex_data.weight_kg,
+                duration_min=ex_data.duration_min,
+                distance_km=ex_data.distance_km,
+                calories_per_min=ex_data.calories_per_min,
                 sort_order=ex_data.sort_order or i,
                 notes=ex_data.notes,
                 metadata_=ex_data.metadata_ or {},
@@ -197,6 +202,38 @@ class PlanService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_plan_day_for_date(
+        db: AsyncSession,
+        user_id: UUID,
+        target_date: date_type,
+    ) -> Optional[Tuple[Plan, PlanDay]]:
+        """获取活跃计划中与指定日期星期几匹配的训练日（供打卡关联计划）。
+
+        显式 selectinload 预加载 exercises -> exercise，避免异步懒加载报错
+        （同 generate_plan_from_goal 的处理）。无活跃计划或该星期几无训练日时返回 None。
+        """
+        plan = await PlanService.get_active_plan(db, user_id)
+        if not plan:
+            return None
+
+        result = await db.execute(
+            select(PlanDay)
+            .options(
+                selectinload(PlanDay.exercises).selectinload(PlanDayExercise.exercise)
+            )
+            .where(
+                PlanDay.plan_id == plan.id,
+                PlanDay.day_of_week == target_date.isoweekday(),
+            )
+            .order_by(PlanDay.id)
+            .limit(1)
+        )
+        plan_day = result.scalars().first()
+        if not plan_day:
+            return None
+        return plan, plan_day
 
     @staticmethod
     async def update_plan(
@@ -487,9 +524,13 @@ class PlanService:
             plan_day_id=plan_day_id,
             exercise_id=data.exercise_id,
             custom_name=data.custom_name if not data.exercise_id else None,
+            exercise_type=data.exercise_type,
             sets=data.sets,
             reps=data.reps,
             weight_kg=data.weight_kg,
+            duration_min=data.duration_min,
+            distance_km=data.distance_km,
+            calories_per_min=data.calories_per_min,
             sort_order=data.sort_order,
             notes=data.notes,
             metadata_=data.metadata_ or {},

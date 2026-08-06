@@ -76,8 +76,12 @@ def _column_default_literal(col) -> str | None:
     return None
 
 
-def _add_missing_columns(sync_conn) -> list[str]:
-    """对已存在的表，补齐模型中新增但数据库缺失的列（DEBUG 便利，幂等）。"""
+def _add_missing_columns(sync_conn, logger_=None) -> list[str]:
+    """对已存在的表，补齐模型中新增但数据库缺失的列（DEBUG 便利，幂等）。
+
+    单列 ALTER 失败仅告警不中断：如托管 PG 无 pgvector 扩展时，
+    exercises.embedding 的 VECTOR 列 ALTER 会失败，不应阻塞其余补列与启动。
+    """
     insp = inspect(sync_conn)
     existing_tables = set(insp.get_table_names())
     added: list[str] = []
@@ -97,9 +101,56 @@ def _add_missing_columns(sync_conn) -> list[str]:
                     sql = f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {type_sql} NOT NULL DEFAULT {default_sql}'
                 else:
                     sql = f'ALTER TABLE "{table_name}" ADD COLUMN "{col.name}" {type_sql} NULL'
-            sync_conn.execute(text(sql))
-            added.append(f"{table_name}.{col.name}")
+            try:
+                # SAVEPOINT 隔离：单列 ALTER 失败（如缺 pgvector 扩展）回滚到保存点，
+                # 不污染外层事务，其余列可继续补齐
+                with sync_conn.begin_nested():
+                    sync_conn.execute(text(sql))
+                added.append(f"{table_name}.{col.name}")
+            except Exception as e:
+                if logger_:
+                    logger_.warning(f"补列失败 {table_name}.{col.name}（功能降级）: {e}")
+                else:
+                    raise
     return added
+
+
+def _relax_not_null_columns(sync_conn, logger_=None) -> list[str]:
+    """对模型已改 nullable 但数据库仍 NOT NULL 的既有列，放宽约束（DEBUG 便利，幂等）。
+
+    _add_missing_columns 只补新列，不会改既有列约束；模型演进后（如有氧动作无组次、
+    动作勾选建卡时总时长未知）需放宽存量列。先 inspect 判断当前是否仍 NOT NULL，
+    是则执行 DROP NOT NULL；单列失败 SAVEPOINT 隔离仅告警不中断（与补列风格一致）。
+    """
+    relax_targets = [
+        ("checkin_exercises", "exercise_id"),
+        ("checkins", "duration_min"),
+        ("plan_day_exercises", "sets"),
+        ("plan_day_exercises", "reps"),
+    ]
+    insp = inspect(sync_conn)
+    existing_tables = set(insp.get_table_names())
+    relaxed: list[str] = []
+    for table_name, col_name in relax_targets:
+        if table_name not in existing_tables:
+            continue
+        col_info = next(
+            (c for c in insp.get_columns(table_name) if c["name"] == col_name),
+            None,
+        )
+        if col_info is None or col_info.get("nullable", True):
+            continue
+        sql = f'ALTER TABLE "{table_name}" ALTER COLUMN "{col_name}" DROP NOT NULL'
+        try:
+            with sync_conn.begin_nested():
+                sync_conn.execute(text(sql))
+            relaxed.append(f"{table_name}.{col_name}")
+        except Exception as e:
+            if logger_:
+                logger_.warning(f"放宽 NOT NULL 失败 {table_name}.{col_name}（功能降级）: {e}")
+            else:
+                raise
+    return relaxed
 
 
 # 初始化数据库（开发环境自动建表）
@@ -110,6 +161,18 @@ async def init_db() -> None:
     import app.models  # noqa: F401 导入所有 model（注册到 Base.metadata）
 
     async with engine.begin() as conn:
+        # pgvector 扩展：exercises.embedding 向量列依赖（须早于 create_all / 补列执行；
+        # 记忆子系统的 MemoryStore.init_db 也会创建，此处保证先后顺序无关）。
+        # SAVEPOINT 隔离：语句失败仅回滚到保存点，不中止外层事务（否则后续语句全部报
+        # InFailedSQLTransaction）。扩展不可用时不做降级：embedding 列不会被创建，
+        # 语义检索功能整体关闭（ExerciseService 探测到列缺失返回空，工具回退关键词检索）；
+        # embedding 为 deferred 列，常规查询不引用它，缺列不影响其他功能。
+        try:
+            async with conn.begin_nested():
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception as e:
+            logger.warning(f"pgvector 扩展不可用（动作语义检索功能关闭）: {e}")
+
         existing = await conn.run_sync(
             lambda sync_conn: set(inspect(sync_conn).get_table_names())
         )
@@ -123,30 +186,40 @@ async def init_db() -> None:
             logger.info("数据库表已存在，跳过建表")
 
         # 自动补齐已有表缺失的列（DEBUG 便利：模型新增列后无需手写迁移）
-        added_columns = await conn.run_sync(_add_missing_columns)
+        added_columns = await conn.run_sync(lambda sc: _add_missing_columns(sc, logger))
         if added_columns:
             logger.info(f"数据库补列完成: {', '.join(added_columns)}")
 
+        # 放宽模型已改 nullable 的既有列的 NOT NULL 约束（补列不改约束，需单独处理）
+        relaxed_columns = await conn.run_sync(
+            lambda sc: _relax_not_null_columns(sc, logger)
+        )
+        if relaxed_columns:
+            logger.info(f"数据库放宽 NOT NULL 完成: {', '.join(relaxed_columns)}")
+
         # pg_trgm 扩展 + GIN trigram 索引：加速 exercises 的中文/英文 ilike 关键词搜索
-        # CREATE EXTENSION 在托管 PG 上可能需 superuser 权限，失败时兜底降级为全表扫
+        # CREATE EXTENSION 在托管 PG 上可能需 superuser 权限，失败时兜底降级为全表扫。
+        # SAVEPOINT 隔离：否则语句失败中止事务，最终 commit 变 rollback，
+        # 前面 create_all/补列的 DDL 会被整体回滚。
         try:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_exercises_name_trgm"
-                " ON exercises USING gin (name gin_trgm_ops)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_exercises_name_en_trgm"
-                " ON exercises USING gin (name_en gin_trgm_ops)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_exercises_desc_trgm"
-                " ON exercises USING gin (description gin_trgm_ops)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_exercises_instr_trgm"
-                " ON exercises USING gin (instructions gin_trgm_ops)"
-            ))
+            async with conn.begin_nested():
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_exercises_name_trgm"
+                    " ON exercises USING gin (name gin_trgm_ops)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_exercises_name_en_trgm"
+                    " ON exercises USING gin (name_en gin_trgm_ops)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_exercises_desc_trgm"
+                    " ON exercises USING gin (description gin_trgm_ops)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_exercises_instr_trgm"
+                    " ON exercises USING gin (instructions gin_trgm_ops)"
+                ))
             logger.info("pg_trgm 扩展与 GIN 索引就绪")
         except Exception as e:
             logger.warning(f"pg_trgm 索引创建失败（搜索将退化为全表扫）: {e}")

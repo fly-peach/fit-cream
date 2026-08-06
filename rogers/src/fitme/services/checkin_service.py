@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import Checkin, CheckinExercise
 from src.fitme.models.exercise import Exercise
-from src.fitme.schemas.checkin import CheckinCreate, CheckinUpdate
+from src.fitme.models.plan import PlanDayExercise
+from src.fitme.schemas.checkin import CheckinCreate, CheckinExerciseCreate, CheckinUpdate
 from utils.exceptions import (
     BadRequestException,
     BusinessException,
@@ -48,19 +49,21 @@ class CheckinService:
                 ErrorCode.INVALID_DATE, "打卡日期不能是未来日期"
             )
 
-        # 预校验 exercise_id 存在性
+        # 预校验 exercise_id 存在性（自定义动作无 exercise_id，跳过）
         if data.exercises:
-            exercise_ids = [ex.exercise_id for ex in data.exercises]
-            result = await db.execute(
-                select(Exercise.id).where(Exercise.id.in_(exercise_ids))
-            )
-            found_ids = {row[0] for row in result.all()}
-            missing_ids = set(exercise_ids) - found_ids
-            if missing_ids:
-                raise BadRequestException(
-                    f"动作不存在: {', '.join(str(m) for m in missing_ids)}"
+            exercise_ids = [ex.exercise_id for ex in data.exercises if ex.exercise_id]
+            if exercise_ids:
+                result = await db.execute(
+                    select(Exercise.id).where(Exercise.id.in_(exercise_ids))
                 )
+                found_ids = {row[0] for row in result.all()}
+                missing_ids = set(exercise_ids) - found_ids
+                if missing_ids:
+                    raise BadRequestException(
+                        f"动作不存在: {', '.join(str(m) for m in missing_ids)}"
+                    )
 
+        calorie_rates = await CheckinService._load_calorie_rates(db, data.exercises)
         checkin = Checkin(
             user_id=user_id,
             plan_day_id=data.plan_day_id,
@@ -68,7 +71,7 @@ class CheckinService:
             duration_min=data.duration_min,
             actual_intensity=data.actual_intensity,
             calories_burned=data.calories_burned or CheckinService._estimate_calories(
-                data.duration_min, data.exercises
+                data.duration_min, data.exercises, calorie_rates
             ),
             mood=data.mood,
             note=data.note,
@@ -81,9 +84,13 @@ class CheckinService:
             checkin_exercise = CheckinExercise(
                 checkin_id=checkin.id,
                 exercise_id=ex_data.exercise_id,
+                custom_name=ex_data.custom_name,
+                plan_day_exercise_id=ex_data.plan_day_exercise_id,
                 sets_done=ex_data.sets_done,
                 reps_done=ex_data.reps_done,
                 weight_kg=ex_data.weight_kg,
+                duration_min=ex_data.duration_min,
+                distance_km=ex_data.distance_km,
                 rpe=ex_data.rpe,
                 notes=ex_data.notes,
             )
@@ -172,9 +179,8 @@ class CheckinService:
         """更新打卡记录"""
         checkin = await CheckinService.get_by_id(db, checkin_id, user_id)
 
-        update_data = data.model_dump(exclude_unset=True)
-        has_exercises_update = "exercises" in update_data
-        exercises_data = update_data.pop("exercises", None)
+        has_exercises_update = "exercises" in data.model_fields_set
+        update_data = data.model_dump(exclude_unset=True, exclude={"exercises"})
 
         for field, value in update_data.items():
             setattr(checkin, field, value)
@@ -186,31 +192,99 @@ class CheckinService:
                     CheckinExercise.checkin_id == checkin_id
                 )
             )
-            if exercises_data:
-                for ex_data in exercises_data:
-                    checkin_exercise = CheckinExercise(
-                        checkin_id=checkin_id,
-                        exercise_id=ex_data["exercise_id"],
-                        sets_done=ex_data.get("sets_done"),
-                        reps_done=ex_data.get("reps_done"),
-                        weight_kg=ex_data.get("weight_kg"),
-                        rpe=ex_data.get("rpe"),
-                        notes=ex_data.get("notes"),
-                    )
-                    db.add(checkin_exercise)
+            exercises_data = data.exercises or []
+            for ex_data in exercises_data:
+                checkin_exercise = CheckinExercise(
+                    checkin_id=checkin_id,
+                    exercise_id=ex_data.exercise_id,
+                    custom_name=ex_data.custom_name,
+                    plan_day_exercise_id=ex_data.plan_day_exercise_id,
+                    sets_done=ex_data.sets_done,
+                    reps_done=ex_data.reps_done,
+                    weight_kg=ex_data.weight_kg,
+                    duration_min=ex_data.duration_min,
+                    distance_km=ex_data.distance_km,
+                    rpe=ex_data.rpe,
+                    notes=ex_data.notes,
+                )
+                db.add(checkin_exercise)
+            # 动作列表变化且未显式提供热量时，按新动作行重算估算热量
+            if "calories_burned" not in data.model_fields_set:
+                rates = await CheckinService._load_calorie_rates(db, exercises_data)
+                checkin.calories_burned = CheckinService._estimate_calories(
+                    checkin.duration_min, exercises_data, rates
+                )
 
         await db.flush()
         await db.refresh(checkin)
         return checkin
 
     @staticmethod
+    async def _load_calorie_rates(
+        db: AsyncSession,
+        exercises: List[CheckinExerciseCreate],
+    ) -> dict:
+        """批量加载动作行可用的 calories_per_min（计划动作 -> 动作库），供热量估算。
+
+        返回 {("pde", plan_day_exercise_id): rate, ("ex", exercise_id): rate}；
+        无数据的键缺失，估算时回退默认值。
+        """
+        rates: dict = {}
+        pde_ids = [ex.plan_day_exercise_id for ex in exercises if ex.plan_day_exercise_id]
+        if pde_ids:
+            result = await db.execute(
+                select(PlanDayExercise.id, PlanDayExercise.calories_per_min).where(
+                    PlanDayExercise.id.in_(pde_ids)
+                )
+            )
+            for pde_id, rate in result.all():
+                if rate is not None:
+                    rates[("pde", pde_id)] = float(rate)
+        ex_ids = [ex.exercise_id for ex in exercises if ex.exercise_id]
+        if ex_ids:
+            result = await db.execute(
+                select(Exercise.id, Exercise.calories_per_min).where(
+                    Exercise.id.in_(ex_ids)
+                )
+            )
+            for ex_id, rate in result.all():
+                if rate is not None:
+                    rates[("ex", ex_id)] = float(rate)
+        return rates
+
+    @staticmethod
     def _estimate_calories(
-        duration_min: int,
-        exercises: list,
+        duration_min: Optional[int],
+        exercises: List[CheckinExerciseCreate],
+        calorie_rates: Optional[dict] = None,
     ) -> int:
-        """根据时长和训练强度估算消耗热量"""
-        base_per_min = 7
-        return int(duration_min * base_per_min)
+        """按动作行估算消耗热量。
+
+        - 有氧行（duration_min 非空）：(calories_per_min 或 8.0) × duration_min，
+          calories_per_min 解析顺序：计划动作 -> 动作库 -> 默认 8.0（中等强度有氧）
+        - 力量行：sets_done × reps_done × 0.15（粗略常量：每次做功约 0.15 kcal）
+        - 无可利用的动作数据：回退 duration × 7 kcal/min
+        """
+        if not exercises:
+            return int((duration_min or 0) * 7)
+        rates = calorie_rates or {}
+        total = 0.0
+        has_data = False
+        for ex in exercises:
+            if ex.duration_min:
+                has_data = True
+                rate = None
+                if ex.plan_day_exercise_id:
+                    rate = rates.get(("pde", ex.plan_day_exercise_id))
+                if rate is None and ex.exercise_id:
+                    rate = rates.get(("ex", ex.exercise_id))
+                total += (rate or 8.0) * ex.duration_min
+            elif ex.sets_done and ex.reps_done:
+                has_data = True
+                total += ex.sets_done * ex.reps_done * 0.15
+        if not has_data:
+            return int((duration_min or 0) * 7)
+        return int(total)
 
     @staticmethod
     async def get_streak(

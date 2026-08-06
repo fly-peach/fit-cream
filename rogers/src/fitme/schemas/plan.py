@@ -19,12 +19,23 @@ from src.fitme.schemas.exercise import ExerciseBrief  # noqa: F401
 
 
 class PlanExerciseCreate(BaseModel):
-    """计划中动作创建（动作库动作二选一：exercise_id 或 custom_name）"""
+    """计划中动作创建（动作库动作二选一：exercise_id 或 custom_name）
+
+    力量型需 sets+reps；有氧型（exercise_type=cardio）需 duration_min，无组次。
+    """
     exercise_id: Optional[UUID] = None
     custom_name: Optional[str] = Field(default=None, max_length=200)
-    sets: int = Field(ge=1, le=20)
-    reps: int = Field(ge=1, le=100)
+    exercise_type: Optional[str] = Field(
+        default="strength", pattern="^(strength|cardio)$", description="动作类型"
+    )
+    sets: Optional[int] = Field(default=None, ge=1, le=20)
+    reps: Optional[int] = Field(default=None, ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
+    duration_min: Optional[int] = Field(default=None, ge=1, description="有氧时长(分钟)")
+    distance_km: Optional[float] = Field(default=None, ge=0, description="有氧距离(km)")
+    calories_per_min: Optional[float] = Field(
+        default=None, ge=0, description="每分钟消耗(kcal)"
+    )
     sort_order: int = 0
     notes: Optional[str] = Field(default=None, max_length=500)
     metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
@@ -35,14 +46,28 @@ class PlanExerciseCreate(BaseModel):
             raise ValueError("需提供 exercise_id 或 custom_name")
         if self.custom_name:
             self.custom_name = self.custom_name.strip()
+        if self.exercise_type == "cardio":
+            if not self.duration_min:
+                raise ValueError("有氧动作需提供 duration_min")
+        else:
+            if not self.sets or not self.reps:
+                raise ValueError("力量动作需提供 sets 与 reps")
         return self
 
 
 class PlanExerciseUpdate(BaseModel):
-    """计划中动作更新"""
+    """计划中动作更新（均可选，允许 strength/cardio 切换）"""
+    exercise_type: Optional[str] = Field(
+        default=None, pattern="^(strength|cardio)$", description="动作类型"
+    )
     sets: Optional[int] = Field(default=None, ge=1, le=20)
     reps: Optional[int] = Field(default=None, ge=1, le=100)
     weight_kg: Optional[float] = Field(default=None, ge=0)
+    duration_min: Optional[int] = Field(default=None, ge=1, description="有氧时长(分钟)")
+    distance_km: Optional[float] = Field(default=None, ge=0, description="有氧距离(km)")
+    calories_per_min: Optional[float] = Field(
+        default=None, ge=0, description="每分钟消耗(kcal)"
+    )
     sort_order: Optional[int] = None
     notes: Optional[str] = Field(default=None, max_length=500)
     metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
@@ -54,9 +79,13 @@ class PlanExerciseOut(BaseModel):
     exercise_id: Optional[UUID] = None
     custom_name: Optional[str] = None
     exercise_name: Optional[str] = None
-    sets: int
-    reps: int
+    exercise_type: Optional[str] = None
+    sets: Optional[int] = None
+    reps: Optional[int] = None
     weight_kg: Optional[float] = None
+    duration_min: Optional[int] = None
+    distance_km: Optional[float] = None
+    calories_per_min: Optional[float] = None
     sort_order: int
     notes: Optional[str] = None
     metadata_: Optional[dict[str, Any]] = None

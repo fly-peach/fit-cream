@@ -70,17 +70,23 @@ export function AddExerciseDialog({
 }) {
   const [tab, setTab] = useState<"search" | "custom">("search");
   const [name, setName] = useState("");
+  const [customType, setCustomType] = useState<"strength" | "cardio">("strength");
   const [sets, setSets] = useState(3);
   const [reps, setReps] = useState(12);
   const [weight, setWeight] = useState("");
+  const [duration, setDuration] = useState("30");
+  const [distance, setDistance] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
   const reset = () => {
     setName("");
+    setCustomType("strength");
     setSets(3);
     setReps(12);
     setWeight("");
+    setDuration("30");
+    setDistance("");
     setNotes("");
     setSaving(false);
   };
@@ -92,10 +98,12 @@ export function AddExerciseDialog({
 
   const addFromLibrary = async (ex: Exercise) => {
     try {
+      const isCardio = ex.body_part === "cardio";
       const updated = await api.post<PlanDetail>(`/plans/days/${day.id}/exercises`, {
         exercise_id: ex.id,
-        sets: 3,
-        reps: 12,
+        ...(isCardio
+          ? { exercise_type: "cardio", duration_min: 30 }
+          : { exercise_type: "strength", sets: 3, reps: 12 }),
         weight_kg: null,
         sort_order: day.exercises.length,
         notes: null,
@@ -110,20 +118,43 @@ export function AddExerciseDialog({
   const addCustom = async () => {
     const trimmed = name.trim();
     if (!trimmed || saving) return;
-    if (weight && parseFloat(weight) < 0) {
+    if (customType === "cardio") {
+      const dur = parseInt(duration);
+      if (!dur || dur < 1) {
+        showError("有氧动作需提供时长（分钟）");
+        return;
+      }
+      if (distance && parseFloat(distance) < 0) {
+        showError("距离不能为负数");
+        return;
+      }
+    } else if (weight && parseFloat(weight) < 0) {
       showError("重量不能为负数");
       return;
     }
     setSaving(true);
     try {
-      const updated = await api.post<PlanDetail>(`/plans/days/${day.id}/exercises`, {
-        custom_name: trimmed,
-        sets,
-        reps,
-        weight_kg: weight ? parseFloat(weight) : null,
-        sort_order: day.exercises.length,
-        notes: notes.trim() || null,
-      });
+      const updated = await api.post<PlanDetail>(
+        `/plans/days/${day.id}/exercises`,
+        customType === "cardio"
+          ? {
+              custom_name: trimmed,
+              exercise_type: "cardio",
+              duration_min: parseInt(duration),
+              distance_km: distance ? parseFloat(distance) : null,
+              sort_order: day.exercises.length,
+              notes: notes.trim() || null,
+            }
+          : {
+              custom_name: trimmed,
+              exercise_type: "strength",
+              sets,
+              reps,
+              weight_kg: weight ? parseFloat(weight) : null,
+              sort_order: day.exercises.length,
+              notes: notes.trim() || null,
+            },
+      );
       onPlanUpdated(updated);
       close();
     } catch (e) {
@@ -173,7 +204,7 @@ export function AddExerciseDialog({
           <div>
             <ExerciseSearchInline onPick={addFromLibrary} />
             <p className="px-1 text-[11px] text-emerald-500/60">
-              点击动作即以 3 组 × 12 次 添加，添加后可在列表中调整
+              点击动作即以 3 组 × 12 次 添加（有氧动作默认 30 分钟），添加后可在列表中调整
             </p>
           </div>
         ) : (
@@ -195,33 +226,87 @@ export function AddExerciseDialog({
               />
             </div>
 
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-emerald-700">组数</label>
-                <NumberStepper value={sets} onChange={setSets} min={1} max={20} suffix="组" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-emerald-700">次数</label>
-                <NumberStepper value={reps} onChange={setReps} min={1} max={100} suffix="次" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-emerald-700">重量（可选）</label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                    placeholder="0.0"
-                    className="h-9 w-24 rounded-lg border-emerald-200 bg-white/70 pr-9 text-sm"
-                  />
-                  <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">
-                    kg
-                  </span>
-                </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-emerald-700">动作类型</label>
+              <div className="flex rounded-xl border border-emerald-100 bg-emerald-50/60 p-1">
+                {(["strength", "cardio"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setCustomType(t)}
+                    className={cn(
+                      "flex flex-1 items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-200",
+                      customType === t
+                        ? "bg-white text-emerald-700 shadow-sm shadow-emerald-100"
+                        : "text-emerald-500/70 hover:text-emerald-700",
+                    )}
+                  >
+                    {t === "strength" ? "力量（组数 × 次数）" : "有氧（时长 / 距离）"}
+                  </button>
+                ))}
               </div>
             </div>
+
+            {customType === "cardio" ? (
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-emerald-700">时长（分钟）</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={duration}
+                    onChange={(e) => setDuration(e.target.value)}
+                    placeholder="30"
+                    className="h-9 w-24 rounded-lg border-emerald-200 bg-white/70 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-emerald-700">距离（可选）</label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      value={distance}
+                      onChange={(e) => setDistance(e.target.value)}
+                      placeholder="0.0"
+                      className="h-9 w-24 rounded-lg border-emerald-200 bg-white/70 pr-9 text-sm"
+                    />
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">
+                      km
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-end gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-emerald-700">组数</label>
+                  <NumberStepper value={sets} onChange={setSets} min={1} max={20} suffix="组" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-emerald-700">次数</label>
+                  <NumberStepper value={reps} onChange={setReps} min={1} max={100} suffix="次" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-emerald-700">重量（可选）</label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={weight}
+                      onChange={(e) => setWeight(e.target.value)}
+                      placeholder="0.0"
+                      className="h-9 w-24 rounded-lg border-emerald-200 bg-white/70 pr-9 text-sm"
+                    />
+                    <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-emerald-400">
+                      kg
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-emerald-700">要点 / 备注（可选）</label>

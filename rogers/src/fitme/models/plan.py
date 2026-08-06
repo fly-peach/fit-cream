@@ -91,9 +91,15 @@ class PlanDayExercise(Base):
         PG_UUID(as_uuid=True), ForeignKey("exercises.id"), index=True, nullable=True
     )
     custom_name: Mapped[Optional[str]] = mapped_column(String(200))
-    sets: Mapped[int] = mapped_column(Integer, nullable=False)
-    reps: Mapped[int] = mapped_column(Integer, nullable=False)
+    exercise_type: Mapped[Optional[str]] = mapped_column(
+        String(20)
+    )  # strength / cardio，None 按 strength 处理
+    sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 有氧行无组次
+    reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
+    duration_min: Mapped[Optional[int]] = mapped_column(Integer)  # 有氧时长（分钟）
+    distance_km: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))  # 有氧距离
+    calories_per_min: Mapped[Optional[float]] = mapped_column(Numeric(6, 1))  # 自定义每分钟消耗
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     notes: Mapped[Optional[str]] = mapped_column(Text)  # 动作执行要点 / 备注
     metadata_: Mapped[Optional[dict]] = mapped_column(JSONB, default=dict)  # 自定义扩展数据

@@ -38,13 +38,17 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from app.config import settings  # noqa: E402
 
 TEST_SCHEMA = "fitcream_test"
+# search_path 追加 public：扩展对象（pgvector 的 vector 类型、pg_trgm 函数）装在
+# public schema，仅指向测试 schema 时建表 DDL 解析不到 vector 类型会失败。
+# 测试表仍优先建在 fitcream_test（路径中首个可写 schema），与 public 数据隔离。
+TEST_SEARCH_PATH = f"{TEST_SCHEMA}, public"
 
 # ============================================================
 # 测试引擎（search_path 指向测试 schema）
 # ============================================================
 test_engine = create_async_engine(
     settings.DATABASE_URL,
-    connect_args={"server_settings": {"search_path": TEST_SCHEMA}},
+    connect_args={"server_settings": {"search_path": TEST_SEARCH_PATH}},
     pool_pre_ping=True,
 )
 test_session_factory = async_sessionmaker(
@@ -83,12 +87,36 @@ async def _create_schema_and_tables() -> None:
     # test_engine 仅在会话 loop（测试 / 异步 fixture）中使用。
     setup_engine = create_async_engine(
         settings.DATABASE_URL,
-        connect_args={"server_settings": {"search_path": TEST_SCHEMA}},
+        connect_args={"server_settings": {"search_path": TEST_SEARCH_PATH}},
     )
     try:
         async with setup_engine.begin() as conn:
             await conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {TEST_SCHEMA}"))
-            await conn.run_sync(Base.metadata.create_all)
+            # pgvector：exercises.embedding 向量列依赖（与 init_db 一致的降级语义）
+            try:
+                async with conn.begin_nested():
+                    await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            except Exception:
+                pass
+            try:
+                async with conn.begin_nested():
+                    await conn.run_sync(Base.metadata.create_all)
+            except Exception:
+                # pgvector 不可用时 create_all 在 exercises.embedding 的 VECTOR 列上失败：
+                # 临时把向量列类型替换为 Text 完成建表（embedding 为 deferred 列，
+                # 测试不涉及语义检索，与 init_db 缺扩展时「列不创建、检索关闭」语义一致）
+                from sqlalchemy import Text
+
+                from src.fitme.models.exercise import Exercise
+
+                emb = Exercise.__table__.c.embedding
+                saved_type = emb.type
+                emb.type = Text()
+                try:
+                    async with conn.begin_nested():
+                        await conn.run_sync(Base.metadata.create_all)
+                finally:
+                    emb.type = saved_type
             try:
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             except Exception:

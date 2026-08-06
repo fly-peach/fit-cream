@@ -45,7 +45,8 @@ class Checkin(Base):
         nullable=True,
     )
     date: Mapped[date_type] = mapped_column(Date, nullable=False, index=True)
-    duration_min: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 动作勾选自动建卡时总时长未知，允许为空
+    duration_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     actual_intensity: Mapped[Optional[str]] = mapped_column(String(20))
     calories_burned: Mapped[Optional[int]] = mapped_column(Integer)
     mood: Mapped[Optional[int]] = mapped_column(Integer)
@@ -71,12 +72,23 @@ class CheckinExercise(Base):
         ForeignKey("checkins.id", ondelete="CASCADE"),
         index=True,
     )
-    exercise_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("exercises.id"), index=True
+    # 自定义动作无 exercise_id，允许为空（与 custom_name 二选一）
+    exercise_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("exercises.id"), index=True, nullable=True
     )
+    # 关联的计划动作；计划动作被删时保留打卡历史（SET NULL）
+    plan_day_exercise_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("plan_day_exercises.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    custom_name: Mapped[Optional[str]] = mapped_column(String(200))
     sets_done: Mapped[Optional[int]] = mapped_column(Integer)
     reps_done: Mapped[Optional[int]] = mapped_column(Integer)
     weight_kg: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))
+    duration_min: Mapped[Optional[int]] = mapped_column(Integer)  # 有氧实际时长（分钟）
+    distance_km: Mapped[Optional[float]] = mapped_column(Numeric(6, 2))  # 有氧实际距离
     rpe: Mapped[Optional[int]] = mapped_column(Integer)
     notes: Mapped[Optional[str]] = mapped_column(Text)
 

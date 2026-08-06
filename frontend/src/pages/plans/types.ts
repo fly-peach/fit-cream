@@ -5,9 +5,13 @@ export interface PlanExercise {
   exercise_id: string | null;
   custom_name?: string | null;
   exercise_name: string | null;
-  sets: number;
-  reps: number;
+  exercise_type?: "strength" | "cardio" | null;
+  sets: number | null;
+  reps: number | null;
   weight_kg: number | null;
+  duration_min?: number | null;
+  distance_km?: number | null;
+  calories_per_min?: number | null;
   sort_order: number;
   notes?: string | null;
   metadata_?: Record<string, string> | null;
@@ -33,10 +37,24 @@ export interface PlanDetail {
   days: PlanDay[];
 }
 
+export interface CheckinExerciseItem {
+  id: string;
+  exercise_id: string | null;
+  custom_name?: string | null;
+  plan_day_exercise_id: string | null;
+  sets_done: number | null;
+  reps_done: number | null;
+  weight_kg: number | null;
+  duration_min: number | null;
+  distance_km: number | null;
+}
+
 export interface CheckinItem {
   id: string;
   date: string;
-  duration_min: number;
+  plan_day_id?: string | null;
+  duration_min: number | null;
+  exercises: CheckinExerciseItem[];
 }
 
 export interface DietMeal {

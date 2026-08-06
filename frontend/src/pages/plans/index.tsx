@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import { CheckinCalendar } from "./checkin-calendar";
 import { DayDetailDialog } from "./day-detail-dialog";
 import { DietPlanCard } from "./diet-plan-card";
@@ -36,7 +37,9 @@ import {
   type CalMode,
   type PlanDay,
   type PlanDetail,
+  type PlanExercise,
   type CheckinItem,
+  type CheckinExerciseItem,
   type DietPlanDetail,
   type UserSettings,
 } from "./types";
@@ -79,6 +82,7 @@ export default function PlansPage() {
   const [loading, setLoading] = useState(true);
   const [dayDialogOpen, setDayDialogOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<PlanDay | null>(null);
+  const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [checkinLoading, setCheckinLoading] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<CalMode>("exercise");
 
@@ -103,7 +107,7 @@ export default function PlansPage() {
   useEffect(() => {
     Promise.all([
       api.get<PlanDetail | null>("/plans/active").catch(() => null),
-      api.get<{ items: CheckinItem[] }>("/checkins?limit=200").catch(() => null),
+      api.get<{ items: CheckinItem[] }>("/checkins?size=100").catch(() => null),
       api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
       api.get<DietPlanDetail | null>("/diet-plans/active").catch(() => null),
       api.get<UserSettings>("/users/settings").catch(() => null),
@@ -126,8 +130,17 @@ export default function PlansPage() {
   const dietDay = dietPlan?.days.find((d) => d.day_of_week === dietDow) ?? null;
   const dietDayCalories = dietDay?.meals.reduce((s, m) => s + (m.calories ?? 0), 0) ?? 0;
 
-  const openDayDetail = (day: PlanDay) => {
+  const selectedCheckin = checkins.find((c) => c.date === exDateStr) ?? null;
+  const completedPdeIds = new Set(
+    (selectedCheckin?.exercises ?? [])
+      .map((e) => e.plan_day_exercise_id)
+      .filter((id): id is string => id !== null),
+  );
+  const isFutureExDate = exDateStr > todayStr;
+
+  const openDayDetail = (day: PlanDay, exerciseId: string | null = null) => {
     setSelectedDay(day);
+    setEditingExerciseId(exerciseId);
     setDayDialogOpen(true);
   };
 
@@ -176,15 +189,79 @@ export default function PlansPage() {
     }
   };
 
-  const checkinDay = async (day: PlanDay) => {
-    setCheckinLoading(day.id);
+  const refreshCheckins = async () => {
+    const [checkinRes, streakRes] = await Promise.all([
+      api.get<{ items: CheckinItem[] }>("/checkins?size=100").catch(() => null),
+      api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
+    ]);
+    if (checkinRes?.items) setCheckins(checkinRes.items);
+    if (streakRes) setStreak(streakRes.current_streak);
+  };
+
+  const entryFromCheckinRow = (e: CheckinExerciseItem) => ({
+    exercise_id: e.exercise_id,
+    custom_name: e.custom_name ?? null,
+    plan_day_exercise_id: e.plan_day_exercise_id,
+    sets_done: e.sets_done,
+    reps_done: e.reps_done,
+    weight_kg: e.weight_kg,
+    duration_min: e.duration_min,
+    distance_km: e.distance_km,
+  });
+
+  const entryFromPlanExercise = (ex: PlanExercise) => ({
+    exercise_id: ex.exercise_id,
+    custom_name: ex.exercise_id ? null : (ex.custom_name ?? ex.exercise_name),
+    plan_day_exercise_id: ex.id,
+    sets_done: ex.sets,
+    reps_done: ex.reps,
+    weight_kg: ex.weight_kg,
+    duration_min: ex.duration_min ?? null,
+    distance_km: ex.distance_km ?? null,
+  });
+
+  const toggleExercise = async (ex: PlanExercise) => {
+    if (!exDay || isFutureExDate || checkinLoading) return;
+    setCheckinLoading(ex.id);
     try {
-      const duration = Math.max(15, day.exercises.length * 5);
-      await api.post("/checkins", { date: format(new Date(), "yyyy-MM-dd"), duration_min: duration });
-      const streakRes = await api.get<{ current_streak: number }>("/checkins/streak");
-      const checkinRes = await api.get<{ items: CheckinItem[] }>("/checkins?limit=200");
-      setStreak(streakRes.current_streak);
-      if (checkinRes?.items) setCheckins(checkinRes.items);
+      const current = selectedCheckin?.exercises ?? [];
+      const isChecked = current.some((e) => e.plan_day_exercise_id === ex.id);
+      const remaining = current
+        .filter((e) => e.plan_day_exercise_id !== ex.id)
+        .map(entryFromCheckinRow);
+      const nextExercises = isChecked ? remaining : [...remaining, entryFromPlanExercise(ex)];
+
+      if (nextExercises.length === 0 && selectedCheckin) {
+        await api.delete(`/checkins/${selectedCheckin.id}`);
+      } else if (selectedCheckin) {
+        await api.put(`/checkins/${selectedCheckin.id}`, { exercises: nextExercises });
+      } else {
+        await api.post("/checkins", {
+          date: exDateStr,
+          plan_day_id: exDay.id,
+          exercises: nextExercises,
+        });
+      }
+      await refreshCheckins();
+    } catch (e) {
+      showError((e as Error).message);
+    } finally {
+      setCheckinLoading(null);
+    }
+  };
+
+  const completeAll = async () => {
+    if (!exDay || isFutureExDate || checkinLoading) return;
+    setCheckinLoading("all");
+    try {
+      const exercises = exDay.exercises.map(entryFromPlanExercise);
+      await api.post("/checkins", {
+        date: exDateStr,
+        plan_day_id: exDay.id,
+        duration_min: Math.max(15, exDay.exercises.length * 5),
+        exercises,
+      });
+      await refreshCheckins();
     } catch (e) {
       showError((e as Error).message);
     } finally {
@@ -405,26 +482,56 @@ export default function PlansPage() {
                           休息 {exDay.rest_seconds}s
                         </div>
                         <MetadataPreview value={exDay.metadata_} />
+                        {exDay.exercises.length > 0 && (
+                          <p className="text-xs font-medium text-emerald-600/70">
+                            已完成 {exDay.exercises.filter((ex) => completedPdeIds.has(ex.id)).length}
+                            /{exDay.exercises.length}
+                          </p>
+                        )}
                         <div className="space-y-1.5">
                           {exDay.exercises.length === 0 ? (
                             <p className="text-xs text-emerald-600/50">暂无动作，点击编辑添加</p>
                           ) : (
                             [...exDay.exercises]
                               .sort((a, b) => a.sort_order - b.sort_order)
-                              .map((ex) => (
-                                <div
-                                  key={ex.id}
-                                  className="flex items-center justify-between rounded-lg bg-emerald-50/40 px-3 py-2 text-sm"
-                                >
-                                  <span className="font-medium text-emerald-900">
-                                    {ex.exercise_name ?? "未知动作"}
-                                  </span>
-                                  <span className="tabular-nums text-emerald-600/70">
-                                    {ex.sets} 组 × {ex.reps} 次
-                                    {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}
-                                  </span>
-                                </div>
-                              ))
+                              .map((ex) => {
+                                const checked = completedPdeIds.has(ex.id);
+                                const isCardio = ex.exercise_type === "cardio";
+                                return (
+                                  <div
+                                    key={ex.id}
+                                    className="flex cursor-pointer items-center justify-between gap-2 rounded-lg bg-emerald-50/40 px-3 py-2 text-sm transition-colors hover:bg-emerald-100/50"
+                                    title="点击编辑该动作"
+                                    onClick={() => openDayDetail(exDay, ex.id)}
+                                  >
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={isFutureExDate || checkinLoading !== null}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={() => toggleExercise(ex)}
+                                        className="size-4 shrink-0 cursor-pointer accent-emerald-600"
+                                      />
+                                      <span
+                                        className={cn(
+                                          "truncate font-medium",
+                                          checked
+                                            ? "text-emerald-400 line-through"
+                                            : "text-emerald-900",
+                                        )}
+                                      >
+                                        {ex.exercise_name ?? "未知动作"}
+                                      </span>
+                                    </div>
+                                    <span className="shrink-0 tabular-nums text-emerald-600/70">
+                                      {isCardio
+                                        ? `${ex.duration_min ?? 0} 分钟${ex.distance_km ? ` · ${ex.distance_km} km` : ""}`
+                                        : `${ex.sets ?? "-"} 组 × ${ex.reps ?? "-"} 次${ex.weight_kg ? ` · ${ex.weight_kg}kg` : ""}`}
+                                    </span>
+                                  </div>
+                                );
+                              })
                           )}
                         </div>
                         <div className="flex items-center gap-2 pt-1">
@@ -437,20 +544,32 @@ export default function PlansPage() {
                             <Pencil className="mr-1 size-3.5" />
                             编辑动作
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-emerald-600 hover:bg-orange-50 hover:text-orange-600"
-                            onClick={() => checkinDay(exDay)}
-                            disabled={checkinLoading === exDay.id}
-                          >
-                            {checkinLoading === exDay.id ? (
-                              <Loader2 className="mr-1 size-3.5 animate-spin" />
-                            ) : (
+                          {selectedCheckin ? (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-emerald-600"
+                              disabled
+                            >
                               <CheckCircle className="mr-1 size-3.5" />
-                            )}
-                            打卡
-                          </Button>
+                              已打卡
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-emerald-600 hover:bg-orange-50 hover:text-orange-600"
+                              onClick={completeAll}
+                              disabled={isFutureExDate || checkinLoading !== null}
+                            >
+                              {checkinLoading === "all" ? (
+                                <Loader2 className="mr-1 size-3.5 animate-spin" />
+                              ) : (
+                                <CheckCircle className="mr-1 size-3.5" />
+                              )}
+                              一键全部完成
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="ghost"
@@ -482,6 +601,7 @@ export default function PlansPage() {
       <DayDetailDialog
         day={selectedDay}
         open={dayDialogOpen}
+        initialEditingExerciseId={editingExerciseId}
         onClose={() => setDayDialogOpen(false)}
         onPlanUpdated={(plan) => {
           setActivePlan(plan);
