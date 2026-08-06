@@ -2,7 +2,7 @@
 from typing import Dict, List, Optional, Set, Tuple
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import case, delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import CheckinExercise
@@ -151,8 +151,31 @@ class ExerciseService:
     async def search_by_name(
         db: AsyncSession, name: str
     ) -> Optional[Exercise]:
+        """按名称匹配单个动作（中文名或英文名均命中）。
+
+        排序策略保证结果稳定且更贴合用户输入：
+        1. 精确匹配（中文名或英文名全等）优先于子串匹配；
+        2. 同级内名称更短者优先（"深蹲" 命中 "深蹲" 而非 "杠铃深蹲"）。
+        """
+        name_match = or_(
+            Exercise.name.ilike(f"%{name}%"),
+            Exercise.name_en.ilike(f"%{name}%"),
+        )
+        exact_rank = case(
+            # ilike 不带通配符 = 大小写不敏感全等
+            (or_(Exercise.name.ilike(name), Exercise.name_en.ilike(name)), 0),
+            else_=1,
+        )
+        # 取中/英文名中较短者作为"更接近用户输入"的度量（name_en 可能为 NULL）
+        matched_len = func.least(
+            func.char_length(Exercise.name),
+            func.char_length(func.coalesce(Exercise.name_en, Exercise.name)),
+        )
         result = await db.execute(
-            select(Exercise).where(Exercise.name.ilike(f"%{name}%")).limit(1)
+            select(Exercise)
+            .where(name_match)
+            .order_by(exact_rank, matched_len)
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -169,6 +192,85 @@ class ExerciseService:
         for name in names:
             matched[name] = await ExerciseService.search_by_name(db, name)
         return matched
+
+    # exercises.embedding 向量列是否可用（进程级缓存）
+    _embedding_col_available: Optional[bool] = None
+
+    @staticmethod
+    async def semantic_available(db: AsyncSession) -> bool:
+        """语义检索是否可用（embedding 向量列存在）。
+
+        pgvector 扩展不可用时 init_db 不会创建该列，语义检索整体关闭（不做降级）：
+        本方法返回 False，调用方自行回退关键词检索。结果进程级缓存，只探测一次。
+        """
+        if ExerciseService._embedding_col_available is None:
+            result = await db.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns"
+                    " WHERE table_name = 'exercises' AND column_name = 'embedding'"
+                    " AND udt_name = 'vector'"
+                )
+            )
+            ExerciseService._embedding_col_available = result.scalar() is not None
+        return ExerciseService._embedding_col_available
+
+    @staticmethod
+    def build_embedding_text(ex: Exercise) -> str:
+        """拼接用于向量化的动作文本（名称中英 + 肌群 + 器械 + 描述）。
+
+        供回填脚本与新增动作时生成 embedding 输入，保证检索与入库同口径。
+        """
+        parts = [
+            ex.name or "",
+            ex.name_en or "",
+            ex.muscle_subgroup_zh or ex.muscle_subgroup or "",
+            ex.target_zh or ex.target or "",
+            ex.equipment_zh or ex.equipment or "",
+            ex.description or "",
+        ]
+        return " | ".join(p for p in parts if p)
+
+    @staticmethod
+    async def semantic_search(
+        db: AsyncSession,
+        query_embedding: List[float],
+        muscle_group: Optional[str] = None,
+        equipment: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        category: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Tuple[Exercise, float]]:
+        """按语义向量检索动作，返回 [(Exercise, similarity)] 按相似度降序。
+
+        服务层保持纯净：query_embedding 由调用方（tool 层）用 embedding 模型算好传入，
+        本方法只做向量相似度排序，不依赖 agents.harness。
+
+        仅支持 pgvector 原生余弦距离排序；embedding 向量列不存在（扩展缺失）时
+        直接返回空，调用方回退关键词检索（不做降级）。
+        仅检索已回填 embedding 的动作（embedding 非空）。
+        """
+        if not await ExerciseService.semantic_available(db):
+            return []
+
+        filters = []
+        if muscle_group:
+            filters.append(Exercise.muscle_group == muscle_group)
+        if equipment:
+            filters.append(Exercise.equipment == equipment)
+        if difficulty:
+            filters.append(Exercise.difficulty == difficulty)
+        if category:
+            filters.append(Exercise.category == category)
+
+        distance = Exercise.embedding.cosine_distance(query_embedding)
+        stmt = (
+            select(Exercise, distance.label("distance"))
+            .where(Exercise.embedding.isnot(None), *filters)
+            .order_by(distance)
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        return [(ex, 1.0 - float(dist)) for ex, dist in result.all()]
 
     @staticmethod
     async def create_exercise(db: AsyncSession, data: dict) -> Exercise:

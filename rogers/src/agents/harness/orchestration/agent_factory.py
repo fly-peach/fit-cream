@@ -353,13 +353,14 @@ def _get_default_tools() -> list:
     except ImportError:
         pass
 
-    # 4. Skill 加载工具 + 用户画像摘要工具 + 计划提案展示工具
+    # 4. Skill 加载工具 + 用户画像摘要工具 + 计划提案展示工具 + 信息采集表单工具
     try:
         from src.agents.harness.tools.skill.skill_load_tool import skill_load_tool
         from src.agents.harness.tools.user.summary_tools import get_user_summary_tool
         from src.agents.harness.tools.plan.present_plan_tool import present_plan_tool
+        from src.agents.harness.tools.plan.present_form_tool import present_form_tool
 
-        tools.extend([skill_load_tool, get_user_summary_tool, present_plan_tool])
+        tools.extend([skill_load_tool, get_user_summary_tool, present_plan_tool, present_form_tool])
     except ImportError:
         pass
 

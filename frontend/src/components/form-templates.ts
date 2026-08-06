@@ -1,0 +1,293 @@
+/**
+ * Intake 信息采集表单模板
+ *
+ * 模板定义在前端（字段/类型/选项/是否落库），后端 present_form_tool 只传
+ * form_id + 已知字段预填值，FormCard 按模板自动渲染。
+ *
+ * persist=true：提交后 agent 调 update_user_profile_tool 写入档案
+ * persist=false：仅用于本次计划设计，agent 禁止写库
+ */
+
+export type FormFieldType = "number" | "text" | "textarea" | "select";
+
+export interface FormFieldOption {
+  value: string;
+  label: string;
+}
+
+export interface FormFieldDef {
+  key: string;
+  label: string;
+  type: FormFieldType;
+  options?: FormFieldOption[];
+  placeholder?: string;
+  hint?: string;
+  unit?: string;
+  required?: boolean;
+}
+
+export interface FormTemplate {
+  id: string;
+  title: string;
+  persist: boolean;
+  fields: FormFieldDef[];
+}
+
+const GOAL_OPTIONS: FormFieldOption[] = [
+  { value: "lose_fat", label: "减脂" },
+  { value: "gain_muscle", label: "增肌" },
+  { value: "maintain", label: "保持健康" },
+  { value: "improve_health", label: "改善体质" },
+];
+
+const GENDER_OPTIONS: FormFieldOption[] = [
+  { value: "male", label: "男" },
+  { value: "female", label: "女" },
+  { value: "other", label: "其他" },
+];
+
+export const FORM_TEMPLATES: Record<string, FormTemplate> = {
+  body_profile: {
+    id: "body_profile",
+    title: "基础身体数据",
+    persist: true,
+    fields: [
+      { key: "height_cm", label: "身高", type: "number", unit: "cm", required: true, placeholder: "如 175" },
+      { key: "weight_kg", label: "体重", type: "number", unit: "kg", required: true, placeholder: "如 70" },
+      { key: "age", label: "年龄", type: "number", unit: "岁", required: true, placeholder: "如 25" },
+      { key: "gender", label: "性别", type: "select", options: GENDER_OPTIONS, required: true },
+      { key: "goal", label: "健身目标", type: "select", options: GOAL_OPTIONS, required: true },
+    ],
+  },
+
+  goal_motivation: {
+    id: "goal_motivation",
+    title: "目标与动机",
+    persist: false,
+    fields: [
+      {
+        key: "specific_goal",
+        label: "具体期望",
+        type: "text",
+        required: true,
+        placeholder: "如：3 个月减脂 5kg / 卧推达到 80kg",
+      },
+      { key: "timeline", label: "期望达成时间", type: "text", placeholder: "如：3 个月内" },
+      {
+        key: "motivation",
+        label: "运动动机",
+        type: "textarea",
+        placeholder: "是什么驱动你坚持运动？",
+      },
+    ],
+  },
+
+  health_safety: {
+    id: "health_safety",
+    title: "健康与安全基线",
+    persist: false,
+    fields: [
+      {
+        key: "medical_history",
+        label: "既往病史与当前健康状况",
+        type: "textarea",
+        required: true,
+        placeholder: "如：高血压、糖尿病等慢性病，无则填「无」",
+      },
+      {
+        key: "injuries",
+        label: "伤病与身体限制",
+        type: "textarea",
+        required: true,
+        placeholder: "如：膝盖旧伤、腰背不适、关节活动受限，无则填「无」",
+      },
+      {
+        key: "medication",
+        label: "用药情况",
+        type: "text",
+        required: true,
+        placeholder: "正在服用的药物（可能影响运动生理反应），无则填「无」",
+      },
+      {
+        key: "parq_result",
+        label: "PAR-Q 运动风险自查",
+        type: "select",
+        required: true,
+        hint: "运动中是否出现过胸痛、头晕、关节疼痛等不适？",
+        options: [
+          { value: "low", label: "无上述情况（低风险）" },
+          { value: "uncertain", label: "不确定" },
+          { value: "high", label: "有上述情况（建议先咨询医生）" },
+        ],
+      },
+      {
+        key: "doctor_advice",
+        label: "医生建议（如有）",
+        type: "text",
+        placeholder: "医生的运动许可或限制说明",
+      },
+    ],
+  },
+
+  fitness_level: {
+    id: "fitness_level",
+    title: "当前体能水平",
+    persist: false,
+    fields: [
+      {
+        key: "training_experience",
+        label: "系统训练经验",
+        type: "select",
+        required: true,
+        options: [
+          { value: "never", label: "从未系统训练" },
+          { value: "beginner", label: "初学者（不足 1 年）" },
+          { value: "intermediate", label: "进阶（1-3 年）" },
+          { value: "advanced", label: "资深（3 年以上）" },
+        ],
+      },
+      {
+        key: "cardio_level",
+        label: "心肺耐力",
+        type: "select",
+        required: true,
+        hint: "连续快走或慢跑 20 分钟的轻松程度",
+        options: [
+          { value: "beginner", label: "吃力（走几步就喘）" },
+          { value: "intermediate", label: "可以完成但较累" },
+          { value: "advanced", label: "轻松完成" },
+        ],
+      },
+      {
+        key: "strength_level",
+        label: "力量水平",
+        type: "select",
+        required: true,
+        options: [
+          { value: "beginner", label: "入门（俯卧撑不足 10 个）" },
+          { value: "intermediate", label: "中等（俯卧撑 10-30 个）" },
+          { value: "advanced", label: "良好（俯卧撑 30 个以上或有举铁基础）" },
+        ],
+      },
+      {
+        key: "flexibility",
+        label: "柔韧性",
+        type: "select",
+        options: [
+          { value: "limited", label: "较受限（弯腰摸不到脚尖）" },
+          { value: "normal", label: "正常" },
+          { value: "good", label: "良好" },
+        ],
+      },
+      {
+        key: "body_fat",
+        label: "体脂率（如知道）",
+        type: "text",
+        placeholder: "如 22%，不知道可留空",
+      },
+    ],
+  },
+
+  exercise_history: {
+    id: "exercise_history",
+    title: "运动经历与习惯",
+    persist: false,
+    fields: [
+      {
+        key: "weekly_frequency",
+        label: "当前每周运动次数",
+        type: "select",
+        required: true,
+        options: [
+          { value: "0", label: "几乎不运动" },
+          { value: "1-2", label: "1-2 次" },
+          { value: "3-4", label: "3-4 次" },
+          { value: "5+", label: "5 次以上" },
+        ],
+      },
+      {
+        key: "session_duration",
+        label: "每次运动时长",
+        type: "select",
+        options: [
+          { value: "<30", label: "30 分钟以内" },
+          { value: "30-60", label: "30-60 分钟" },
+          { value: ">60", label: "1 小时以上" },
+        ],
+      },
+      {
+        key: "preferred_types",
+        label: "常做/喜欢的运动",
+        type: "text",
+        placeholder: "如：跑步、撸铁、游泳、球类",
+      },
+      {
+        key: "past_results",
+        label: "过往训练成果",
+        type: "textarea",
+        placeholder: "过去是否取得过显著的健身成果？",
+      },
+    ],
+  },
+
+  lifestyle: {
+    id: "lifestyle",
+    title: "生活方式与客观环境",
+    persist: false,
+    fields: [
+      {
+        key: "occupation_schedule",
+        label: "职业与作息",
+        type: "text",
+        placeholder: "如：久坐办公，晚上有空；常出差",
+      },
+      {
+        key: "diet_habits",
+        label: "饮食习惯",
+        type: "textarea",
+        placeholder: "如：外卖为主、口味偏咸、不吃早餐",
+      },
+      { key: "supplements", label: "补剂使用", type: "text", placeholder: "如：蛋白粉、肌酸，无则留空" },
+      {
+        key: "sleep_quality",
+        label: "睡眠质量",
+        type: "select",
+        required: true,
+        options: [
+          { value: "poor", label: "较差（不足 6 小时或经常醒）" },
+          { value: "normal", label: "一般（6-7 小时）" },
+          { value: "good", label: "良好（7 小时以上）" },
+        ],
+      },
+      {
+        key: "stress_level",
+        label: "压力水平",
+        type: "select",
+        required: true,
+        options: [
+          { value: "low", label: "较低" },
+          { value: "medium", label: "中等" },
+          { value: "high", label: "较高" },
+        ],
+      },
+      {
+        key: "equipment",
+        label: "可用训练设备/场地",
+        type: "text",
+        required: true,
+        placeholder: "如：健身房、家用哑铃、无器械",
+      },
+      {
+        key: "preferred_time",
+        label: "偏好训练时段",
+        type: "select",
+        options: [
+          { value: "morning", label: "早晨" },
+          { value: "noon", label: "中午" },
+          { value: "evening", label: "晚上" },
+          { value: "flexible", label: "灵活" },
+        ],
+      },
+    ],
+  },
+};

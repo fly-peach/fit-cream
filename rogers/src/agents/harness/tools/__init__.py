@@ -5,7 +5,7 @@ FitCream Agent Tools
 每个 Tool 直接调用 Service 层函数（同进程融合，不走 HTTP）。
 
 目录结构（按业务域分包）：
-- plan/      计划类（create_plan / create_diet_plan / adjust_plan / list_plans / present_plan）
+- plan/      计划类（create_plan / create_diet_plan / adjust_plan / list_plans / present_plan / present_form）
 - training/  训练类（checkin / get_streak / get_exercises / query_stats）
 - diet/      饮食类（record_meal / query_diet_summary / manage_meal / set_nutrition_goals）
 - user/      用户类（get_user_profile / update_user_profile / get_user_summary）
@@ -20,6 +20,7 @@ from src.agents.harness.tools.plan import (
     adjust_plan_tool,
     list_plans_tool,
     present_plan_tool,
+    present_form_tool,
 )
 from src.agents.harness.tools.training import (
     checkin_tool,
@@ -61,4 +62,5 @@ __all__ = [
     "skill_load_tool",
     "get_user_summary_tool",
     "present_plan_tool",
+    "present_form_tool",
 ]

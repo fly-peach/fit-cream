@@ -13,6 +13,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
+from pgvector.sqlalchemy import Vector
+
+from app.config import settings
 from app.database import Base
 
 
@@ -94,6 +97,13 @@ class Exercise(Base):
     image: Mapped[Optional[str]] = mapped_column(String(255))
     gif_url: Mapped[Optional[str]] = mapped_column(String(255))
     attribution: Mapped[Optional[str]] = mapped_column(String(255))
+
+    # ---- 语义向量列（text-embedding-v3，供 Agent 语义检索动作）----
+    # 向量文本由 ExerciseService.build_embedding_text 生成（名称中英 + 肌群 + 器械 + 描述），
+    # 存量数据由 scripts/backfill_exercise_embeddings.py 回填；新列由 init_db 自动 ALTER。
+    # deferred=True：默认 SELECT 不加载本列。pgvector 扩展缺失时列不会被创建，
+    # 常规查询因不引用本列而不受影响；语义检索探测到列缺失则整体关闭（不做降级）。
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSION), nullable=True, deferred=True)
 
     @hybrid_property
     def description_en(self) -> Optional[str]:

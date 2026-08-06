@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"  # 视觉模型（图片识别）
     DASHSCOPE_TEMPERATURE: float = 1.2
     DASHSCOPE_ENABLE_THINKING: bool = True
+    # 文本向量化模型（记忆系统 + 动作库语义检索共用）
+    DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v3"
+    EMBEDDING_DIMENSION: int = 1024
 
     # ---------- 记忆容量上限 ----------
     # 每用户各类记忆的上限条数，超过上限时按淘汰策略删除多余记录

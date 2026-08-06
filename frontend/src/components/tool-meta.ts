@@ -45,6 +45,8 @@ export const toolNameMap: Record<string, string> = {
   save_event: "记录事件",
   skill_load_tool: "加载技能",
   get_user_summary_tool: "用户画像摘要",
+  present_plan_tool: "计划提案",
+  present_form_tool: "信息采集表单",
 };
 
 /** 工具名 -> 图标 */
@@ -77,4 +79,6 @@ export const toolIconMap: Record<string, LucideIcon> = {
   save_event: SparklesIcon,
   skill_load_tool: SparklesIcon,
   get_user_summary_tool: UserIcon,
+  present_plan_tool: ClipboardListIcon,
+  present_form_tool: ClipboardListIcon,
 };

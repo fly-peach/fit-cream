@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { useChatSSE } from "@/hooks/use-chat-sse";
@@ -35,6 +35,15 @@ import {
   ConfirmationTitle,
 } from "@/components/ai-elements/confirmation";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FormCard } from "@/components/form-card";
 import {
   ChainOfThought,
   ChainOfThoughtContent,
@@ -90,6 +99,7 @@ import {
   CameraIcon,
   BookOpenIcon,
   BrainIcon,
+  DumbbellIcon,
   LoaderCircleIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -175,10 +185,15 @@ function MessageItem({
   message,
   pendingApproval,
   onResume,
+  isLastAssistant,
+  onSubmitForm,
 }: {
   message: ChatMessage;
   pendingApproval?: { messageId: string } | null;
   onResume?: (decisions: { type: "approve" | "reject"; reason?: string }[]) => void;
+  /** 是否为最新一条助手消息（仅此消息上的表单卡可交互） */
+  isLastAssistant?: boolean;
+  onSubmitForm?: (text: string) => void;
 }) {
   if (message.role === "user") {
     const hasImages = !!message.images && message.images.length > 0;
@@ -207,6 +222,13 @@ function MessageItem({
   const hasSteps = !!message.steps?.length;
   const showLegacyReasoning = !hasSteps && (hasThinking || hasToolCalls);
   const isThinking = message.isStreaming && !message.content;
+
+  // present_form_tool 步骤单独渲染为信息采集表单卡（不进思考时间线）
+  const formSteps = (message.steps || []).filter(
+    (s) => s.type === "tool" && s.tool === "present_form_tool"
+  );
+  // 仅最新助手消息上的表单可交互；流式中禁止提交（sendMessage 会被拦截）
+  const formInteractive = !!isLastAssistant && !message.isStreaming && !!onSubmitForm;
 
   // present_plan_tool 步骤单独渲染为 Plan 卡片（不进思考时间线）
   const planSteps = (message.steps || []).filter(
@@ -238,6 +260,16 @@ function MessageItem({
             </ReasoningContent>
           </Reasoning>
         )}
+
+        {/* 信息采集表单卡片（Intake） */}
+        {formSteps.map((s, i) => (
+          <FormCard
+            key={`form-${s.id || i}`}
+            step={s}
+            interactive={formInteractive}
+            onSubmit={(text) => onSubmitForm?.(text)}
+          />
+        ))}
 
         {/* 计划提案卡片 */}
         {planSteps.map((s, i) => (
@@ -410,8 +442,9 @@ function AgentTrace({ steps, isStreaming }: { steps: AgentStep[]; isStreaming?: 
           const isLast = i === steps.length - 1;
           if (step.type === "tool") {
             const tool = step.tool || "unknown";
-            // present_plan_tool 不在思考时间线里渲染，由消息体的 Plan 卡片单独展示
-            if (tool === "present_plan_tool") return null;
+            // present_plan_tool / present_form_tool 不在思考时间线里渲染，
+            // 由消息体的 Plan 卡片 / 表单卡片单独展示
+            if (tool === "present_plan_tool" || tool === "present_form_tool") return null;
             const running = step.status === "running";
             const failed = step.status === "error";
             return (
@@ -446,17 +479,28 @@ function AgentTrace({ steps, isStreaming }: { steps: AgentStep[]; isStreaming?: 
   );
 }
 
+/** 计划提案中的单项数据变更（present_plan_tool.changes） */
+interface PlanChange {
+  domain?: string;
+  action?: string;
+  target?: string;
+  detail?: string;
+}
+
 /**
  * 计划提案卡片：把 present_plan_tool 步骤渲染为可折叠 Plan 卡片。
- * title/description/content 取自工具入参；running 时标题/摘要 shimmer。
+ * title/description/content/changes 取自工具入参；running 时标题/摘要 shimmer。
+ * changes 渲染为「即将执行的数据变更」总览表格，用户审批前的最后确认依据。
  */
 function PlanCard({ step }: { step: AgentStep }) {
   const input = (step.input || {}) as {
     title?: string;
     description?: string;
     content?: string;
+    changes?: PlanChange[];
   };
   const streaming = step.status === "running";
+  const changes = Array.isArray(input.changes) ? input.changes : [];
   return (
     <Plan isStreaming={streaming} defaultOpen>
       <PlanHeader>
@@ -467,6 +511,40 @@ function PlanCard({ step }: { step: AgentStep }) {
         <PlanTrigger />
       </PlanHeader>
       <PlanContent>
+        {changes.length > 0 && (
+          <div className="mb-3 overflow-hidden rounded-lg border border-emerald-200">
+            <div className="border-b border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-semibold text-emerald-900">
+              即将执行的数据变更
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-emerald-100 bg-emerald-50/30 text-left text-emerald-800/70">
+                  <th className="px-3 py-1.5 font-medium">范围</th>
+                  <th className="px-3 py-1.5 font-medium">操作</th>
+                  <th className="px-3 py-1.5 font-medium">对象</th>
+                  <th className="px-3 py-1.5 font-medium">说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                {changes.map((c, i) => (
+                  <tr key={i} className="border-b border-emerald-50 last:border-0">
+                    <td className="px-3 py-1.5 text-emerald-900">{c.domain || "—"}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700">
+                        {c.action || "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-emerald-900">{c.target || "—"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{c.detail || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="bg-emerald-50/40 px-3 py-1.5 text-[11px] text-emerald-700/80">
+              确认无误后点击下方「批准」，我就开始为你部署计划
+            </div>
+          </div>
+        )}
         <MessageResponse>{input.content || ""}</MessageResponse>
       </PlanContent>
     </Plan>
@@ -699,12 +777,76 @@ PromptInputAttachmentsDisplay.displayName = "PromptInputAttachmentsDisplay";
  * 读取并操作附件。图片以 base64 data URL 形式随消息提交，对接后端
  * ChatRequest.images，适配 DashScope Qwen-VL 多模态接口。
  */
+/**
+ * 「为我设计健身计划」确认弹窗：说明信息收集流程与隐私边界，
+ * 确认后发送指令消息触发 plan_creation 意图 + plan-creation skill 全流程。
+ */
+function DesignPlanDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-emerald-950">
+            <DumbbellIcon className="size-4 text-emerald-600" />
+            为我设计健身计划
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="space-y-3 text-sm">
+              <p>
+                我会基于你的个人情况，设计一份科学、安全、有效的训练计划（可选配饮食计划）。
+                开始前，我会通过几张表单卡片收集你的信息：
+              </p>
+              <div className="grid grid-cols-1 gap-1.5 rounded-lg bg-emerald-50/60 p-3 text-xs text-emerald-900">
+                <span>📋 目标与动机 —— 想达到什么效果、期望多久达成</span>
+                <span>🏥 健康与安全 —— 病史、伤病、用药（关乎运动安全，必需）</span>
+                <span>💪 当前体能水平 —— 心肺、力量、训练经验</span>
+                <span>🏃 运动经历 —— 训练频率、类型偏好、过往成果</span>
+                <span>💡 生活方式 —— 作息、饮食、睡眠、可用器械与时间</span>
+              </div>
+              <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                <li>你档案中已有的信息会直接复用，不会重复询问</li>
+                <li>缺失的基础数据（身高/体重等）请通过表单补充</li>
+                <li>收集完成后我会先展示计划提案与变更清单，经你确认才会保存</li>
+              </ul>
+              <p className="rounded-lg border border-emerald-100 bg-white px-3 py-2 text-xs text-emerald-700">
+                🔒 隐私说明：身高、体重等基础数据会存入你的档案；
+                病史、用药、睡眠等敏感信息仅用于本次计划设计，不会保存。
+              </p>
+            </div>
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button
+            onClick={onConfirm}
+            className="bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            开始设计
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ChatPromptInner({
   isStreaming,
   onStop,
+  onDesignPlan,
 }: {
   isStreaming: boolean;
   onStop: () => void;
+  onDesignPlan: () => void;
 }) {
   const attachments = usePromptInputAttachments();
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -750,6 +892,15 @@ function ChatPromptInner({
           >
             <CameraIcon className="size-4" />
           </PromptInputButton>
+          {/* 一键进入计划设计流程（弹窗确认后触发 plan_creation） */}
+          <PromptInputButton
+            tooltip="为我设计健身计划"
+            onClick={onDesignPlan}
+            className="gap-1 px-2 text-emerald-700 hover:text-emerald-800"
+          >
+            <DumbbellIcon className="size-4" />
+            <span className="hidden text-xs md:inline">为我设计健身计划</span>
+          </PromptInputButton>
         </PromptInputTools>
         <PromptInputSubmit
           status={isStreaming ? "streaming" : "ready"}
@@ -770,6 +921,21 @@ export default function ChatPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "memories">("chat");
+  const [designPlanOpen, setDesignPlanOpen] = useState(false);
+
+  // 最新一条助手消息 id：仅此消息上的表单卡可交互（提交后新消息追加即转只读）
+  const lastAssistantId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") return messages[i].id;
+    }
+    return null;
+  }, [messages]);
+
+  // 「为我设计健身计划」弹窗确认：发送指令消息触发 plan_creation 意图全流程
+  const handleDesignPlanConfirm = useCallback(() => {
+    setDesignPlanOpen(false);
+    sendMessage("请帮我设计健身计划");
+  }, [sendMessage]);
 
   // ---- 历史消息分页（首屏最近 10 条，向上滚动加载更早分页） ----
   /** 是否还有更早的消息可加载 */
@@ -1130,6 +1296,8 @@ export default function ChatPage() {
                 message={msg}
                 pendingApproval={pendingApproval}
                 onResume={resume}
+                isLastAssistant={msg.id === lastAssistantId}
+                onSubmitForm={sendMessage}
               />
             ))}
             <div ref={bottomRef} />
@@ -1148,10 +1316,20 @@ export default function ChatPage() {
               className="mx-auto max-w-3xl"
             >
               <PromptInputAttachmentsDisplay />
-              <ChatPromptInner isStreaming={isStreaming} onStop={stop} />
+              <ChatPromptInner
+                isStreaming={isStreaming}
+                onStop={stop}
+                onDesignPlan={() => setDesignPlanOpen(true)}
+              />
             </PromptInput>
           </PromptInputProvider>
         </div>
+
+        <DesignPlanDialog
+          open={designPlanOpen}
+          onOpenChange={setDesignPlanOpen}
+          onConfirm={handleDesignPlanConfirm}
+        />
 
         {/* 右侧会话历史抽屉 */}
         {sidebarOpen && (
