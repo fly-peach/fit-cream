@@ -40,6 +40,20 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # key: thread_id, value: asyncio.Event（set() 后流式生成器检测到并终止）
 _active_streams: Dict[str, asyncio.Event] = {}
 
+# SSE 事件中单个字符串字段的最大长度，防止 nginx proxy_buffer_size 溢出
+_MAX_SSE_FIELD_LENGTH = 5000
+
+
+def _truncate_tool_input(data, max_len: int = _MAX_SSE_FIELD_LENGTH):
+    """递归截断工具入参中的过长字符串字段，防止 SSE 单事件超出 nginx 缓冲区。"""
+    if isinstance(data, str):
+        return data[:max_len] + "…" if len(data) > max_len else data
+    if isinstance(data, dict):
+        return {k: _truncate_tool_input(v, max_len) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_truncate_tool_input(v, max_len) for v in data]
+    return data
+
 
 def _get_agent():
     from src.agents.agent_graph import get_agent
@@ -357,16 +371,18 @@ async def _run_agent_sse(
                 steps.append(tool_step)
                 _current_tool = tool_step
                 tool_calls.append(tool_step)
+                # SSE 事件使用截断后的入参，防止单事件超出 nginx 缓冲区
+                sse_input = _truncate_tool_input(tool_input or {})
                 yield _sse_event("step", {
                     "type": "tool",
                     "id": run_id,
                     "tool": tool_name,
-                    "input": tool_input or {},
+                    "input": sse_input,
                 })
                 yield _sse_event("tool_start", {
                     "id": run_id,
                     "tool": tool_name,
-                    "input": tool_input or {},
+                    "input": sse_input,
                 })
 
             elif kind == "on_tool_end":

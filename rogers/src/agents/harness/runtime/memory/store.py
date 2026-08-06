@@ -91,8 +91,17 @@ class MemoryStore:
         self.episodic_max = int(_get_setting("MEMORY_EPISODIC_MAX", "200"))
         self.procedural_max = int(_get_setting("MEMORY_PROCEDURAL_MAX", "50"))
         
-        # 创建异步引擎
-        self.engine = create_async_engine(database_url, echo=False)
+        # 创建异步引擎（使用与主应用相同的连接池配置）
+        pool_size = int(_get_setting("DB_POOL_SIZE", "10"))
+        max_overflow = int(_get_setting("DB_MAX_OVERFLOW", "20"))
+        pool_timeout = int(_get_setting("DB_POOL_TIMEOUT", "30"))
+        self.engine = create_async_engine(
+            database_url, echo=False,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_timeout=pool_timeout,
+            pool_pre_ping=True,
+        )
         self.async_session = async_sessionmaker(
             self.engine,
             class_=AsyncSession,
