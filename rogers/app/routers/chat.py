@@ -46,6 +46,35 @@ def _get_agent():
     return get_agent()
 
 
+async def _resolve_agent(
+    db: AsyncSession, thread_id: str, plan_design: bool, has_images: bool = False
+) -> tuple:
+    """按线程 agent_mode 解析 Agent 实例（路由 chokepoint）。
+
+    返回 ``(agent, is_non_vision)``：
+    - plan_design 请求直接路由到计划设计 graph；否则按 ThreadMeta.agent_mode 路由
+      （缺失 -> 默认 graph）。
+    - 图片例外：deepseek（计划设计模型）不支持视觉，plan_design 线程收到图片时
+      改走默认 qwen 图（qwen3.5-flash，已验证可处理多模态）。
+    - ``is_non_vision=True`` 表示本轮路由到 deepseek（不支持视觉），调用方应把历史中的
+      image_url 替换为占位文本，避免非视觉模型收到无法处理的图片块。
+    """
+    from src.agents.agent_graph import get_agent_by_mode
+
+    if plan_design:
+        if has_images:
+            logger.info(f"[Chat] plan_design 线程收到图片，改用默认 qwen 图 | thread={thread_id[:8]}")
+            return get_agent_by_mode(None), False
+        return get_agent_by_mode("plan_design"), True
+    mode = await ConversationService.get_thread_agent_mode(db, thread_id)
+    if mode == "plan_design" and has_images:
+        logger.info(f"[Chat] plan_design 线程收到图片，改用默认 qwen 图 | thread={thread_id[:8]}")
+        return get_agent_by_mode(None), False
+    if mode == "plan_design":
+        return get_agent_by_mode("plan_design"), True
+    return get_agent_by_mode(mode), False
+
+
 def _image_url_expired(url: str) -> bool:
     """判断 OSS 签名 URL 是否已过期（解析 Expires 查询参数）。"""
     if not url or not url.startswith("http"):
@@ -60,11 +89,14 @@ def _image_url_expired(url: str) -> bool:
         return False
 
 
-async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
-    """Agent 发送前清理 checkpoint 中已过期的多模态 image_url。
+async def _clean_expired_image_urls(checkpointer, thread_id: str, force_strip: bool = False) -> None:
+    """Agent 发送前清理 checkpoint 中的多模态 image_url。
 
-    过期的图片签名 URL 已无法被模型读取，替换为占位文本，
-    避免每轮重复发送无效图片浪费 token。无修改则不写 checkpoint。
+    - 默认：仅替换已过期的 OSS 签名 URL（已无法被模型读取）为占位文本，
+      避免每轮重复发送无效图片浪费 token。
+    - ``force_strip=True``：替换**所有** image_url（不论是否过期）为占位文本，
+      供非视觉模型（如 deepseek 计划设计模型）使用--图片已由 qwen 在上一轮分析完毕，
+      非视觉模型用不上且无法处理图片块。无修改则不写 checkpoint。
     """
     if checkpointer is None:
         return
@@ -88,7 +120,7 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
                 continue
             img = block.get("image_url") or {}
             url = img.get("url", "") if isinstance(img, dict) else ""
-            if url and _image_url_expired(url):
+            if force_strip or (url and _image_url_expired(url)):
                 block["type"] = "text"
                 block["text"] = "[图片已分析完毕]"
                 modified = True
@@ -459,26 +491,35 @@ async def send_message(
     - stopped: 用户手动停止
     - error: 错误
     """
-    thread_id = req.thread_id or str(uuid4())
+    thread_id = str(uuid4()) if req.plan_design else (req.thread_id or str(uuid4()))
     user_id_str = str(user.id)
 
     # 线程归属校验：指定已有线程时必须是当前用户所有，防跨用户注入
-    if req.thread_id and await ConversationService.thread_is_foreign(db, user.id, thread_id):
+    # （plan_design 为全新线程，跳过校验）
+    if req.thread_id and not req.plan_design and await ConversationService.thread_is_foreign(db, user.id, thread_id):
         raise ForbiddenException("无权访问该线程")
+
+    # plan_design：标记线程 agent_mode，后续 message/resume 按此路由到计划设计模型
+    if req.plan_design:
+        await ConversationService.upsert_thread_agent_mode(db, user.id, thread_id, "plan_design")
 
     # 保存用户消息（文本内容 + 图片 URL 列表记录到 metadata，供前端历史渲染）
     user_msg_text = req.message or "[图片消息]"
     user_msg_metadata = {"images": list(req.images)} if req.images else None
     await ConversationService.save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
 
-    agent = _get_agent()
+    # 解析 agent：plan_design 请求或按线程已记录的 agent_mode 路由；
+    # plan_design 线程的图片消息改走默认 qwen 图（deepseek 不支持视觉）。
+    # is_non_vision=True 表示本轮路由到 deepseek，需强制剥离历史图片为占位文本。
+    agent, is_non_vision = await _resolve_agent(db, thread_id, req.plan_design, has_images=bool(req.images))
     config = {
         "configurable": {"thread_id": thread_id, "user_id": user_id_str},
         "recursion_limit": 50,
     }
 
-    # Agent 发送前清理 checkpoint 中已过期的图片签名 URL，避免无效图片随历史重复发送
-    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
+    # 清理 checkpoint 中的图片：过期的 OSS 签名 URL 一律替换为占位文本；
+    # 路由到 deepseek（非视觉）时强制剥离所有 image_url（已由 qwen 分析完毕，deepseek 用不上）
+    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)
 
     # 构建动态上下文注入到对话首条消息之前
     context_msg = await _build_user_context(user)
@@ -555,11 +596,15 @@ async def resume_conversation(
     if await ConversationService.thread_is_foreign(db, user.id, thread_id):
         raise ForbiddenException("无权访问该线程")
 
-    agent = _get_agent()
+    # 按线程 agent_mode 路由（plan_design 线程续流仍走计划设计模型；
+    # 同一 checkpointer + 相同 graph 结构，resume 安全）。
+    # is_non_vision=True 时（路由到 deepseek）强制剥离历史图片，避免非视觉模型收到图片块
+    agent, is_non_vision = await _resolve_agent(db, thread_id, False)
     config = {
         "configurable": {"thread_id": thread_id, "user_id": user_id_str},
         "recursion_limit": 50,
     }
+    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)
 
     # 构建 resume 命令（decisions 顺序须与 approval_needed 的 action_requests 对齐）
     resume_command = _build_resume_command(req.decisions)
@@ -725,6 +770,7 @@ async def list_threads(
     thread_ids = [row.thread_id for row in rows]
     usage_map: dict[str, int] = {}
     title_map: dict[str, str] = {}
+    mode_map: dict[str, str] = {}
     if thread_ids:
         usage_stmt = select(ThreadUsage.thread_id, ThreadUsage.total_tokens).where(
             ThreadUsage.thread_id.in_(thread_ids)
@@ -732,13 +778,15 @@ async def list_threads(
         usage_rows = (await db.execute(usage_stmt)).all()
         usage_map = {r.thread_id: r.total_tokens for r in usage_rows}
 
-        title_stmt = select(ThreadMeta.thread_id, ThreadMeta.title).where(
-            ThreadMeta.thread_id.in_(thread_ids)
-        )
-        title_rows = (await db.execute(title_stmt)).all()
-        title_map = {
-            r.thread_id: r.title for r in title_rows if r.title
-        }
+        meta_stmt = select(
+            ThreadMeta.thread_id, ThreadMeta.title, ThreadMeta.agent_mode
+        ).where(ThreadMeta.thread_id.in_(thread_ids))
+        meta_rows = (await db.execute(meta_stmt)).all()
+        for r in meta_rows:
+            if r.title:
+                title_map[r.thread_id] = r.title
+            if r.agent_mode:
+                mode_map[r.thread_id] = r.agent_mode
 
     threads = []
     for row in rows:
@@ -754,6 +802,7 @@ async def list_threads(
             created_at=row.created_at,
             updated_at=row.updated_at,
             total_tokens=usage_map.get(row.thread_id, 0),
+            agent_mode=mode_map.get(row.thread_id),
         ))
 
     return ResponseModel(data=threads)

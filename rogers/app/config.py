@@ -78,6 +78,13 @@ class Settings(BaseSettings):
     DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v3"
     EMBEDDING_DIMENSION: int = 1024
 
+    # ---------- 计划设计专用模型 ----------
+    # 「为我设计健身计划」会话全程使用该模型（经同一 DashScope endpoint/API key）。
+    # 非 Qwen 模型须 PLAN_DESIGN_ENABLE_THINKING=false（避免发送 Qwen 专有 enable_thinking extra_body）。
+    PLAN_DESIGN_MODEL: str = "deepseek-v4-flash"
+    PLAN_DESIGN_ENABLE_THINKING: bool = False
+    PLAN_DESIGN_TEMPERATURE: float = 0.7
+
     # ---------- 记忆容量上限 ----------
     # 每用户各类记忆的上限条数，超过上限时按淘汰策略删除多余记录
     MEMORY_EPISODIC_MAX: int = 200

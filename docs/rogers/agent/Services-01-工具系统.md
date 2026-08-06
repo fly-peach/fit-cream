@@ -15,14 +15,21 @@
 
 ### 业务工具
 
-由 `harness/tools/__init__.py` 聚合导出，共 10 个工具：
+由 `harness/tools/__init__.py` 聚合导出，共 15 个工具：
 
 | 工具 | 功能 | 调用的 Service |
 |------|------|---------------|
 | list_plans_tool | 列出用户的所有训练计划 | PlanService.list_plans() |
+| get_plan_detail_tool | 查看计划详情（含训练日/动作ID） | PlanService.get_plan_detail() |
 | create_plan_tool | 根据目标创建训练计划 | PlanService.generate_plan_from_goal() |
 | create_diet_plan_tool | 创建饮食计划（自动估算热量） | DietPlanService.generate_diet_plan_from_goal() |
-| adjust_plan_tool | 调整现有计划 | PlanService.adjust_plan() |
+| update_plan_tool | 更新计划元信息（名称/目标/难度/周期） | PlanService.update_plan() |
+| delete_plan_tool | 归档计划（软删除） | PlanService.delete_plan() |
+| add_plan_day_tool | 增加训练日（按星期） | PlanService.add_plan_day() |
+| remove_plan_day_tool | 删除训练日（按星期） | PlanService.delete_plan_day() |
+| add_exercise_tool | 为训练日添加动作 | PlanService.add_exercise_to_day() |
+| update_exercise_tool | 修改动作 | PlanService.update_exercise() |
+| remove_exercise_tool | 删除动作 | PlanService.delete_exercise() |
 | checkin_tool | 记录训练打卡 | CheckinService.create_checkin() + ExerciseService.search_by_name() |
 | get_streak_tool | 查询连续打卡天数 | CheckinService.get_streak() |
 | query_stats_tool | 查询训练统计数据 | StatsService（多维度） |

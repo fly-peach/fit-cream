@@ -4,7 +4,7 @@
 提供训练计划的完整 CRUD 和智能生成逻辑：
 - 手动创建/更新/删除计划
 - 根据用户目标自动生成计划（Agent create_plan_tool 调用）
-- 计划调整（Agent adjust_plan_tool 调用）
+- 训练日/动作的增删改（Agent add/remove/update 系列工具调用）
 """
 from datetime import date as date_type
 from typing import List, Optional, Tuple
@@ -555,36 +555,3 @@ class PlanService:
         await db.flush()
         return plan_day, plan
 
-    @staticmethod
-    async def adjust_plan(
-        db: AsyncSession,
-        plan: Plan,
-        action: str,
-        details: str,
-    ) -> dict:
-        """调整计划"""
-        changes = {"action": action, "details": details, "summary": ""}
-
-        if action == "change_difficulty":
-            old_difficulty = plan.difficulty
-            if "初级" in details or "beginner" in details.lower():
-                plan.difficulty = "beginner"
-            elif "中级" in details or "intermediate" in details.lower():
-                plan.difficulty = "intermediate"
-            elif "高级" in details or "advanced" in details.lower():
-                plan.difficulty = "advanced"
-            changes["summary"] = f"难度从 {old_difficulty} 调整为 {plan.difficulty}"
-
-        elif action == "remove_day":
-            if plan.days:
-                last_day = plan.days[-1]
-                await db.delete(last_day)
-                changes["summary"] = f"移除了 {last_day.focus or '训练日'}"
-            else:
-                changes["summary"] = "没有可移除的训练日"
-
-        else:
-            changes["summary"] = f"执行了调整：{details}"
-
-        await db.flush()
-        return changes

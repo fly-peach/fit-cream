@@ -123,6 +123,8 @@ export interface Thread {
   updatedAt: string;
   messageCount: number;
   totalTokens: number;
+  /** 线程绑定的 agent 模式（plan_design -> 计划设计专用模型），供徽标展示 */
+  agentMode?: string;
 }
 
 /** 发送消息请求 */
@@ -130,6 +132,8 @@ export interface SendMessageRequest {
   message: string;
   thread_id: string | null;
   images?: string[];
+  /** 为 true 时后端新开线程并标记 plan_design，全程路由到计划设计专用模型 */
+  plan_design?: boolean;
 }
 
 /** 线程列表响应 */

@@ -35,7 +35,7 @@ Notes for AI agents working in this repo.
 ## HITL（Human-in-the-Loop）审批
 
 - 由 LangChain `HumanInTheLoopMiddleware` 实现，在 `_get_default_middleware(include_hitl=...)` 中**仅当 checkpointer 存在时启用**（`agent_factory.create_fitcream_agent` 传 `include_hitl=checkpointer is not None`）。
-- 中断工具：`create_plan_tool` / `create_diet_plan_tool` / `adjust_plan_tool`，`allowed_decisions=["approve","reject"]`。
+- 中断工具：`create_plan_tool` / `create_diet_plan_tool` / `delete_plan_tool` / `remove_plan_day_tool` / `remove_exercise_tool`，`allowed_decisions=["approve","reject"]`（破坏类中断；增改类不中断直接执行）。
 - `dev_graph` / `graph`（无 checkpointer）**不启用 HITL**，副作用工具自动放行。
 - 流程：`/chat/message` 流末检测 `agent.aget_state().tasks[*].interrupts` -> 发 `approval_needed` SSE -> 前端 Confirmation 卡片 -> `POST /chat/resume`（`Command(resume={"decisions":[...]})`）续流。
 - 「修改」语义：前端 reject + `reason`=修订稿 -> 后端映射为 `RejectDecision.message` 注入 -> agent 重新 `present_plan_tool` + `create_plan_tool` -> 新 `approval_needed`。

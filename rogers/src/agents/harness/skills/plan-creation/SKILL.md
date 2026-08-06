@@ -14,7 +14,7 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 - 用户要求根据当前数据重新规划训练或饮食
 - 用户明确要调整计划的总体结构（换目标、改天数、换分化），而非单点修改
 
-**不适用**：单点微调（如「减一天」「把周三改成休息」）直接用 `adjust_plan_tool`，无需走完整流程。
+**不适用**：单点微调（如「加个动作」「把周三改成休息日」「删掉卧推」）直接用 add/update/remove 系列工具，无需走完整流程。
 
 ## 流程
 
@@ -81,12 +81,36 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 - **reject（无修改）**：询问用户希望如何调整，根据反馈重新设计并再次 present_plan_tool + create
 - **reject（带修改稿）**：用户提供了修订后的方案，按修订稿重新设计并再次走提案+审批
 
+## 循环与收尾规则（重要）
+
+整个计划设计流程是一个**多轮推进循环**，直到用户批准执行才结束。每轮回复必须推进到下一个交互点，禁止开放式收尾。
+
+**每轮必须结束于以下两种状态之一：**
+1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息
+2. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool` 触发 HITL 中断，等待用户审批
+
+**禁止的收尾方式：**
+- 禁止以开放式文案收尾，如「需要时告诉我」「还有什么想问的吗」「随时找我」
+- 禁止在未到审批就停止并等待用户主动开口
+- 禁止调用创建工具之前跳过 `present_plan_tool` 提案展示
+
+**拒绝后的处理：**
+- 用户 reject（无修改）：主动询问调整方向，根据反馈重新设计 -> `present_plan_tool` + `create_plan_tool`
+- 用户 reject（带修改稿）：按修订稿重新设计 -> `present_plan_tool` + `create_plan_tool`
+- 每次 reject 后必须重新走完整的「提案 + 审批」流程，不得直接落库
+
+**唯一结束条件：** 审批通过（approve）-> 工具执行落库 -> 总结要点后流程结束。
+
 ## 审批边界（execute 前需用户确认的部分）
 
 以下工具在执行前会**强制中断等待用户审批**，无需你额外询问：
 - `create_plan_tool`（创建训练计划）
 - `create_diet_plan_tool`（创建饮食计划）
-- `adjust_plan_tool`（调整计划）
+- `delete_plan_tool`（归档计划）
+- `remove_plan_day_tool`（删除训练日）
+- `remove_exercise_tool`（删除动作）
+
+其余编辑类工具（`update_plan_tool` / `add_plan_day_tool` / `add_exercise_tool` / `update_exercise_tool`）不中断，直接执行；编辑/删除动作前先用 `get_plan_detail_tool` 获取 `plan_day_id` / `exercise_id`。
 
 ## 注意事项
 

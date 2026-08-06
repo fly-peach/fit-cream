@@ -19,6 +19,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.models.conversation import Conversation
+from src.agents.models.thread_meta import ThreadMeta
 
 
 class ConversationService:
@@ -184,3 +185,35 @@ class ConversationService:
         )
         await db.commit()
         return result.rowcount
+
+    @staticmethod
+    async def get_thread_agent_mode(
+        db: AsyncSession, thread_id: str
+    ) -> Optional[str]:
+        """查询线程绑定的 agent_mode（决定路由到哪个 graph）。
+
+        ThreadMeta 惰性创建，普通线程可能无记录 -> 返回 None（走默认 graph）。
+        """
+        stmt = select(ThreadMeta.agent_mode).where(ThreadMeta.thread_id == thread_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def upsert_thread_agent_mode(
+        db: AsyncSession, user_id: UUID, thread_id: str, agent_mode: str
+    ) -> None:
+        """标记线程的 agent_mode（upsert：无记录则创建，有记录则更新）。"""
+        meta = (
+            await db.execute(
+                select(ThreadMeta).where(ThreadMeta.thread_id == thread_id)
+            )
+        ).scalar_one_or_none()
+        if meta is None:
+            db.add(ThreadMeta(
+                user_id=user_id,
+                thread_id=thread_id,
+                agent_mode=agent_mode,
+            ))
+        else:
+            meta.agent_mode = agent_mode
+        await db.commit()

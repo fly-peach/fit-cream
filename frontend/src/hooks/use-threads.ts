@@ -27,6 +27,7 @@ export function useThreads() {
             updatedAt: t.updated_at as string,
             messageCount: (t.message_count as number) || 0,
             totalTokens: (t.total_tokens as number) || 0,
+            agentMode: (t.agent_mode as string) ?? undefined,
           }))
         );
       }

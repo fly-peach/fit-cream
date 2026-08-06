@@ -36,6 +36,8 @@ class ChatRequest(BaseModel):
         description="图片列表（URL 或 base64 data URL），最多 10 张",
     )
     thread_id: Optional[str] = Field(None, max_length=100)
+    # 为 true 时：生成新 thread_id 并标记 agent_mode=plan_design，全程路由到计划设计专用模型
+    plan_design: Optional[bool] = Field(None, description="是否开启计划设计会话（新线程 + 专用模型）")
 
     @model_validator(mode="after")
     def _require_message_or_images(self):
@@ -54,6 +56,8 @@ class ThreadOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     total_tokens: int = 0
+    # 线程绑定的 agent 模式（plan_design -> 计划设计专用模型），供前端徽标展示
+    agent_mode: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

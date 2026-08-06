@@ -253,7 +253,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         SkillsMiddleware(),
     ]
 
-    # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/调整计划）中断等待用户审批。
+    # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
     if include_hitl:
         from langchain.agents.middleware import HumanInTheLoopMiddleware
 
@@ -262,7 +262,9 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
                 interrupt_on={
                     "create_plan_tool": {"allowed_decisions": ["approve", "reject"]},
                     "create_diet_plan_tool": {"allowed_decisions": ["approve", "reject"]},
-                    "adjust_plan_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "delete_plan_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "remove_plan_day_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "remove_exercise_tool": {"allowed_decisions": ["approve", "reject"]},
                 },
                 description_prefix="即将执行计划操作，需要你确认",
             )
@@ -300,8 +302,15 @@ def _get_default_tools() -> list:
         from src.agents.harness.tools import (
             create_plan_tool,
             create_diet_plan_tool,
-            adjust_plan_tool,
             list_plans_tool,
+            get_plan_detail_tool,
+            update_plan_tool,
+            delete_plan_tool,
+            add_plan_day_tool,
+            remove_plan_day_tool,
+            add_exercise_tool,
+            update_exercise_tool,
+            remove_exercise_tool,
             checkin_tool,
             get_streak_tool,
             query_stats_tool,
@@ -317,8 +326,15 @@ def _get_default_tools() -> list:
         tools.extend([
             create_plan_tool,
             create_diet_plan_tool,
-            adjust_plan_tool,
             list_plans_tool,
+            get_plan_detail_tool,
+            update_plan_tool,
+            delete_plan_tool,
+            add_plan_day_tool,
+            remove_plan_day_tool,
+            add_exercise_tool,
+            update_exercise_tool,
+            remove_exercise_tool,
             checkin_tool,
             get_streak_tool,
             query_stats_tool,

@@ -5,7 +5,7 @@ FitCream Agent Tools
 每个 Tool 直接调用 Service 层函数（同进程融合，不走 HTTP）。
 
 目录结构（按业务域分包）：
-- plan/      计划类（create_plan / create_diet_plan / adjust_plan / list_plans / present_plan / present_form）
+- plan/      计划类（create_plan / create_diet_plan / list_plans / get_plan_detail / update_plan / delete_plan / add_plan_day / remove_plan_day / add_exercise / update_exercise / remove_exercise / present_plan / present_form）
 - training/  训练类（checkin / get_streak / get_exercises / query_stats）
 - diet/      饮食类（record_meal / query_diet_summary / manage_meal / set_nutrition_goals）
 - user/      用户类（get_user_profile / update_user_profile / get_user_summary）
@@ -15,12 +15,19 @@ FitCream Agent Tools
 """
 
 from src.agents.harness.tools.plan import (
-    create_plan_tool,
+    add_exercise_tool,
+    add_plan_day_tool,
     create_diet_plan_tool,
-    adjust_plan_tool,
+    create_plan_tool,
+    delete_plan_tool,
+    get_plan_detail_tool,
     list_plans_tool,
     present_plan_tool,
     present_form_tool,
+    remove_exercise_tool,
+    remove_plan_day_tool,
+    update_exercise_tool,
+    update_plan_tool,
 )
 from src.agents.harness.tools.training import (
     checkin_tool,
@@ -45,8 +52,15 @@ from src.agents.harness.tools.skill import skill_load_tool
 __all__ = [
     "create_plan_tool",
     "create_diet_plan_tool",
-    "adjust_plan_tool",
     "list_plans_tool",
+    "get_plan_detail_tool",
+    "update_plan_tool",
+    "delete_plan_tool",
+    "add_plan_day_tool",
+    "remove_plan_day_tool",
+    "add_exercise_tool",
+    "update_exercise_tool",
+    "remove_exercise_tool",
     "checkin_tool",
     "get_streak_tool",
     "query_stats_tool",

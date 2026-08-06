@@ -51,6 +51,9 @@ DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.5-flash")
 # 视觉模型备选（当主模型不支持图片识别时，可切换到 Qwen-VL 系列）
 DEFAULT_VISION_MODEL = _get_setting("DASHSCOPE_VISION_MODEL", "qwen3-vl-flash")
 
+# 计划设计专用模型（经同一 DashScope endpoint/API key，可切到 deepseek 等非 Qwen 模型）
+PLAN_DESIGN_MODEL = _get_setting("PLAN_DESIGN_MODEL", "deepseek-v4-flash")
+
 
 class ChatDashScope(ChatOpenAI):
     """
@@ -321,4 +324,21 @@ def create_chat_dashscope(
         streaming=streaming,
         stream_usage=True,
         **kwargs,
+    )
+
+
+def get_plan_design_model() -> ChatDashScope:
+    """构建计划设计专用模型实例。
+
+    读 PLAN_DESIGN_MODEL / PLAN_DESIGN_ENABLE_THINKING / PLAN_DESIGN_TEMPERATURE。
+    非 Qwen 模型必须 enable_thinking=False：ChatDashScope 仅在 enable_thinking=True 时
+    注入 Qwen 专有的 extra_body["enable_thinking"]，发送给 deepseek 等模型会报错。
+    """
+    enable_thinking = _get_setting("PLAN_DESIGN_ENABLE_THINKING", "false").lower() == "true"
+    temperature = float(_get_setting("PLAN_DESIGN_TEMPERATURE", "0.7"))
+    return create_chat_dashscope(
+        model=PLAN_DESIGN_MODEL,
+        temperature=temperature,
+        enable_thinking=enable_thinking,
+        streaming=True,
     )

@@ -931,12 +931,6 @@ export default function ChatPage() {
     return null;
   }, [messages]);
 
-  // 「为我设计健身计划」弹窗确认：发送指令消息触发 plan_creation 意图全流程
-  const handleDesignPlanConfirm = useCallback(() => {
-    setDesignPlanOpen(false);
-    sendMessage("请帮我设计健身计划");
-  }, [sendMessage]);
-
   // ---- 历史消息分页（首屏最近 10 条，向上滚动加载更早分页） ----
   /** 是否还有更早的消息可加载 */
   const [hasMore, setHasMore] = useState(false);
@@ -995,7 +989,7 @@ export default function ChatPage() {
     el.scrollTop = el.scrollHeight - metrics.height + metrics.top;
   }, [messages]);
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     seededThreadRef.current = null;
     loadedThreadIdRef.current = null;
     nextOlderPageRef.current = 0;
@@ -1003,7 +997,20 @@ export default function ChatPage() {
     setThreadId(null);
     clearMessages();
     setTab("chat");
-  };
+  }, [setThreadId, clearMessages, setTab]);
+
+  // 「为我设计健身计划」弹窗确认：新开线程 + 标记 plan_design 触发计划设计专用模型全流程
+  const handleDesignPlanConfirm = useCallback(() => {
+    setDesignPlanOpen(false);
+    handleNewChat();
+    sendMessage("请帮我设计健身计划", undefined, true);
+  }, [sendMessage, handleNewChat]);
+
+  // 当前线程是否为计划设计会话（全程使用计划设计专用模型），供 header 徽标展示
+  const isPlanDesignThread = useMemo(
+    () => threads.some((t) => t.id === currentThreadId && t.agentMode === "plan_design"),
+    [threads, currentThreadId]
+  );
 
   // 发送消息：支持文本 + 图片。图片先经后端转存阿里云 OSS（返回签名 URL），
   // 再以 URL 形式提交，后端走 image_analysis 意图链路（DashScope Qwen-VL）。
@@ -1165,7 +1172,15 @@ export default function ChatPage() {
               <BotMessageSquareIcon className="size-4 text-white" />
             </div>
             <div className="leading-tight">
-              <h1 className="text-base font-bold text-emerald-950">AI 教练</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-emerald-950">AI 教练</h1>
+                {isPlanDesignThread && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                    <DumbbellIcon className="size-2.5" />
+                    计划设计
+                  </span>
+                )}
+              </div>
               <p className="hidden text-xs text-emerald-600/60 sm:block">
                 你的私人健身顾问
               </p>

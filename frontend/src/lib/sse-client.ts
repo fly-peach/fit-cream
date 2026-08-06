@@ -9,12 +9,14 @@ export async function* streamChat(
   message: string,
   threadId: string | null,
   signal?: AbortSignal,
-  images?: string[]
+  images?: string[],
+  planDesign?: boolean
 ): AsyncGenerator<SSEEvent> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   const body: Record<string, unknown> = { message, thread_id: threadId };
   if (images && images.length > 0) body.images = images;
+  if (planDesign) body.plan_design = true;
 
   const response = await fetch(`${API_URL}/chat/message`, {
     method: "POST",

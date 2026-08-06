@@ -218,7 +218,7 @@ export function useChatSSE(
   );
 
   const sendMessage = useCallback(
-    async (content: string, images?: string[]) => {
+    async (content: string, images?: string[], planDesign?: boolean) => {
       const hasText = content.trim().length > 0;
       const hasImages = !!images && images.length > 0;
       if ((!hasText && !hasImages) || isStreaming) return;
@@ -256,7 +256,7 @@ export function useChatSSE(
       const fullThinkingRef = { current: "" };
 
       try {
-        for await (const event of streamChat(content, threadId, controller.signal, images)) {
+        for await (const event of streamChat(content, threadId, controller.signal, images, planDesign)) {
           switch (event.event) {
             case "start":
               // 后端返回 thread_id，同步到全局 store

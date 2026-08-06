@@ -76,7 +76,6 @@ HealthMetricService（含于 UserService）
 | update_exercise | 更新动作 | 返回 (plan_exercise, plan) |
 | delete_exercise | 删除动作 | 返回 (plan_exercise, plan) |
 | generate_plan_from_goal | AI 生成计划 | 根据目标、难度自动创建完整计划 |
-| adjust_plan | AI 调整计划 | 支持：移除日、改难度、改动作 |
 
 归属验证优化：`_verify_plan_day_ownership` 和 `_verify_exercise_ownership` 使用单条 JOIN 查询（PlanDayExercise → PlanDay → Plan）替代原有的 2-3 次串行查询。
 
