@@ -201,7 +201,7 @@ function MessageItem({
               ))}
             </div>
           )}
-          {hasText && <span>{message.content}</span>}
+          {hasText && <MessageResponse>{message.content}</MessageResponse>}
         </MessageContent>
       </Message>
     );
@@ -446,9 +446,9 @@ function StreamSteps({
         if (step.type === "reply") {
           if (!step.content) return null;
           return (
-            <p key={i} className="whitespace-pre-wrap leading-relaxed">
-              {step.content}
-            </p>
+            <div key={i} className="leading-relaxed">
+              <MessageResponse>{step.content}</MessageResponse>
+            </div>
           );
         }
         if (step.type === "tool") {
@@ -472,7 +472,9 @@ function StreamSteps({
       })}
       {/* 历史兼容：steps 无 reply 步骤（旧消息/旧后端）时，追加 message.content 作为正文 */}
       {!hasReply && fallbackContent && (
-        <p className="whitespace-pre-wrap leading-relaxed">{fallbackContent}</p>
+        <div className="leading-relaxed">
+          <MessageResponse>{fallbackContent}</MessageResponse>
+        </div>
       )}
       {isStreaming && (
         <span className="inline-block h-4 w-1.5 animate-pulse bg-muted-foreground/40" />
