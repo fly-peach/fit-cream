@@ -48,7 +48,7 @@ export interface ToolCall {
 }
 
 /** ReAct 步骤类型（步骤流中的节点类型） */
-export type AgentStepType = "thought" | "tool";
+export type AgentStepType = "thought" | "tool" | "reply";
 
 /** ReAct 步骤：思考段或工具调用，按 agent loop 轮次顺序交错 */
 export interface AgentStep {

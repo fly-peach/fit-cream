@@ -151,6 +151,17 @@ export function useChatSSE(
                   input: (s.input as Record<string, unknown>) || {},
                   status: "running",
                 });
+              } else if (s.type === "reply") {
+                // 回复内容步骤：连续 reply 合并（同 thought 逻辑），跨工具调用分段
+                const last = steps[steps.length - 1];
+                if (last && last.type === "reply") {
+                  steps[steps.length - 1] = {
+                    ...last,
+                    content: (last.content || "") + (s.delta || ""),
+                  };
+                } else {
+                  steps.push({ type: "reply", content: s.delta || "" });
+                }
               } else if (s.type === "tool_result") {
                 const idx = steps.findIndex(
                   (st) => st.type === "tool" && st.id === s.id

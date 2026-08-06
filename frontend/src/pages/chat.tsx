@@ -45,12 +45,6 @@ import {
 } from "@/components/ui/dialog";
 import { FormCard } from "@/components/form-card";
 import {
-  ChainOfThought,
-  ChainOfThoughtContent,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep,
-} from "@/components/ai-elements/chain-of-thought";
-import {
   Attachments,
   Attachment,
   AttachmentPreview,
@@ -86,7 +80,7 @@ import { AppLayout } from "@/components/app-layout";
 import { MemoryPanel } from "@/components/memory-panel";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { ToolCallCard } from "@/components/tool-call-card";
-import { toolIconMap, toolNameMap } from "@/components/tool-meta";
+import { toolNameMap } from "@/components/tool-meta";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -101,7 +95,6 @@ import {
   BrainIcon,
   DumbbellIcon,
   LoaderCircleIcon,
-  WrenchIcon,
 } from "lucide-react";
 import type { AgentStep, ChatMessage, ToolApproval, ToolCall } from "@/types/chat";
 
@@ -223,10 +216,6 @@ function MessageItem({
   const showLegacyReasoning = !hasSteps && (hasThinking || hasToolCalls);
   const isThinking = message.isStreaming && !message.content;
 
-  // present_form_tool 步骤单独渲染为信息采集表单卡（不进思考时间线）
-  const formSteps = (message.steps || []).filter(
-    (s) => s.type === "tool" && s.tool === "present_form_tool"
-  );
   // 仅最新助手消息上的表单可交互；流式中禁止提交（sendMessage 会被拦截）
   const formInteractive = !!isLastAssistant && !message.isStreaming && !!onSubmitForm;
 
@@ -245,11 +234,19 @@ function MessageItem({
   return (
     <Message from="assistant">
       <MessageContent>
-        {/* 新格式：ChainOfThought 时间线平铺 ReAct 步骤流（思考段 + 工具步骤交错） */}
-        {hasSteps && <AgentTrace steps={message.steps!} isStreaming={message.isStreaming} />}
+        {/* 新格式：扁平时间流（思考→回复→工具 交错渲染） */}
+        {hasSteps && (
+          <StreamSteps
+            steps={message.steps!}
+            isStreaming={message.isStreaming}
+            fallbackContent={cleaned}
+            formInteractive={formInteractive}
+            onSubmitForm={onSubmitForm}
+          />
+        )}
 
         {/* 旧格式降级：保持原折叠块 */}
-        {showLegacyReasoning && (
+        {!hasSteps && showLegacyReasoning && (
           <Reasoning isStreaming={isThinking}>
             <ReasoningTrigger />
             <ReasoningContent>
@@ -260,21 +257,6 @@ function MessageItem({
             </ReasoningContent>
           </Reasoning>
         )}
-
-        {/* 信息采集表单卡片（Intake） */}
-        {formSteps.map((s, i) => (
-          <FormCard
-            key={`form-${s.id || i}`}
-            step={s}
-            interactive={formInteractive}
-            onSubmit={(text) => onSubmitForm?.(text)}
-          />
-        ))}
-
-        {/* 计划提案卡片 */}
-        {planSteps.map((s, i) => (
-          <PlanCard key={`plan-${s.id || i}`} step={s} />
-        ))}
 
         {/* HITL 审批卡片 */}
         {approvals.map((a, i) => (
@@ -289,7 +271,8 @@ function MessageItem({
           />
         ))}
 
-        {cleaned && <MessageResponse>{cleaned}</MessageResponse>}
+        {/* 旧格式（无 steps）的正文 */}
+        {!hasSteps && cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
         {message.isStreaming && !message.content && !hasSteps && !showLegacyReasoning && (
           <span className="animate-pulse text-muted-foreground">▊</span>
@@ -421,61 +404,80 @@ function toolCallFromStep(step: AgentStep): ToolCall {
  * - tool 步骤：工具图标 + 中文名 + 运行态 spinner，结果正文以 embedded
  *   ToolCallCard 嵌入步骤 children（无卡片外壳，避免与节点头部重复）
  */
-function AgentTrace({ steps, isStreaming }: { steps: AgentStep[]; isStreaming?: boolean }) {
-  const [open, setOpen] = useState(true);
-  const prevStreamingRef = useRef(false);
-
-  useEffect(() => {
-    const was = prevStreamingRef.current;
-    prevStreamingRef.current = !!isStreaming;
-    if (was && !isStreaming) {
-      const timer = setTimeout(() => setOpen(false), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isStreaming]);
-
+/**
+ * 扁平时间流渲染：把 ReAct 步骤序列按真实顺序交错展示
+ * （思考▸ → 回复 → 工具卡 → 思考▸ → … → 最终回复），
+ * 表单/计划在原位渲染。历史消息（steps 无 reply）时用 fallbackContent 兜底正文。
+ */
+function StreamSteps({
+  steps,
+  isStreaming,
+  fallbackContent,
+  formInteractive,
+  onSubmitForm,
+}: {
+  steps: AgentStep[];
+  isStreaming?: boolean;
+  fallbackContent?: string;
+  formInteractive?: boolean;
+  onSubmitForm?: (text: string) => void;
+}) {
+  const hasReply = steps.some((s) => s.type === "reply");
   return (
-    <ChainOfThought open={open} onOpenChange={setOpen}>
-      <ChainOfThoughtHeader>思考过程</ChainOfThoughtHeader>
-      <ChainOfThoughtContent>
-        {steps.map((step, i) => {
-          const isLast = i === steps.length - 1;
-          if (step.type === "tool") {
-            const tool = step.tool || "unknown";
-            // present_plan_tool / present_form_tool 不在思考时间线里渲染，
-            // 由消息体的 Plan 卡片 / 表单卡片单独展示
-            if (tool === "present_plan_tool" || tool === "present_form_tool") return null;
-            const running = step.status === "running";
-            const failed = step.status === "error";
-            return (
-              <ChainOfThoughtStep
-                key={step.id || i}
-                icon={toolIconMap[tool] ?? WrenchIcon}
-                label={
-                  <span className="inline-flex items-center gap-1.5">
-                    {toolNameMap[tool] ?? tool}
-                    {running && <LoaderCircleIcon className="size-3 animate-spin" />}
-                  </span>
-                }
-                status={running ? "active" : "complete"}
-                className={failed ? "text-red-600" : undefined}
-              >
-                <ToolCallCard tc={toolCallFromStep(step)} embedded />
-              </ChainOfThoughtStep>
-            );
-          }
+    <div className="space-y-2">
+      {steps.map((step, i) => {
+        if (step.type === "thought") {
           if (!step.content) return null;
           return (
-            <ChainOfThoughtStep
+            <details
               key={i}
-              icon={BrainIcon}
-              label={<span className="whitespace-pre-wrap">{step.content}</span>}
-              status={isStreaming && isLast ? "active" : "complete"}
-            />
+              className="group rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5"
+            >
+              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <BrainIcon className="size-3.5" />
+                <span>思考</span>
+              </summary>
+              <div className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/90">
+                {step.content}
+              </div>
+            </details>
           );
-        })}
-      </ChainOfThoughtContent>
-    </ChainOfThought>
+        }
+        if (step.type === "reply") {
+          if (!step.content) return null;
+          return (
+            <p key={i} className="whitespace-pre-wrap leading-relaxed">
+              {step.content}
+            </p>
+          );
+        }
+        if (step.type === "tool") {
+          const tool = step.tool || "unknown";
+          if (tool === "present_form_tool") {
+            return (
+              <FormCard
+                key={step.id || i}
+                step={step}
+                interactive={!!formInteractive}
+                onSubmit={(text) => onSubmitForm?.(text)}
+              />
+            );
+          }
+          if (tool === "present_plan_tool") {
+            return <PlanCard key={step.id || i} step={step} />;
+          }
+          return <ToolCallCard key={step.id || i} tc={toolCallFromStep(step)} embedded />;
+        }
+        return null;
+      })}
+      {/* 历史兼容：steps 无 reply 步骤（旧消息/旧后端）时，追加 message.content 作为正文 */}
+      {!hasReply && fallbackContent && (
+        <p className="whitespace-pre-wrap leading-relaxed">{fallbackContent}</p>
+      )}
+      {isStreaming && (
+        <span className="inline-block h-4 w-1.5 animate-pulse bg-muted-foreground/40" />
+      )}
+    </div>
   );
 }
 

@@ -308,6 +308,8 @@ async def _run_agent_sse(
                 if chunk.content:
                     full_content += chunk.content
                     yield _sse_event("token", {"content": chunk.content})
+                    # 回复内容也作为 step 发射，让前端按「思考→回复→工具」顺序交错渲染
+                    yield _sse_event("step", {"type": "reply", "delta": chunk.content})
                 chunk_usage = getattr(chunk, "usage_metadata", None) or {}
                 if chunk_usage:
                     cur = run_usage.setdefault(
