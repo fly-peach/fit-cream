@@ -1058,6 +1058,15 @@ export default function ChatPage() {
     return latest;
   }, [messages]);
 
+  // 队列是否已结束：无任何 pending/in_progress 项（全部完成/跳过）时隐藏面板，
+  // 即计划设计流程收尾后面板自动关闭；新一轮设计重新创建队列时会再次出现。
+  const queueDone = useMemo(() => {
+    if (!latestQueue) return false;
+    return !latestQueue.todos.some(
+      (t) => t.status === "pending" || t.status === "in_progress"
+    );
+  }, [latestQueue]);
+
   // 发送消息：支持文本 + 图片。图片先经后端转存阿里云 OSS（返回签名 URL），
   // 再以 URL 形式提交，后端走 image_analysis 意图链路（DashScope Qwen-VL）。
   const handleSend = useCallback(
@@ -1378,7 +1387,9 @@ export default function ChatPage() {
           </ConversationContent>
         </Conversation>
 
-        {latestQueue && <PlanQueuePanel queue={latestQueue} onAction={sendMessage} />}
+        {latestQueue && !queueDone && (
+          <PlanQueuePanel queue={latestQueue} onAction={sendMessage} />
+        )}
 
         <div className="border-t border-emerald-100 bg-white/70 p-4 backdrop-blur-sm">
           <PromptInputProvider>
