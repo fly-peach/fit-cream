@@ -31,6 +31,7 @@ export interface FormTemplate {
   title: string;
   persist: boolean;
   fields: FormFieldDef[];
+  hint?: string;
 }
 
 const GOAL_OPTIONS: FormFieldOption[] = [
@@ -60,28 +61,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
     ],
   },
 
-  goal_motivation: {
-    id: "goal_motivation",
-    title: "目标与动机",
-    persist: false,
-    fields: [
-      {
-        key: "specific_goal",
-        label: "具体期望",
-        type: "text",
-        required: true,
-        placeholder: "如：3 个月减脂 5kg / 卧推达到 80kg",
-      },
-      { key: "timeline", label: "期望达成时间", type: "text", placeholder: "如：3 个月内" },
-      {
-        key: "motivation",
-        label: "运动动机",
-        type: "textarea",
-        placeholder: "是什么驱动你坚持运动？",
-      },
-    ],
-  },
-
   health_safety: {
     id: "health_safety",
     title: "健康与安全基线",
@@ -100,6 +79,18 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
         type: "textarea",
         required: true,
         placeholder: "如：膝盖旧伤、腰背不适、关节活动受限，无则填「无」",
+      },
+      {
+        key: "allergies",
+        label: "过敏史与食物不耐",
+        type: "text",
+        placeholder: "如：海鲜过敏、乳糖不耐受，无则留空",
+      },
+      {
+        key: "pregnancy",
+        label: "孕期/产后状态",
+        type: "text",
+        placeholder: "女性是否处于孕期、备孕或产后阶段，无关则留空",
       },
       {
         key: "medication",
@@ -230,6 +221,82 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
     ],
   },
 
+  diet_profile: {
+    id: "diet_profile",
+    title: "饮食偏好与结构",
+    persist: false,
+    fields: [
+      {
+        key: "diet_preferences",
+        label: "饮食偏好",
+        type: "text",
+        required: true,
+        placeholder: "如：少油清淡、爱吃肉、素食为主",
+      },
+      {
+        key: "food_allergies",
+        label: "忌口/过敏",
+        type: "text",
+        placeholder: "如：海鲜过敏、不吃辣、乳糖不耐受",
+      },
+      {
+        key: "cooking_condition",
+        label: "烹饪条件/时间",
+        type: "text",
+        placeholder: "如：早餐外食、午餐食堂、晚餐可自炊，做饭 30 分钟内",
+      },
+      {
+        key: "meals_per_day",
+        label: "每日餐次",
+        type: "select",
+        required: true,
+        options: [
+          { value: "2", label: "2 餐" },
+          { value: "3", label: "3 餐" },
+          { value: "4", label: "4 餐" },
+          { value: "5+", label: "5 餐以上" },
+        ],
+      },
+      {
+        key: "eating_out_ratio",
+        label: "外食 vs 自炊比例",
+        type: "select",
+        options: [
+          { value: "mostly_out", label: "基本外食" },
+          { value: "half", label: "各一半" },
+          { value: "mostly_home", label: "基本自炊" },
+        ],
+      },
+      {
+        key: "budget",
+        label: "每日饮食预算",
+        type: "text",
+        placeholder: "如：50 元/天，不确定可留空",
+      },
+    ],
+  },
+
+  baseline: {
+    id: "baseline",
+    title: "基线评测数据",
+    persist: false,
+    hint: "用于定训练强度与后续复测追踪，仅本次参考",
+    fields: [
+      {
+        key: "reference_lifts",
+        label: "力量参考动作（如有）",
+        type: "textarea",
+        placeholder: "如：卧推 60kg/深蹲 80kg/硬拉 90kg，未练过可留空",
+      },
+      {
+        key: "circumference",
+        label: "身体围度（如知道）",
+        type: "text",
+        placeholder: "如：腰围 80cm、臂围 35cm、胸围 95cm",
+      },
+    ],
+  },
+
   lifestyle: {
     id: "lifestyle",
     title: "生活方式与客观环境",
@@ -247,7 +314,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
         type: "textarea",
         placeholder: "如：外卖为主、口味偏咸、不吃早餐",
       },
-      { key: "supplements", label: "补剂使用", type: "text", placeholder: "如：蛋白粉、肌酸，无则留空" },
       {
         key: "sleep_quality",
         label: "睡眠质量",

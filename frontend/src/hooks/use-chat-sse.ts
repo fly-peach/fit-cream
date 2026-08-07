@@ -25,6 +25,7 @@ export function useChatSSE(
     output_tokens: 0,
     total_tokens: 0,
   });
+  const [compressionCount, setCompressionCount] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   // 当前会话累计值同步 ref：setState 异步，done 时需读最终值
   const usageRef = useRef<TokenUsage>({
@@ -32,8 +33,13 @@ export function useChatSSE(
     output_tokens: 0,
     total_tokens: 0,
   });
+  const compressionCountRef = useRef(0);
+  // 上下文窗口历史峰值（用于检测压缩：压缩后 total_tokens 从峰值显著回落）
+  const peakTokensRef = useRef(0);
   // 本页面会话内各线程实时累计值缓存：切换会话不丢已累计增量，避免被历史快照覆盖
   const usageCacheRef = useRef<Map<string, TokenUsage>>(new Map());
+  const compressionCacheRef = useRef<Map<string, number>>(new Map());
+  const peakTokensCacheRef = useRef<Map<string, number>>(new Map());
   // 当前流式/活动线程 id（新会话由 start 事件创建）
   const activeThreadIdRef = useRef<string | null>(threadId);
   const onUsageCommittedRef = useRef(onUsageCommitted);
@@ -72,6 +78,8 @@ export function useChatSSE(
   /** 累加 usage 到会话总量（sendMessage 与 resume 共用） */
   // usage SSE 为「当前上下文大小」绝对值（最近一次 LLM 调用的 input≈上下文窗口占用），
   // 非增量，故直接覆盖 usage：压缩后值回落，进度条回到 100% 以内。
+  // 压缩检测：total_tokens 从历史峰值回落超过 30% 且峰值 >= 50k，
+  // 视为 SummarizationMiddleware 触发了一次上下文压缩，计数 +1。
   const applyUsage = useCallback((u: TokenUsage) => {
     const next = {
       input_tokens: u.input_tokens || 0,
@@ -80,8 +88,25 @@ export function useChatSSE(
     };
     usageRef.current = next;
     setUsage(next);
+
+    const prevPeak = peakTokensRef.current;
+    if (next.total_tokens > prevPeak) {
+      peakTokensRef.current = next.total_tokens;
+    } else if (
+      prevPeak >= 50_000 &&
+      next.total_tokens < prevPeak * 0.7
+    ) {
+      compressionCountRef.current += 1;
+      setCompressionCount(compressionCountRef.current);
+      peakTokensRef.current = next.total_tokens;
+    }
+
     const tid = activeThreadIdRef.current;
-    if (tid) usageCacheRef.current.set(tid, next);
+    if (tid) {
+      usageCacheRef.current.set(tid, next);
+      compressionCacheRef.current.set(tid, compressionCountRef.current);
+      peakTokensCacheRef.current.set(tid, peakTokensRef.current);
+    }
   }, []);
 
   /**
@@ -524,6 +549,9 @@ export function useChatSSE(
     const zero: TokenUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
     usageRef.current = zero;
     setUsage(zero);
+    compressionCountRef.current = 0;
+    setCompressionCount(0);
+    peakTokensRef.current = 0;
   }, []);
 
   // 会话切换时用该会话上次「上下文大小」（threads.totalTokens，非累计消费）seed usage；
@@ -534,7 +562,15 @@ export function useChatSSE(
     const base = cached && cached.total_tokens > 0 ? cached : seed;
     usageRef.current = { ...base };
     setUsage({ ...base });
+
+    const cachedCompression = threadId ? compressionCacheRef.current.get(threadId) : undefined;
+    const comp = cachedCompression ?? 0;
+    compressionCountRef.current = comp;
+    setCompressionCount(comp);
+
+    const cachedPeak = threadId ? peakTokensCacheRef.current.get(threadId) : undefined;
+    peakTokensRef.current = cachedPeak ?? base.total_tokens;
   }, []);
 
-  return { messages, sendMessage, stop, resume, clearMessages, isStreaming, thinking, setMessages, usage, seedUsage, pendingApproval };
+  return { messages, sendMessage, stop, resume, clearMessages, isStreaming, thinking, setMessages, usage, compressionCount, seedUsage, pendingApproval };
 }

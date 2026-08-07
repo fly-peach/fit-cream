@@ -27,6 +27,8 @@ class PresentPlanInput(BaseModel):
         description=(
             "计划正文（markdown）：包含训练日/动作/组数/次数/重量的表格，"
             "或饮食计划的每日餐食安排。前端会渲染为 markdown。"
+            "须按用户经验水平分层设计，并在正文开头注明面向的经验层级"
+            "（初学者/进阶/资深）与对应的强度/容量规格。"
         )
     )
     changes: Optional[List[Dict[str, str]]] = Field(

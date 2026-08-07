@@ -26,13 +26,12 @@ class PresentFormInput(BaseModel):
 
     form_id: str = Field(
         description=(
-            "前端表单模板 key。可选值："
-            "body_profile(基础身体数据：身高/体重/年龄/性别/目标，提交后写入档案)、"
-            "goal_motivation(目标与动机)、"
-            "health_safety(健康与安全基线：病史/伤病/用药/PAR-Q 风险)、"
-            "fitness_level(当前体能水平)、"
-            "exercise_history(运动经历与习惯)、"
-            "lifestyle(生活方式与客观环境：作息/饮食/睡眠/压力/器械)"
+            "前端表单模板 key。可选值以前端 form-templates.ts 的 FORM_TEMPLATES keys "
+            "为准（单一来源，勿在此枚举）：body_profile(基础身体数据，可落库)、"
+            "health_safety(健康与安全基线)、fitness_level(当前体能水平)、"
+            "exercise_history(运动经历与习惯)、diet_profile(饮食偏好与结构)、"
+            "baseline(基线评测数据)、lifestyle(生活方式与客观环境)。"
+            "其中 body_profile 提交后写入档案，其余表单仅本次参考、禁止写库。"
         )
     )
     title: str = Field(description="表单卡片标题，如「补充基础身体数据」")

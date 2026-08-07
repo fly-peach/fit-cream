@@ -291,7 +291,7 @@ const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const MAX_IMAGE_FILES = 10;
 
 /** 历史消息分页大小：首屏仅加载最近 10 条，向上滚动再加载更早的分页 */
-const HISTORY_PAGE_SIZE = 10;
+const HISTORY_PAGE_SIZE = 8;
 
 /** 后端 /chat/threads/{id}/messages 返回的原始消息行 */
 interface HistoryMessageRow {
@@ -920,7 +920,7 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { threads, loadThreads, deleteThread, renameThread } = useThreads();
-  const { messages, sendMessage, stop, resume, clearMessages, isStreaming, setMessages, usage, seedUsage, pendingApproval } =
+  const { messages, sendMessage, stop, resume, clearMessages, isStreaming, setMessages, usage, compressionCount, seedUsage, pendingApproval } =
     useChatSSE(currentThreadId, loadThreads);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
@@ -1130,12 +1130,12 @@ export default function ChatPage() {
     loadThreadMessages(id);
   }, [sessionId, currentThreadId, setThreadId, loadThreadMessages]);
 
-  // 消息加载后触发 StickToBottom 重新测量高度（解决初始渲染空白问题）
+  // 初始消息加载后触发 Conversation 重挂载，让 StickToBottom 正确测量高度（仅首次从 0 变有消息时触发）
+  const initialLoadRef = useRef(false);
   useEffect(() => {
-    if (messages.length > 0) {
-      // 延迟触发，让 DOM 更新后 StickToBottom 的 ResizeObserver 能正确测量
+    if (messages.length > 0 && !initialLoadRef.current) {
+      initialLoadRef.current = true;
       const timer = setTimeout(() => {
-        // 通过改变 Conversation 的 key 强制重新挂载，触发正确的初始测量
         setConversationKey((k) => k + 1);
       }, 50);
       return () => clearTimeout(timer);
@@ -1207,6 +1207,7 @@ export default function ChatPage() {
             <Context
               usedTokens={usage.total_tokens}
               maxTokens={MAX_CONTEXT_TOKENS}
+              compressionCount={compressionCount}
               usage={{
                 inputTokens: usage.input_tokens,
                 outputTokens: usage.output_tokens,

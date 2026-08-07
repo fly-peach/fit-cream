@@ -26,6 +26,7 @@ interface ContextSchema {
   maxTokens: number;
   usage?: LanguageModelUsage;
   modelId?: ModelId;
+  compressionCount?: number;
 }
 
 const ContextContext = createContext<ContextSchema | null>(null);
@@ -47,11 +48,12 @@ export const Context = ({
   maxTokens,
   usage,
   modelId,
+  compressionCount,
   ...props
 }: ContextProps) => {
   const contextValue = useMemo(
-    () => ({ maxTokens, modelId, usage, usedTokens }),
-    [maxTokens, modelId, usage, usedTokens]
+    () => ({ maxTokens, modelId, usage, usedTokens, compressionCount }),
+    [maxTokens, modelId, usage, usedTokens, compressionCount]
   );
 
   return (
@@ -105,7 +107,7 @@ const ContextIcon = () => {
 export type ContextTriggerProps = ComponentProps<typeof Button>;
 
 export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
-  const { usedTokens, maxTokens } = useContextValue();
+  const { usedTokens, maxTokens, compressionCount } = useContextValue();
   const usedPercent = usedTokens / maxTokens;
   const renderedPercent = new Intl.NumberFormat("en-US", {
     maximumFractionDigits: 1,
@@ -116,6 +118,11 @@ export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
     <HoverCardTrigger>
       {children ?? (
         <Button type="button" variant="ghost" {...props}>
+          {compressionCount ? (
+            <span className="font-medium text-emerald-600">
+              压缩 {compressionCount}
+            </span>
+          ) : null}
           <span className="font-medium text-muted-foreground">
             {renderedPercent}
           </span>
