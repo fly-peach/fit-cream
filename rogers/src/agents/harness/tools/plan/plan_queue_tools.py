@@ -1,20 +1,20 @@
 """
 计划设计待办队列工具
 
-配合 skills/plan-creation/SKILL.md 的队列流程：
-    intake 分析 -> present_plan_queue_tool 渲染大纲+逐日待办
-    -> 逐日循环：update_plan_queue_item_tool(in_progress)
-       -> get_exercises_tool 检索候选
-       -> present_day_design_tool 展示当日方案 -> 用户确认
-       -> update_plan_queue_item_tool(completed, queue全量)
-    -> 全部完成 -> present_plan_tool + create_plan_tool(传入 days) 落库
+配合 skills/plan-creation/SKILL.md 的闭环待办流程：
+    收到设计意图 -> present_plan_queue_tool 创建「从信息收集到落库」的完整待办清单
+    -> 逐项执行：update_plan_queue_item_tool(in_progress) -> 做该步 -> update(completed) 打勾
+    -> 信息收集项用 present_form_tool 在对话内弹表单
+    -> 大纲确认后用 present_plan_queue_tool 重组清单（插入逐日设计 todo）
+    -> 逐日设计用 get_exercises_tool + present_day_design_tool 在对话内展示当日方案
+    -> 装配 present_plan_tool -> create_plan_tool(传 days) 落库审批
 
-三个工具均为纯展示/推进节点：不落库、不中断、无副作用，
-仅作为 ReAct 步骤流中的标记节点。前端按工具名特判渲染对应卡片，
-读取工具入参（而非返回值）。
+待办面板只渲染 todo（标题 + 状态），不含表单/方案等内容；所有表单与当日方案
+都在对话消息流内渲染（FormCard / DayDesignCard）。
 
-队列状态不进 agent state_schema：由消息历史中的工具调用承载，
-PlanQueueMiddleware 每轮 before_model 从历史重建快照注入给模型。
+三个工具均为纯展示/推进节点：不落库、不中断、无副作用。队列状态不进
+agent state_schema，由消息历史中的工具调用承载，PlanQueueMiddleware 每轮
+before_model 从历史重建快照注入给模型。
 """
 
 from typing import List, Optional
@@ -23,7 +23,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 
-# ===== 数据模型（前端 types/chat.ts 的等价 Pydantic 镜像）=====
+# ===== 单日方案（present_day_design_tool 用，内联渲染，不进待办面板）=====
 
 
 class DayExerciseDesign(BaseModel):
@@ -55,7 +55,7 @@ class DayExerciseDesign(BaseModel):
 
 
 class DayDesign(BaseModel):
-    """单日训练方案"""
+    """单日训练方案（内联展示，不进待办面板）"""
 
     day_of_week: int = Field(ge=1, le=7, description="1=周一 ... 7=周日")
     focus: str = Field(description="训练重点，如「胸部 + 三头」")
@@ -71,133 +71,52 @@ class DayDesign(BaseModel):
     )
 
 
-class PlanQueueTodo(BaseModel):
-    """队列中的一个待办项（一个训练日）"""
+# ===== 待办队列（待办面板只渲染这些，不含别的内容）=====
 
-    id: str = Field(description="项ID，如 day-1 / phaseA-day-1")
-    title: str = Field(description="展示标题，如「周一 · 胸部 + 三头」")
-    description: Optional[str] = Field(default=None, description="副标题，如「力量日 · 复合动作为主」")
+
+class PlanQueueTodo(BaseModel):
+    """待办清单中的一项（面板只显示标题 + 状态）"""
+
+    id: str = Field(description="项ID，如 intake-body / design-day-1 / approve")
+    title: str = Field(description="待办标题，如「收集基础身体数据」「设计周一 · 胸部+三头」")
     status: str = Field(
         default="pending",
         pattern="^(pending|in_progress|completed|skipped)$",
-        description="状态：pending(待设计)/in_progress(进行中)/completed(已完成)/skipped(跳过)",
+        description="状态：pending(待办)/in_progress(进行中)/completed(完成)/skipped(跳过)",
     )
-    day_type: str = Field(
-        pattern="^(strength|cardio|mixed|rest)$", description="当日类型"
-    )
-    day_design: Optional[DayDesign] = Field(
-        default=None, description="completed 后填充的当日最终方案"
-    )
-
-
-class PlanQueuePhase(BaseModel):
-    """计划阶段（v1 仅单阶段；recomp 多阶段为 v2，QueueSection 天然支持分区）"""
-
-    phase_id: str = Field(description="阶段ID，如 phaseA")
-    phase_title: str = Field(description="阶段标题，如「4 周增肌入门」")
-    weeks: Optional[int] = Field(default=None, ge=1, le=52, description="阶段周数")
-    todos: List[PlanQueueTodo] = Field(default_factory=list, description="该阶段的逐日待办")
 
 
 class PlanQueue(BaseModel):
-    """计划设计待办队列整体"""
+    """计划设计待办队列整体（面板只渲染 title + todos）"""
 
-    goal: str = Field(description="健身目标 lose_fat/gain_muscle/maintain/improve_health")
-    training_type: str = Field(
-        description=(
-            "主要训练类型：fat_loss(减脂)/muscle_gain(增肌)/"
-            "recomp(先减脂再增肌，v1 暂按单阶段)/cardio_only(纯有氧)/maintain(维持)"
-        )
-    )
-    weekly_frequency: int = Field(ge=1, le=7, description="每周训练天数")
-    difficulty: str = Field(
-        default="beginner",
-        pattern="^(beginner|intermediate|advanced)$",
-        description="难度层级",
-    )
-    phases: List[PlanQueuePhase] = Field(
-        default_factory=list, description="阶段列表（v1 通常一个）"
-    )
-
-
-class PresentPlanQueueInput(BaseModel):
-    """present_plan_queue_tool 入参（与 PlanQueue 字段同构，phases 可选以匹配函数签名）"""
-
-    goal: str = Field(description="健身目标 lose_fat/gain_muscle/maintain/improve_health")
-    training_type: str = Field(
-        description=(
-            "主要训练类型：fat_loss(减脂)/muscle_gain(增肌)/"
-            "recomp(先减脂再增肌，v1 暂按单阶段)/cardio_only(纯有氧)/maintain(维持)"
-        )
-    )
-    weekly_frequency: int = Field(ge=1, le=7, description="每周训练天数")
-    difficulty: str = Field(
-        default="beginner",
-        pattern="^(beginner|intermediate|advanced)$",
-        description="难度层级",
-    )
-    phases: Optional[List[PlanQueuePhase]] = Field(
-        default=None, description="阶段列表（v1 通常一个），含逐日 todos"
+    title: str = Field(description="队列标题，如「4周增肌计划设计」")
+    todos: List[PlanQueueTodo] = Field(
+        default_factory=list, description="从信息收集到落库的完整待办清单"
     )
 
 
 # ===== 工具 =====
 
 
-@tool(args_schema=PresentPlanQueueInput)
-async def present_plan_queue_tool(
-    goal: str,
-    training_type: str,
-    weekly_frequency: int,
-    difficulty: str = "beginner",
-    phases: Optional[List[PlanQueuePhase]] = None,
-) -> dict:
-    """
-    向用户展示「计划设计待办队列」：大纲 + 逐日待办清单（纯展示，不落库不中断）。
-
-    使用场景：
-    - intake 信息收集完成、分析出训练类型与分化策略后，用本工具渲染整个计划的设计进度面板
-    - 调用后前端顶部常驻渲染 Queue 待办面板，引导逐日协同设计
-
-    随后进入逐日循环：对每个 pending 日依次调用
-    update_plan_queue_item_tool(status="in_progress") -> get_exercises_tool 检索 ->
-    present_day_design_tool 展示方案 -> 用户确认 ->
-    update_plan_queue_item_tool(status="completed", queue=全量更新后的队列)。
-
-    Args:
-        goal: 健身目标
-        training_type: 主要训练类型
-        weekly_frequency: 每周训练天数
-        difficulty: 难度层级
-        phases: 阶段列表（含逐日 todos）
-
-    Returns:
-        ``{"ok": True}``
-    """
-    return {"ok": True}
-
-
 @tool
-async def present_day_design_tool(
-    item_id: str,
-    day_design: DayDesign,
-    rationale: str = "",
+async def present_plan_queue_tool(
+    title: str,
+    todos: List[PlanQueueTodo],
 ) -> dict:
     """
-    向用户展示单日训练方案提案（纯展示，不落库不中断），等待用户确认或调整。
+    创建或更新「计划设计待办队列」：从信息收集到计划落库的完整闭环清单（纯展示，不落库不中断）。
 
     使用场景：
-    - 逐日循环中，检索到候选动作、按难度+安全约束设计好组次重量后调用
-    - 调用后前端内联渲染当日方案卡（动作表格 + 设计依据 + 确认/调整按钮）
+    - 收到计划设计意图后**第一步**就调用，建立覆盖全流程的待办清单（信息收集各项 +
+      分析+大纲+逐日设计+装配+审批落库）
+    - 大纲确认后再次调用以**重组清单**：把逐日设计 todo 插入大纲与装配之间
 
-    用户确认后会发结构化消息「[确认当日设计: <item_id>]」回到对话，
-    你读取后调用 update_plan_queue_item_tool(status="completed", queue=全量快照)
-    标记完成并推进到下一日。
+    待办面板只渲染标题与各 todo 的标题+状态，不含表单/方案内容；所有表单与当日方案
+    都在对话消息流内渲染（present_form_tool / present_day_design_tool）。
 
     Args:
-        item_id: 对应队列项ID（如 day-1）
-        day_design: 当日方案（含动作列表）
-        rationale: 设计依据（经验层级/安全约束/器械/为何选这些动作）
+        title: 队列标题
+        todos: 完整待办清单（每次传入当前最新全量，前端据此整体重渲染）
 
     Returns:
         ``{"ok": True}``
@@ -212,21 +131,48 @@ async def update_plan_queue_item_tool(
     queue: PlanQueue,
 ) -> dict:
     """
-    更新计划设计队列中某一项的状态（pending->in_progress->completed/skipped）。
+    更新待办队列中某一项的状态（pending->in_progress->completed/skipped），「做了就打勾」。
 
     使用场景：
-    - 开始设计某日：status="in_progress"（前端该行变 active）
-    - 用户确认当日方案后：status="completed"，并把该日的 day_design 填入对应 todo
-    - 用户跳过某日：status="skipped"
+    - 开始某步：status="in_progress"（面板该行变进行中）
+    - 完成某步：status="completed"（面板该行打勾）-> 进入下一项
 
-    重要：入参 queue 必须传**更新后的完整队列快照**（包含所有 phase 所有 todo 的最新
-    状态与 day_design）。前端据此重渲染整张待办面板（不依赖增量合并）。
-    QueueMiddleware 也会从历史中读取本调用的 queue 入参重建快照注入给后续对话。
+    重要：入参 queue 必须传**更新后的完整队列快照**（含全部 todo 的最新状态）。
+    前端与 QueueMiddleware 都据此重建状态。建议从 QueueMiddleware 注入的当前快照
+    复制后翻转对应 item 的 status。
 
     Args:
-        item_id: 被更新的队列项ID
+        item_id: 被更新的待办项ID
         status: 新状态 pending/in_progress/completed/skipped
         queue: 更新后的完整队列快照
+
+    Returns:
+        ``{"ok": True}``
+    """
+    return {"ok": True}
+
+
+@tool
+async def present_day_design_tool(
+    item_id: str,
+    day_design: DayDesign,
+    rationale: str = "",
+) -> dict:
+    """
+    向用户展示单日训练方案提案（纯展示，不落库不中断），在对话内渲染当日方案卡。
+
+    使用场景：
+    - 逐日设计循环中，检索到候选动作、按难度+安全约束设计好组次重量后调用
+    - 调用后前端在对话原位渲染当日方案卡（动作表格 + 设计依据 + 确认按钮）
+
+    用户确认后会发结构化消息「[确认当日设计: <item_id>]」回到对话，
+    你读取后调用 update_plan_queue_item_tool(item_id, status="completed", queue=全量快照)
+    打勾该日 todo 并推进到下一日。
+
+    Args:
+        item_id: 对应待办项ID（如 design-day-1）
+        day_design: 当日方案（含动作列表）
+        rationale: 设计依据（经验层级/安全约束/器械/为何选这些动作）
 
     Returns:
         ``{"ok": True}``

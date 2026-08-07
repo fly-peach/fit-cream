@@ -148,15 +148,8 @@ export interface MessageHistoryResponse {
 }
 
 // ===== 计划设计待办队列（present_plan_queue_tool / update_plan_queue_item_tool 入参）=====
-
-export type TrainingType =
-  | "fat_loss"
-  | "muscle_gain"
-  | "recomp"
-  | "cardio_only"
-  | "maintain";
-
-export type DayType = "strength" | "cardio" | "mixed" | "rest";
+// 待办面板只渲染 title + todos（标题 + 状态），不含表单/方案内容；
+// 表单与当日方案都在对话消息流内渲染（FormCard / DayDesignCard）。
 
 export type QueueItemStatus = "pending" | "in_progress" | "completed" | "skipped";
 
@@ -177,31 +170,20 @@ export interface DayExerciseDesign {
 export interface DayDesign {
   day_of_week: number;
   focus: string;
-  day_type: DayType;
+  day_type: "strength" | "cardio" | "mixed" | "rest";
   exercises: DayExerciseDesign[];
   rationale?: string;
 }
 
+/** 待办清单中的一项（面板只显示标题 + 状态） */
 export interface PlanQueueTodo {
   id: string;
   title: string;
-  description?: string;
   status: QueueItemStatus;
-  day_type: DayType;
-  day_design?: DayDesign;
 }
 
-export interface PlanQueuePhase {
-  phase_id: string;
-  phase_title: string;
-  weeks?: number;
-  todos: PlanQueueTodo[];
-}
-
+/** 计划设计待办队列整体（面板只渲染 title + todos） */
 export interface PlanQueue {
-  goal: string;
-  training_type: TrainingType;
-  weekly_frequency: number;
-  difficulty: string;
-  phases: PlanQueuePhase[];
+  title: string;
+  todos: PlanQueueTodo[];
 }

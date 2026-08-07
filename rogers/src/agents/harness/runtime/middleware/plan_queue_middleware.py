@@ -31,13 +31,13 @@ _QUEUE_TOOLS = ("present_plan_queue_tool", "update_plan_queue_item_tool")
 def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
     """从工具调用入参提取完整队列快照。
 
-    - present_plan_queue_tool：入参整体即 PlanQueue（goal/training_type/phases...）
-    - update_plan_queue_item_tool：入参含 queue 字段（更新后的完整快照）
+    - present_plan_queue_tool：入参 {title, todos}
+    - update_plan_queue_item_tool：入参含 queue 字段（{title, todos}）
     """
     if not isinstance(args, dict):
         return None
     if name == "present_plan_queue_tool":
-        return args if args.get("phases") is not None else None
+        return args if args.get("todos") is not None else None
     if name == "update_plan_queue_item_tool":
         q = args.get("queue")
         return q if isinstance(q, dict) else None
@@ -48,7 +48,7 @@ def _reconstruct_queue(messages: list) -> dict | None:
     """扫描消息历史，返回最新的队列快照。
 
     遍历所有 AIMessage.tool_calls，找最后一个 present_plan_queue_tool 或
-    update_plan_queue_item_tool 调用，取其 queue 入参。update 携带全量更新后快照，
+    update_plan_queue_item_tool 调用，取其队列入参。update 携带全量更新后快照，
     故「最新一次」即当前真实状态。
     """
     latest: dict | None = None
@@ -69,44 +69,31 @@ def _reconstruct_queue(messages: list) -> dict | None:
 
 def _render_snapshot(queue: dict) -> str:
     """把队列快照渲染成注入给模型的简明文本。"""
-    goal = queue.get("goal", "?")
-    ttype = queue.get("training_type", "?")
-    freq = queue.get("weekly_frequency", "?")
-    diff = queue.get("difficulty", "?")
+    title = queue.get("title", "计划设计")
+    todos = queue.get("todos") or []
+    done = sum(1 for t in todos if t.get("status") == "completed")
     lines = [
-        "# 计划设计进度（务必据此推进，勿重复设计已完成日）",
-        f"目标={goal} | 训练类型={ttype} | 每周{freq}天 | 难度={diff}",
+        "# 计划设计待办进度（务必据此推进，做了就打勾，勿重复已完成项）",
+        f"队列：{title}（{done}/{len(todos)} 完成）",
     ]
-    phases = queue.get("phases") or []
     next_todo = None
-    for ph in phases:
-        title = ph.get("phase_title", ph.get("phase_id", "阶段"))
-        todos = ph.get("todos") or []
-        done = sum(1 for t in todos if t.get("status") == "completed")
-        lines.append(f"- {title}（{done}/{len(todos)} 完成）")
-        for t in todos:
-            status = t.get("status", "pending")
-            mark = {
-                "completed": "✓",
-                "in_progress": "▸",
-                "skipped": "·",
-                "pending": "○",
-            }.get(status, "○")
-            day_desc = ""
-            dd = t.get("day_design")
-            if dd and isinstance(dd, dict):
-                exs = dd.get("exercises") or []
-                ex_names = "、".join(e.get("name", "?") for e in exs[:4])
-                day_desc = f" -> {exs and len(exs) or 0}动作({ex_names})"
-            lines.append(f"    {mark} {t.get('title', t.get('id', '?'))}{day_desc}")
-            if status == "in_progress":
-                next_todo = t.get("title", t.get("id", "当前日"))
-            elif status == "pending" and next_todo is None:
-                next_todo = t.get("title", t.get("id", "下一个待设计日"))
+    for t in todos:
+        status = t.get("status", "pending")
+        mark = {
+            "completed": "✓",
+            "in_progress": "▸",
+            "skipped": "·",
+            "pending": "○",
+        }.get(status, "○")
+        lines.append(f"  {mark} [{t.get('id', '?')}] {t.get('title', '?')}")
+        if status == "in_progress":
+            next_todo = t.get("title", t.get("id", "当前项"))
+        elif status == "pending" and next_todo is None:
+            next_todo = t.get("title", t.get("id", "下一个待办"))
     if next_todo:
         lines.append(f"当前应推进：{next_todo}")
     else:
-        lines.append("所有日均已完成：装配全量计划 -> present_plan_tool -> create_plan_tool(传入 days) -> 审批")
+        lines.append("所有待办已完成：流程结束，总结即可")
     return "\n".join(lines)
 
 

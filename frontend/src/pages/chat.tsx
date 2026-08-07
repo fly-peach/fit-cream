@@ -1031,8 +1031,9 @@ export default function ChatPage() {
   );
 
   // 计划设计待办队列：从全线程 messages.steps 取最新一次
-  // present_plan_queue_tool（入参整体即队列）或 update_plan_queue_item_tool（入参.queue）
-  // 的快照，驱动顶部持久化进度面板。跨多轮用户消息始终反映最新进度。
+  // present_plan_queue_tool（入参 {title, todos}）或 update_plan_queue_item_tool
+  // （入参.queue = {title, todos}）的快照，驱动顶部持久化进度面板。
+  // 面板只渲染待办标题+状态；表单与当日方案在对话内渲染。
   const latestQueue = useMemo<PlanQueue | null>(() => {
     let latest: PlanQueue | null = null;
     for (const msg of messages) {
@@ -1040,10 +1041,10 @@ export default function ChatPage() {
         if (s.type !== "tool") continue;
         if (s.tool === "present_plan_queue_tool") {
           const q = (s.input || {}) as PlanQueue;
-          if (q && q.phases) latest = q;
+          if (q && q.todos) latest = q;
         } else if (s.tool === "update_plan_queue_item_tool") {
           const q = (s.input || {}).queue as PlanQueue | undefined;
-          if (q && q.phases) latest = q;
+          if (q && q.todos) latest = q;
         }
       }
     }
