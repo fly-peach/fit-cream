@@ -2,7 +2,7 @@
 Agent 限流中间件
 
 三层限流策略，防止 Agent 陷入无限循环或过度消耗 Token：
-1. ModelCallLimitMiddleware: 限制单次对话中 LLM 调用总次数（默认 15 次）
+1. ModelCallLimitMiddleware: 限制单次对话中 LLM 调用总次数（默认 30 次）
 2. ToolCallLimitMiddleware: 限制单次对话中 Tool 调用总次数（默认 10 次）
 3. SameToolLimitMiddleware: 限制同一 Tool 的重复调用次数（默认 5 次）
 
@@ -122,7 +122,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
 
 def create_rate_limit_middleware(
     max_tool_calls: int = 10,
-    max_llm_calls: int = 15,
+    max_llm_calls: int = 30,
     max_same_tool_calls: int = 5,
 ) -> list:
     """

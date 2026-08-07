@@ -1,75 +1,107 @@
 /**
- * 计划设计待办队列面板（持久化顶部面板）
+ * 计划设计待办队列面板
  *
- * 只渲染待办：队列标题 + 各 todo 的标题与状态指示（○待办/▸进行中/✓完成/·跳过）。
- * 不含表单、当日方案等内容--那些都在对话消息流内渲染（FormCard / DayDesignCard）。
+ * 参考 ai-sdk elements queue 组件结构：
+ * - Queue + QueueSection 包裹，max-h 可滚动
+ * - TodoItem：QueueItemIndicator（完成打点）+ QueueItemContent（标题，完成划线）
+ *   + QueueItemActions 悬停显示移除按钮 + QueueItemDescription（可选说明）
+ * - in_progress 用 spinner 指示；skipped 视为完成态降透明度
  *
- * 面板数据由 chat.tsx 从全线程 messages.steps 取最新队列快照传入，
- * 跨多轮用户消息始终反映最新进度。
+ * 移除按钮发结构化消息「[移除待办: <id>]」回对话，由 agent 更新队列快照。
+ * 面板数据由 chat.tsx 从全线程 messages.steps 取最新队列快照传入。
  */
 
+import { memo, useCallback } from "react";
+import { LoaderIcon, Trash2 } from "lucide-react";
 import {
-  CheckIcon,
-  DumbbellIcon,
-  LoaderIcon,
-  MinusIcon,
-} from "lucide-react";
-import { Queue, QueueList, QueueItem } from "@/components/ai-elements/queue";
+  Queue,
+  QueueItem,
+  QueueItemAction,
+  QueueItemActions,
+  QueueItemContent,
+  QueueItemDescription,
+  QueueItemIndicator,
+  QueueSection,
+  QueueSectionContent,
+} from "@/components/ai-elements/queue";
 import { cn } from "@/lib/utils";
 import type { PlanQueue, PlanQueueTodo } from "@/types/chat";
 
-function StatusIndicator({ status }: { status: PlanQueueTodo["status"] }) {
-  if (status === "completed") {
-    return (
-      <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
-        <CheckIcon className="size-3" />
-      </span>
-    );
-  }
-  if (status === "in_progress") {
-    return <LoaderIcon className="mt-0.5 size-4 shrink-0 animate-spin text-emerald-600" />;
-  }
-  if (status === "skipped") {
-    return (
-      <span className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-muted-foreground/30 text-muted-foreground/50">
-        <MinusIcon className="size-3" />
-      </span>
-    );
-  }
-  return <span className="mt-0.5 inline-block size-2.5 shrink-0 rounded-full border border-emerald-400" />;
+interface TodoItemProps {
+  todo: PlanQueueTodo;
+  onRemove: (id: string) => void;
 }
 
-export function PlanQueuePanel({ queue }: { queue: PlanQueue }) {
+const TodoItem = memo(({ todo, onRemove }: TodoItemProps) => {
+  const isCompleted = todo.status === "completed";
+  const isSkipped = todo.status === "skipped";
+  const isInProgress = todo.status === "in_progress";
+  const done = isCompleted || isSkipped;
+  const handleRemove = useCallback(() => onRemove(todo.id), [onRemove, todo.id]);
+
+  return (
+    <QueueItem key={todo.id}>
+      <div className="flex items-center gap-2">
+        {isInProgress ? (
+          <LoaderIcon className="size-3 shrink-0 animate-spin text-emerald-600" />
+        ) : (
+          <QueueItemIndicator completed={done} />
+        )}
+        <QueueItemContent
+          completed={done}
+          className={cn(isSkipped && "opacity-40")}
+        >
+          {todo.title}
+        </QueueItemContent>
+        <QueueItemActions>
+          <QueueItemAction aria-label="移除待办" onClick={handleRemove}>
+            <Trash2 size={12} />
+          </QueueItemAction>
+        </QueueItemActions>
+      </div>
+      {todo.description && (
+        <QueueItemDescription completed={done}>{todo.description}</QueueItemDescription>
+      )}
+    </QueueItem>
+  );
+});
+
+TodoItem.displayName = "TodoItem";
+
+export function PlanQueuePanel({
+  queue,
+  onAction,
+}: {
+  queue: PlanQueue;
+  onAction?: (text: string) => void;
+}) {
   const todos = queue.todos || [];
   const done = todos.filter((t) => t.status === "completed").length;
+  const handleRemove = useCallback(
+    (id: string) => onAction?.(`[移除待办: ${id}]`),
+    [onAction]
+  );
+
   return (
-    <div className="mx-auto mb-3 w-full max-w-3xl">
-      <Queue className="bg-emerald-50/30">
+    <div className="mx-auto w-full max-w-3xl">
+      <Queue className="mx-auto max-h-[150px] w-full overflow-y-auto rounded-b-none border-input border-b-0 px-3 pt-2 pb-1">
         <div className="flex items-center gap-2 px-1 pb-1 text-xs text-emerald-800/80">
-          <DumbbellIcon className="size-3.5" />
           <span className="font-medium">{queue.title}</span>
           <span className="text-muted-foreground/70">
             {done}/{todos.length}
           </span>
         </div>
-        <QueueList>
-          {todos.map((todo) => (
-            <QueueItem key={todo.id} className="flex-row items-center gap-2 py-1">
-              <StatusIndicator status={todo.status} />
-              <span
-                className={cn(
-                  "line-clamp-1 text-sm",
-                  todo.status === "completed" && "text-muted-foreground/50 line-through",
-                  todo.status === "in_progress" && "font-medium text-emerald-900",
-                  todo.status === "pending" && "text-foreground",
-                  todo.status === "skipped" && "text-muted-foreground/40 line-through"
-                )}
-              >
-                {todo.title}
-              </span>
-            </QueueItem>
-          ))}
-        </QueueList>
+        {todos.length > 0 && (
+          <QueueSection>
+            <QueueSectionContent>
+              <div>
+                {todos.map((todo) => (
+                  <TodoItem key={todo.id} todo={todo} onRemove={handleRemove} />
+                ))}
+              </div>
+            </QueueSectionContent>
+          </QueueSection>
+        )}
       </Queue>
     </div>
   );

@@ -79,6 +79,9 @@ class PlanQueueTodo(BaseModel):
 
     id: str = Field(description="项ID，如 intake-body / design-day-1 / approve")
     title: str = Field(description="待办标题，如「收集基础身体数据」「设计周一 · 胸部+三头」")
+    description: Optional[str] = Field(
+        default=None, max_length=200, description="待办短说明（可选），如「设计周一训练日的动作与组次」"
+    )
     status: str = Field(
         default="pending",
         pattern="^(pending|in_progress|completed|skipped)$",

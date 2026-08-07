@@ -479,6 +479,13 @@ function StreamSteps({
               />
             );
           }
+          // 队列工具只驱动顶部待办面板，不在消息流内渲染卡片
+          if (
+            tool === "present_plan_queue_tool" ||
+            tool === "update_plan_queue_item_tool"
+          ) {
+            return null;
+          }
           return <ToolCallCard key={step.id || i} tc={toolCallFromStep(step)} embedded />;
         }
         return null;
@@ -1320,7 +1327,6 @@ export default function ChatPage() {
 
         {tab === "chat" ? (
           <>
-        {isPlanDesignThread && latestQueue && <PlanQueuePanel queue={latestQueue} />}
         <Conversation key={conversationKey} className="flex-1">
           <ConversationContent>
             <OlderMessagesLoader
@@ -1371,6 +1377,8 @@ export default function ChatPage() {
             <div ref={bottomRef} />
           </ConversationContent>
         </Conversation>
+
+        {latestQueue && <PlanQueuePanel queue={latestQueue} onAction={sendMessage} />}
 
         <div className="border-t border-emerald-100 bg-white/70 p-4 backdrop-blur-sm">
           <PromptInputProvider>

@@ -584,7 +584,7 @@ async def send_message(
     agent, is_non_vision = await _resolve_agent(db, thread_id, req.plan_design, has_images=bool(req.images))
     config = {
         "configurable": {"thread_id": thread_id, "user_id": user_id_str},
-        "recursion_limit": 50,
+        "recursion_limit": 100,
     }
 
     # 清理 checkpoint 中的图片：过期的 OSS 签名 URL 一律替换为占位文本；
@@ -676,7 +676,7 @@ async def resume_conversation(
     agent, is_non_vision = await _resolve_agent(db, thread_id, False)
     config = {
         "configurable": {"thread_id": thread_id, "user_id": user_id_str},
-        "recursion_limit": 50,
+        "recursion_limit": 100,
     }
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)
 

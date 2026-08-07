@@ -269,7 +269,7 @@ def create_agent_config(
     thread_id: Optional[str] = None,
     verbose: bool = False,
     max_tool_calls: int = 10,
-    max_llm_calls: int = 15,
+    max_llm_calls: int = 30,
     max_tokens: int = 50000,
     save_conversation: bool = True,
 ) -> dict:

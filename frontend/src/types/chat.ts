@@ -179,6 +179,7 @@ export interface DayDesign {
 export interface PlanQueueTodo {
   id: string;
   title: string;
+  description?: string;
   status: QueueItemStatus;
 }
 
