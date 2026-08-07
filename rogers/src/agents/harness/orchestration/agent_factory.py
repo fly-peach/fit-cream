@@ -216,12 +216,13 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     中间件顺序（before_model 执行顺序）：
     1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
     2. SkillsMiddleware：纯占位（catalog 已烘焙进 system_prompt）
-    3. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
-    4. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
-    5. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
-    6. TokenUsageMiddleware：Token 用量追踪
-    7. SummarizationMiddleware：会话压缩
-    8. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
+    3. PlanQueueMiddleware：计划设计队列进度快照注入（仅 plan_design 流程有队列时生效）
+    4. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
+    5. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    6. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    7. TokenUsageMiddleware：Token 用量追踪
+    8. SummarizationMiddleware：会话压缩
+    9. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
 
     会话压缩策略：
     - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
@@ -240,6 +241,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     from src.agents.harness.runtime.middleware.intent_middleware import IntentMiddleware
     from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
     from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
+    from src.agents.harness.runtime.middleware.plan_queue_middleware import PlanQueueMiddleware
 
     # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
     summary_model = create_chat_dashscope(
@@ -251,6 +253,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     middleware = [
         IntentMiddleware(),
         SkillsMiddleware(),
+        PlanQueueMiddleware(),
     ]
 
     # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
@@ -265,6 +268,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
                     "delete_plan_tool": {"allowed_decisions": ["approve", "reject"]},
                     "remove_plan_day_tool": {"allowed_decisions": ["approve", "reject"]},
                     "remove_exercise_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "sync_plan_day_tool": {"allowed_decisions": ["approve", "reject"]},
                 },
                 description_prefix="即将执行计划操作，需要你确认",
             )
@@ -308,6 +312,7 @@ def _get_default_tools() -> list:
             delete_plan_tool,
             add_plan_day_tool,
             remove_plan_day_tool,
+            sync_plan_day_tool,
             add_exercise_tool,
             update_exercise_tool,
             remove_exercise_tool,
@@ -332,6 +337,7 @@ def _get_default_tools() -> list:
             delete_plan_tool,
             add_plan_day_tool,
             remove_plan_day_tool,
+            sync_plan_day_tool,
             add_exercise_tool,
             update_exercise_tool,
             remove_exercise_tool,
@@ -369,14 +375,27 @@ def _get_default_tools() -> list:
     except ImportError:
         pass
 
-    # 4. Skill 加载工具 + 用户画像摘要工具 + 计划提案展示工具 + 信息采集表单工具
+    # 4. Skill 加载工具 + 用户画像摘要工具 + 计划提案展示工具 + 信息采集表单工具 + 计划设计待办队列工具
     try:
         from src.agents.harness.tools.skill.skill_load_tool import skill_load_tool
         from src.agents.harness.tools.user.summary_tools import get_user_summary_tool
         from src.agents.harness.tools.plan.present_plan_tool import present_plan_tool
         from src.agents.harness.tools.plan.present_form_tool import present_form_tool
+        from src.agents.harness.tools.plan.plan_queue_tools import (
+            present_plan_queue_tool,
+            present_day_design_tool,
+            update_plan_queue_item_tool,
+        )
 
-        tools.extend([skill_load_tool, get_user_summary_tool, present_plan_tool, present_form_tool])
+        tools.extend([
+            skill_load_tool,
+            get_user_summary_tool,
+            present_plan_tool,
+            present_form_tool,
+            present_plan_queue_tool,
+            present_day_design_tool,
+            update_plan_queue_item_tool,
+        ])
     except ImportError:
         pass
 

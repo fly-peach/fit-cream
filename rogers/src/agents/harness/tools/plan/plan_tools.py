@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.schemas.plan import (
+    PlanCreate,
     PlanDayCreate,
     PlanExerciseCreate,
     PlanExerciseUpdate,
@@ -113,7 +114,25 @@ class CreatePlanInput(BaseModel):
     )
     preferences: Optional[str] = Field(
         default=None,
-        description="用户偏好说明，如'不喜欢跑步'、'没有器械'、'膝盖有伤'",
+        description="用户偏好说明，如'不喜欢跑步'、'没有器械'、'膝盖有伤'。"
+        "仅当未提供 days 时用于后端模板生成；提供 days 时本字段忽略。",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description="计划名称。提供 days 时建议传入自定义名称；不传则自动生成。",
+    )
+    weeks: Optional[int] = Field(
+        default=None, ge=1, le=52, description="计划周期(周)。提供 days 时可指定。"
+    )
+    days: Optional[List[PlanDayCreate]] = Field(
+        default=None,
+        description=(
+            "逐日设计的完整训练日结构（计划设计待办队列流程产出）。"
+            "提供时后端直接按此落库，不再用后端模板重新生成，确保提案与落库一致。"
+            "未提供时走后端 generate_plan_from_goal 模板生成（向后兼容）。"
+        ),
     )
 
 
@@ -123,6 +142,9 @@ async def create_plan_tool(
     days_per_week: int,
     difficulty: str = "beginner",
     preferences: Optional[str] = None,
+    name: Optional[str] = None,
+    weeks: Optional[int] = None,
+    days: Optional[List[PlanDayCreate]] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
@@ -132,8 +154,11 @@ async def create_plan_tool(
     - 用户说"我想减脂，每周练4天"-> goal="lose_fat", days_per_week=4
     - 用户说"帮我制定一个增肌计划"-> goal="gain_muscle"
     - 用户说"我是新手，想开始健身"-> goal="improve_health", difficulty="beginner"
+    - 计划设计待办队列流程：逐日协同设计完成后，传入 days（各日动作设计）直接落库
 
     会考虑用户的身体数据（身高、体重、年龄）生成合适的计划。
+    若提供 days 参数，则按 agent 设计的逐日结构直接落库（不再后端模板生成），
+    确保提案与落库内容一致；未提供 days 时走后端智能生成。
 
     Returns:
         包含计划详情、训练日安排的结构化数据
@@ -144,17 +169,34 @@ async def create_plan_tool(
 
     try:
         async with session_scope() as db:
-            user_data = await UserService.get_body_summary(db, user_id)
-
-            plan = await PlanService.generate_plan_from_goal(
-                db=db,
-                user_id=user_id,
-                goal=goal,
-                days_per_week=days_per_week,
-                difficulty=difficulty,
-                preferences=preferences,
-                user_data=user_data,
-            )
+            if days:
+                # 队列流程：按 agent 逐日协同设计的结构直接落库，跳过后端模板生成
+                plan_name = name or f"{goal}计划 - 每周{days_per_week}天"
+                created = await PlanService.create_plan(
+                    db,
+                    user_id,
+                    PlanCreate(
+                        name=plan_name,
+                        goal=goal,
+                        difficulty=difficulty,
+                        weeks=weeks,
+                        days=days,
+                    ),
+                )
+                # 预加载 days->exercises->exercise，避免 plan_data 访问关系触发异步懒加载
+                plan = await PlanService.get_plan_detail(db, created.id, user_id)
+            else:
+                # 旧路径：后端模板智能生成（向后兼容）
+                user_data = await UserService.get_body_summary(db, user_id)
+                plan = await PlanService.generate_plan_from_goal(
+                    db=db,
+                    user_id=user_id,
+                    goal=goal,
+                    days_per_week=days_per_week,
+                    difficulty=difficulty,
+                    preferences=preferences,
+                    user_data=user_data,
+                )
 
             plan_data = {
                 "id": str(plan.id),
@@ -535,6 +577,57 @@ async def remove_plan_day_tool(
                 "plan_id": str(pid),
                 "removed_day_of_week": day_of_week,
                 "message": f"已删除{weekday}训练日{note}",
+            }
+    except Exception as e:
+        return error_response(e)
+
+
+class SyncPlanDayInput(BaseModel):
+    """同步训练日（把源星期复制到目标星期）"""
+
+    plan_id: Optional[str] = Field(default=None, description="计划ID，不填则用活跃计划")
+    source_day_of_week: int = Field(ge=1, le=7, description="源训练日星期，1=周一...7=周日")
+    target_day_of_week: int = Field(ge=1, le=7, description="目标训练日星期，1=周一...7=周日")
+
+
+@tool(args_schema=SyncPlanDayInput)
+async def sync_plan_day_tool(
+    source_day_of_week: int = 1,
+    target_day_of_week: int = 1,
+    plan_id: Optional[str] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
+) -> dict:
+    """
+    同步训练日：把计划中某一星期的训练日整体复制到另一星期（含动作）。
+
+    使用场景：
+    - 用户说"把周三的训练复制到周五" -> source_day_of_week=3, target_day_of_week=5
+    - 用户说"同步计划，把周一的胸部训练套到今天" -> source_day_of_week=1, target_day_of_week=<今天>
+
+    Returns:
+        同步后的完整计划
+    """
+    user_id = extract_user_id(config)
+    if not user_id:
+        return {"success": False, "error": "缺少用户身份信息"}
+
+    try:
+        async with session_scope() as db:
+            pid = await _resolve_plan_id(db, user_id, plan_id)
+            plan = await PlanService.copy_plan_day(
+                db,
+                pid,
+                user_id,
+                source_day_of_week=source_day_of_week,
+                target_day_of_week=target_day_of_week,
+            )
+            src = _WEEKDAYS[source_day_of_week - 1]
+            dst = _WEEKDAYS[target_day_of_week - 1]
+            return {
+                "success": True,
+                "plan_id": str(pid),
+                "plan": PlanOut.model_validate(plan).model_dump(mode="json"),
+                "message": f"已把{src}训练日同步到{dst}",
             }
     except Exception as e:
         return error_response(e)

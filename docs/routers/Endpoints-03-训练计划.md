@@ -131,6 +131,25 @@ name、goal、difficulty、weeks、status 均为 Optional，支持部分更新�
 
 **响应：`ResponseModel[PlanOut]`** — 返回删除后的完整计划
 
+### 同步训练日（复制源星期到目标星期）
+
+| 项目 | 值 |
+|------|-----|
+| 方法 | POST |
+| 路径 | `/api/plans/{plan_id}/copy-day` |
+| 路径参数 | plan_id: UUID |
+
+**请求体：PlanDaySync**
+
+| 字段 | 类型 | 约束 |
+|------|------|------|
+| source_day_of_week | int | 1-7，源训练日星期 |
+| target_day_of_week | int | 1-7，目标训练日星期 |
+
+逻辑：源训练日不存在抛 NotFoundException；目标训练日不存在则新建（沿用源日 focus/rest_seconds/metadata_），已存在则清空其动作后整体覆盖为源日动作（含每个动作的 exercise_id/custom_name/组次重量/休息/备注）。
+
+**响应：`ResponseModel[PlanOut]`** — 返回刷新后的完整计划
+
 ---
 
 ### 添加动作

@@ -102,6 +102,8 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"
     ACCESS_LOG_ENABLED: bool = True
     LOG_RETENTION_DAYS: int = 30
+    # 慢请求阈值（毫秒）：超过则 access log 以 WARNING 高亮并标记 slow
+    SLOW_REQUEST_MS: int = 3000
 
     # ---------- MCP ----------
     MCP_ENABLED: bool = True

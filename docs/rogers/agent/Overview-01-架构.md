@@ -73,6 +73,7 @@ POST /api/chat/message
   → _build_user_context() 构建用户动态上下文（仅当前日期 + 用户称呼；身体数据/打卡/计划改为按需工具获取）
   → agent.astream_events(input_msg, config, version="v2")
     → IntentMiddleware.before_model() 检测意图，注入意图提示词
+    → PlanQueueMiddleware.before_model() 重建计划队列快照并注入（仅队列流程）
     → LLM 调用（流式输出 token + thinking + tool_calls）
     → Tool 执行（同名进程直调 Service）
     → TokenUsageMiddleware.after_model() 累积 token 用量
@@ -81,6 +82,7 @@ POST /api/chat/message
     → SummarizationMiddleware 在 token 超量时压缩对话
   → _save_message() 持久化用户/助手消息（metadata 含 thinking/tool_calls/steps）
   → upsert ThreadUsage 累积 token 用量
+  → _log_usage_summary() 输出本次请求 token 汇总摘要（fitcream.usage logger）
 ```
 
 ## 关键配置常量

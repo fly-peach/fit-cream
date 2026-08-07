@@ -10,11 +10,17 @@ from src.agents.harness.tools.plan.plan_tools import (
     list_plans_tool,
     remove_exercise_tool,
     remove_plan_day_tool,
+    sync_plan_day_tool,
     update_exercise_tool,
     update_plan_tool,
 )
 from src.agents.harness.tools.plan.present_plan_tool import present_plan_tool
 from src.agents.harness.tools.plan.present_form_tool import present_form_tool
+from src.agents.harness.tools.plan.plan_queue_tools import (
+    present_plan_queue_tool,
+    present_day_design_tool,
+    update_plan_queue_item_tool,
+)
 
 __all__ = [
     "create_plan_tool",
@@ -25,9 +31,13 @@ __all__ = [
     "delete_plan_tool",
     "add_plan_day_tool",
     "remove_plan_day_tool",
+    "sync_plan_day_tool",
     "add_exercise_tool",
     "update_exercise_tool",
     "remove_exercise_tool",
     "present_plan_tool",
     "present_form_tool",
+    "present_plan_queue_tool",
+    "present_day_design_tool",
+    "update_plan_queue_item_tool",
 ]

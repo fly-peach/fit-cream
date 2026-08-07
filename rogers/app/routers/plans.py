@@ -17,6 +17,7 @@ from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
+    PlanDaySync,
     PlanDayUpdate,
     PlanExerciseCreate,
     PlanExerciseUpdate,
@@ -122,6 +123,22 @@ async def add_plan_day(
     await PlanService.add_plan_day(db, plan_id, user.id, data)
     await db.commit()
     # 重新获取完整计划
+    plan = await PlanService.get_plan_detail(db, plan_id, user.id)
+    return ResponseModel(data=PlanOut.model_validate(plan))
+
+
+@router.post("/{plan_id}/copy-day", response_model=ResponseModel[PlanOut], operation_id="copy_plan_day")
+async def copy_plan_day(
+    plan_id: UUID,
+    data: PlanDaySync,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """同步计划：把源星期的训练日整体复制到目标星期"""
+    await PlanService.copy_plan_day(
+        db, plan_id, user.id, data.source_day_of_week, data.target_day_of_week
+    )
+    await db.commit()
     plan = await PlanService.get_plan_detail(db, plan_id, user.id)
     return ResponseModel(data=PlanOut.model_validate(plan))
 

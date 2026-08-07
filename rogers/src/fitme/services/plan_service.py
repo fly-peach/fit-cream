@@ -173,7 +173,9 @@ class PlanService:
         result = await db.execute(
             select(Plan)
             .options(
-                selectinload(Plan.days).selectinload(PlanDay.exercises)
+                selectinload(Plan.days)
+                .selectinload(PlanDay.exercises)
+                .selectinload(PlanDayExercise.exercise)
             )
             .where(Plan.id == plan_id)
             # 会话 expire_on_commit=False：增删训练日/动作后，identity map 中的 Plan
@@ -554,4 +556,74 @@ class PlanService:
         await db.delete(plan_day)
         await db.flush()
         return plan_day, plan
+
+    @staticmethod
+    async def copy_plan_day(
+        db: AsyncSession,
+        plan_id: UUID,
+        user_id: UUID,
+        source_day_of_week: int,
+        target_day_of_week: int,
+    ) -> Plan:
+        """把活跃计划中某星期的训练日整体复制到另一星期（即「同步计划」）。
+
+        源训练日不存在时抛 NotFoundException；目标训练日不存在则新建，
+        已存在则清空其动作后覆盖为源训练日的动作。
+        """
+        plan = await PlanService.get_plan_detail(db, plan_id, user_id)
+
+        if source_day_of_week == target_day_of_week:
+            return plan
+
+        source = next(
+            (d for d in plan.days if d.day_of_week == source_day_of_week), None
+        )
+        if not source:
+            raise NotFoundException(
+                f"该计划没有{['周一','周二','周三','周四','周五','周六','周日'][source_day_of_week-1]}训练日可同步"
+            )
+
+        target = next(
+            (d for d in plan.days if d.day_of_week == target_day_of_week), None
+        )
+        if not target:
+            target = await PlanService._create_plan_day(
+                db,
+                plan_id,
+                PlanDayCreate(
+                    day_of_week=target_day_of_week,
+                    focus=source.focus,
+                    rest_seconds=source.rest_seconds,
+                    metadata_=source.metadata_,
+                ),
+            )
+        else:
+            target.focus = source.focus
+            target.rest_seconds = source.rest_seconds
+            target.metadata_ = source.metadata_
+            for ex in list(target.exercises):
+                await db.delete(ex)
+
+        for i, src_ex in enumerate(source.exercises):
+            db.add(
+                PlanDayExercise(
+                    id=uuid4(),
+                    plan_day_id=target.id,
+                    exercise_id=src_ex.exercise_id,
+                    custom_name=src_ex.custom_name,
+                    exercise_type=src_ex.exercise_type,
+                    sets=src_ex.sets,
+                    reps=src_ex.reps,
+                    weight_kg=src_ex.weight_kg,
+                    duration_min=src_ex.duration_min,
+                    distance_km=src_ex.distance_km,
+                    calories_per_min=src_ex.calories_per_min,
+                    sort_order=src_ex.sort_order or i,
+                    notes=src_ex.notes,
+                    metadata_=src_ex.metadata_ or {},
+                )
+            )
+        await db.flush()
+        await db.refresh(target)
+        return plan
 

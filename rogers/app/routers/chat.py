@@ -9,7 +9,7 @@ from typing import Dict, Optional
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -30,6 +30,7 @@ from src.agents.schemas.chat import (
 )
 from src.fitme.schemas.common import ResponseModel
 from utils.exceptions import ForbiddenException
+from utils.logger import reset_user_context, set_user_context
 from utils.oss import is_oss_configured, upload_chat_image
 
 logger = logging.getLogger("fitcream.chat")
@@ -289,6 +290,15 @@ async def _run_agent_sse(
     _current_tool: Optional[dict] = None
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     run_usage: dict[str, dict[str, int]] = {}
+    # FR-3: 请求级累加 token（区别于非累加的 usage「最近一次上下文大小」）
+    usage_total = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+        "estimated": False,
+    }
+    output_chars = 0
 
     try:
         async for event in agent.astream_events(input_or_command, config=config, version="v2"):
@@ -321,6 +331,7 @@ async def _run_agent_sse(
                     yield _sse_event("step", {"type": "thought", "delta": reasoning})
                 if chunk.content:
                     full_content += chunk.content
+                    output_chars += len(chunk.content)
                     yield _sse_event("token", {"content": chunk.content})
                     # 回复内容也作为 step 发射，让前端按「思考→回复→工具」顺序交错渲染
                     yield _sse_event("step", {"type": "reply", "delta": chunk.content})
@@ -348,6 +359,14 @@ async def _run_agent_sse(
                     usage["input_tokens"] = final.get("input_tokens", 0) or 0
                     usage["output_tokens"] = final.get("output_tokens", 0) or 0
                     usage["total_tokens"] = final.get("total_tokens", 0) or 0
+                # FR-3: 累加本次请求所有 LLM 调用的真实 token（与上方非累加 usage 区分）
+                if final:
+                    usage_total["input_tokens"] += final.get("input_tokens", 0) or 0
+                    usage_total["output_tokens"] += final.get("output_tokens", 0) or 0
+                    usage_total["total_tokens"] += final.get("total_tokens", 0) or 0
+                else:
+                    usage_total["estimated"] = True
+                usage_total["llm_calls"] += 1
                 pending_thought = None
 
             elif kind == "on_tool_start":
@@ -461,10 +480,11 @@ async def _run_agent_sse(
 
         yield _sse_event("usage", usage)
         yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
-
     except Exception as e:
         logger.error(f"[Chat] SSE error: {e}", exc_info=True)
         yield _sse_event("error", {"message": str(e)})
+    finally:
+        _log_usage_summary(usage_total, output_chars, thread_id, user_id)
 
 
 async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str, usage: dict) -> None:
@@ -492,9 +512,34 @@ async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str,
         logger.warning(f"[Chat] Failed to upsert thread_usage: {e}")
 
 
+def _log_usage_summary(
+    usage_total: dict, output_chars: int, thread_id: str, user_id
+) -> None:
+    """FR-3: 请求结束时输出一条 token 汇总摘要（累加消费，区别于非累加的 usage）。
+
+    usage_total 为本次请求内所有 LLM 调用真实 usage_metadata 之和；若全程未
+    回传 usage_metadata 但有输出，则按输出字符粗估并标记 estimated。
+    """
+    usage_logger = logging.getLogger("fitcream.usage")
+    total = usage_total["total_tokens"]
+    estimated = usage_total["estimated"]
+    if total == 0 and output_chars > 0:
+        est_output = max(1, output_chars // 2)
+        usage_total["output_tokens"] = est_output
+        usage_total["total_tokens"] = est_output
+        estimated = True
+    usage_logger.info(
+        f"token 汇总 | thread={thread_id[:8]} | user={str(user_id)[:8]} | "
+        f"input={usage_total['input_tokens']} | output={usage_total['output_tokens']} | "
+        f"total={usage_total['total_tokens']} | llm_calls={usage_total['llm_calls']} | "
+        f"estimated={'true' if estimated else 'false'}"
+    )
+
+
 @router.post("/message")
 async def send_message(
     req: ChatRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -517,6 +562,7 @@ async def send_message(
     """
     thread_id = str(uuid4()) if req.plan_design else (req.thread_id or str(uuid4()))
     user_id_str = str(user.id)
+    request.state.user_id = user_id_str
 
     # 线程归属校验：指定已有线程时必须是当前用户所有，防跨用户注入
     # （plan_design 为全新线程，跳过校验）
@@ -575,6 +621,7 @@ async def send_message(
     async def event_stream():
         """SSE 流式生成器：委托共享 runner（含 HITL 中断检测与落库）"""
         async with async_session_factory() as stream_db:
+            ctx_tokens = set_user_context(user_id=user_id_str, thread_id=thread_id)
             try:
                 async for sse in _run_agent_sse(
                     agent, config, input_msg,
@@ -584,6 +631,7 @@ async def send_message(
                     yield sse
             finally:
                 _active_streams.pop(thread_id, None)
+                reset_user_context(ctx_tokens)
 
     return StreamingResponse(
         event_stream(),
@@ -599,6 +647,7 @@ async def send_message(
 @router.post("/resume")
 async def resume_conversation(
     req: ResumeRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -615,6 +664,7 @@ async def resume_conversation(
     """
     thread_id = req.thread_id
     user_id_str = str(user.id)
+    request.state.user_id = user_id_str
 
     # 线程归属校验：必须是当前用户的线程
     if await ConversationService.thread_is_foreign(db, user.id, thread_id):
@@ -639,6 +689,7 @@ async def resume_conversation(
     async def event_stream():
         """SSE 流式生成器：恢复中断并续流"""
         async with async_session_factory() as stream_db:
+            ctx_tokens = set_user_context(user_id=user_id_str, thread_id=thread_id)
             try:
                 async for sse in _run_agent_sse(
                     agent, config, resume_command,
@@ -648,6 +699,7 @@ async def resume_conversation(
                     yield sse
             finally:
                 _active_streams.pop(thread_id, None)
+                reset_user_context(ctx_tokens)
 
     return StreamingResponse(
         event_stream(),

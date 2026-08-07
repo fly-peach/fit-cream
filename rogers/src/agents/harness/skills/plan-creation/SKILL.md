@@ -92,49 +92,98 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 - 时间受限（weekly_frequency 低 / session_duration 短）-> 压缩到 2-3 次/周、单次 30-45 分钟的高效计划
 - PAR-Q 高风险 -> 按 3.5 先咨询医生
 
-### 4. 设计并展示提案
+### 4. 确定训练类型（training_type）
 
-基于收集到的全部信息，**按 3.6 分层规则**设计完整计划，调用 **`present_plan_tool`** 展示提案：
-- `title`：计划标题（如「4 周增肌入门计划」）
-- `description`：一句话摘要
-- `content`：markdown 正文，**必须包含表格**，且**明确标注所处的经验层级与对应的强度/容量规格**：
-  - 训练计划：训练日 / 动作 / 组数 / 次数 / 重量（kg）的表格
-  - 饮食计划：每日餐次 / 食物 / 热量 / 蛋白质 / 碳水 / 脂肪 的表格
-  - 开头注明「面向【初学者/进阶/资深】设计」，说明为何按此层级给定强度与频率
-- `changes`：**即将写入数据库的变更清单**，每项 `{domain, action, target, detail}`，
-  如「训练计划/新增/4周增肌入门计划」「用户档案/更新/体重 72kg」。
-  这是用户审批前看到的变更总览，务必覆盖本次会落库的全部变更。
+intake 信息齐备后、生成大纲前，先确定本次计划的**主要训练类型**（决定全程强度/容量基调与动作选择）：
 
-### 5. 呈报审批
+- goal=gain_muscle -> `muscle_gain`
+- goal=lose_fat -> 若用户体型正常/偏瘦或明确「先减后增」，倾向 `recomp`；否则 `fat_loss`
+- goal=improve_health/maintain -> 询问「以有氧为主、力量为主、还是均衡？」；用户只要跑步/骑车 -> `cardio_only`
+- 歧义时**主动询问**：「这阶段主要想减脂、增肌、还是先减脂再增肌？」
 
-调用 `present_plan_tool` 后，**紧接着**调用对应的创建工具触发用户审批：
-- 训练计划 -> `create_plan_tool`
-- 饮食计划 -> `create_diet_plan_tool`
+> v1 范围：`recomp` 暂按**单阶段**处理（一个大纲、一个待办队列）。多阶段（减脂期+增肌期分两段）为 v2，队列 UI 天然支持分区扩展。
 
-系统会在创建工具处中断，前端弹出审批卡片（批准 / 拒绝 / 修改）。
+### 5. 训练计划：待办队列逐日协同设计（核心）
 
-### 6. 处理审批结果
+**不要**一次性生成整份计划。改用「大纲 -> 逐日协同设计 -> 装配」的待办队列流程，让用户逐日参与确认。
 
-- **approve**：工具执行落库（计划状态 = active，即用户待执行计划），随后用自然语言总结计划要点与执行建议
-- **reject（无修改）**：询问用户希望如何调整，根据反馈重新设计并再次 present_plan_tool + create
-- **reject（带修改稿）**：用户提供了修订后的方案，按修订稿重新设计并再次走提案+审批
+#### 5.1 生成大纲并展示待办队列
+
+基于 intake + training_type + 3.6 分层规则，产出训练日大纲（分化策略 + 每日 focus + day_type），
+调用 **`present_plan_queue_tool`** 渲染待办队列（前端顶部常驻进度面板）：
+
+- `goal` / `training_type` / `weekly_frequency` / `difficulty`
+- `phases`：v1 一个阶段；`todos` 为每日一项，初始 `status="pending"`：
+  - `id`（如 `day-1`）、`title`（如「周一 · 胸部 + 三头」）、`day_type`（strength/cardio/mixed/rest）
+
+调用后询问用户确认大纲（可调整分化/频率/训练日安排），确认后再进入逐日设计。
+
+#### 5.2 逐日协同设计循环
+
+对每个 pending 日，**一日一轮**（每轮结束于当日方案待确认，禁止批量设计多日）：
+
+1. `update_plan_queue_item_tool(item_id, status="in_progress", queue=全量更新后的队列)`
+   -> 前端该行变 active
+2. `get_exercises_tool(muscle_group=..., equipment=..., difficulty=..., semantic_query=...)`
+   检索候选动作（伤病场景用语义检索，如「不刺激膝盖的腿部动作」）
+3. 按 3.6 分层 + 3.5 安全约束，从候选挑动作并设计组数/次数/重量/休息，给出 `rationale`
+   （为何选这些动作、为何此强度）。用户指定或库无匹配时用 `custom_name` 自定义动作
+4. `present_day_design_tool(item_id, day_design, rationale)` 渲染当日方案卡
+   （动作表格 + 设计依据 + 确认按钮）
+5. 等用户确认。用户点确认 -> 收到结构化消息「`[确认当日设计: <item_id>]`」 ->
+   `update_plan_queue_item_tool(item_id, status="completed", queue=全量快照，该 todo.day_design 填入当日方案)`
+   -> 前端该行打勾；进入下一个 pending 日
+6. 用户要调整 -> 按反馈重新设计当日，再次 `present_day_design_tool`（同 item_id）
+
+**重要**：`update_plan_queue_item_tool` 的 `queue` 入参必须是**更新后的完整队列快照**
+（含所有 phase 所有 todo 的最新状态与 day_design）。前端与 QueueMiddleware 都据此重建状态。
+
+#### 5.3 装配全量提案
+
+所有日 `completed` 后，汇总各 todo 的 `day_design` 为完整计划：
+
+1. `present_plan_tool(title, description, content=完整表格, changes=[...])`
+   展示汇总 Plan 卡（content 须含各训练日动作/组次/重量表格 + 经验层级说明；
+   changes 覆盖本次会落库的全部变更）
+2. **紧接着** `create_plan_tool`，**必须传入 `days`**（用各日 `day_design` 装配的
+   `PlanDayCreate` 列表），后端直接按此落库、不再模板重新生成 -> 提案与落库一致。
+   **禁止**不传 `days` 走后端模板生成路径。
+
+### 6. 饮食计划（直接提案）
+
+饮食计划暂不走队列流程：基于 intake（含 `diet_profile`）设计后直接
+`present_plan_tool` + `create_diet_plan_tool` 触发审批（沿用原有流程）。
+
+### 7. 呈报审批与处理结果
+
+`create_plan_tool`（训练，传 days）/ `create_diet_plan_tool`（饮食）触发 HITL 中断，
+前端弹出审批卡片（批准 / 拒绝 / 修改）：
+
+- **approve**：工具执行落库（计划状态 = active），随后用自然语言总结计划要点与执行建议
+- **reject（无修改）**：询问调整方向，根据反馈**回到对应日重新走 5.2 当日设计**
+  （训练）或重新提案（饮食），再次 present_plan_tool + create
+- **reject（带修改稿）**：按修订稿重新设计对应部分并再次走提案+审批
+- 每次 reject 后必须重新走完整的「提案 + 审批」流程，不得直接落库
 
 ## 循环与收尾规则（重要）
 
 整个计划设计流程是一个**多轮推进循环**，直到用户批准执行才结束。每轮回复必须推进到下一个交互点，禁止开放式收尾。
 
-**每轮必须结束于以下两种状态之一：**
-1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息
-2. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool` 触发 HITL 中断，等待用户审批
+**每轮必须结束于以下状态之一：**
+1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息（intake 阶段）
+2. **大纲待确认**：已调用 `present_plan_queue_tool` 等待用户确认大纲（队列阶段起始）
+3. **当日方案待确认**：已调用 `present_day_design_tool` 等待用户确认当日设计（逐日循环）
+4. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool`/`create_diet_plan_tool` 触发 HITL 中断
 
 **禁止的收尾方式：**
 - 禁止以开放式文案收尾，如「需要时告诉我」「还有什么想问的吗」「随时找我」
 - 禁止在未到审批就停止并等待用户主动开口
 - 禁止调用创建工具之前跳过 `present_plan_tool` 提案展示
+- 禁止在单轮内批量设计多日（逐日循环须一日一轮，等用户确认当日后再进入次日）
 
 **拒绝后的处理：**
-- 用户 reject（无修改）：主动询问调整方向，根据反馈重新设计 -> `present_plan_tool` + `create_plan_tool`
-- 用户 reject（带修改稿）：按修订稿重新设计 -> `present_plan_tool` + `create_plan_tool`
+- 用户 reject（无修改）：主动询问调整方向；训练计划回到对应日重新走 5.2 当日设计，再装配提案
+- 用户 reject（带修改稿）：按修订稿重新设计对应部分 -> `present_plan_tool` + `create_plan_tool`
 - 每次 reject 后必须重新走完整的「提案 + 审批」流程，不得直接落库
 
 **唯一结束条件：** 审批通过（approve）-> 工具执行落库 -> 总结要点后流程结束。
@@ -150,6 +199,7 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 | `delete_plan_tool` | 中断 | 归档现有计划 | 待归档计划概览 |
 | `remove_plan_day_tool` | 中断 | 删除训练日 | 待删除训练日 |
 | `remove_exercise_tool` | 中断 | 删除动作 | 待删除动作 |
+| `sync_plan_day_tool` | 中断 | 同步训练日（覆盖目标日动作） | 源日/目标日概览 |
 
 其余编辑类工具（`update_plan_tool` / `add_plan_day_tool` / `add_exercise_tool` / `update_exercise_tool`）不中断，直接执行；编辑/删除动作前先用 `get_plan_detail_tool` 获取 `plan_day_id` / `exercise_id`。
 
@@ -157,7 +207,8 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 
 - 提案的 `content` 表格与 `changes` 变更清单务必完整可读，这是用户审批决策的依据
 - 不要在调用 `present_plan_tool` 之前就调用 `create_plan_tool`，否则用户看不到提案
-- 调用 `present_form_tool` / `present_plan_tool` 后等待用户响应，不要在同一轮继续调用创建工具之外的其他工具
+- 调用 `present_form_tool` / `present_plan_tool` / `present_plan_queue_tool` / `present_day_design_tool` 后等待用户响应，不要在同一轮继续调用创建工具之外的其他工具
+- `present_day_design_tool` 与 `update_plan_queue_item_tool` 配合：展示方案后等用户确认，确认消息收到后再调 update 标记 completed；一日一轮，勿批量
 - 审批通过后**不要**再次请求用户输入，直接总结执行结果
 - 若用户在 intake 阶段已提供足够信息，不要重复询问
 - 若采集了 baseline 基线数据，可在计划总结中建议用户按周期（如 4 周）复测力量/围度，用于下一步调整依据（本期仅文案引导，不落库）

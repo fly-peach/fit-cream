@@ -146,3 +146,62 @@ export interface MessageHistoryResponse {
   messages: ChatMessage[];
   thread_id: string;
 }
+
+// ===== 计划设计待办队列（present_plan_queue_tool / update_plan_queue_item_tool 入参）=====
+
+export type TrainingType =
+  | "fat_loss"
+  | "muscle_gain"
+  | "recomp"
+  | "cardio_only"
+  | "maintain";
+
+export type DayType = "strength" | "cardio" | "mixed" | "rest";
+
+export type QueueItemStatus = "pending" | "in_progress" | "completed" | "skipped";
+
+export interface DayExerciseDesign {
+  exercise_id?: string;
+  custom_name?: string;
+  exercise_type: "strength" | "cardio";
+  name: string;
+  sets?: number;
+  reps?: number;
+  weight_kg?: number;
+  duration_min?: number;
+  distance_km?: number;
+  rest_seconds?: number;
+  notes?: string;
+}
+
+export interface DayDesign {
+  day_of_week: number;
+  focus: string;
+  day_type: DayType;
+  exercises: DayExerciseDesign[];
+  rationale?: string;
+}
+
+export interface PlanQueueTodo {
+  id: string;
+  title: string;
+  description?: string;
+  status: QueueItemStatus;
+  day_type: DayType;
+  day_design?: DayDesign;
+}
+
+export interface PlanQueuePhase {
+  phase_id: string;
+  phase_title: string;
+  weeks?: number;
+  todos: PlanQueueTodo[];
+}
+
+export interface PlanQueue {
+  goal: string;
+  training_type: TrainingType;
+  weekly_frequency: number;
+  difficulty: string;
+  phases: PlanQueuePhase[];
+}

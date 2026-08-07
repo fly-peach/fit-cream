@@ -44,6 +44,7 @@ frontend/src/
 │   │   ├── day-detail-dialog.tsx # 训练日详情弹窗
 │   │   ├── exercise-search.tsx # 动作内联搜索（防抖）
 │   │   ├── diet-plan-card.tsx # 饮食计划卡片
+│   │   ├── sync-plan-dialog.tsx # 训练日同步弹窗
 │   │   └── types.ts          # 共享类型 + 常量
 │   ├── diet.tsx              # 饮食记录页
 │   ├── exercises.tsx         # 动作库浏览页（筛选 + 动图卡片）
@@ -66,7 +67,9 @@ frontend/src/
 │   ├── thread-history-item.tsx # 线程列表项（含内联改名）
 │   ├── metadata-editor.tsx   # 元数据编辑/预览组件
 │   ├── kb-mcp-panel.tsx      # MCP 集成面板
-│   └── memory-panel.tsx      # 聊天页「我的记忆」面板（语义记忆分组卡片）
+│   ├── memory-panel.tsx      # 聊天页「我的记忆」面板（语义记忆分组卡片）
+│   ├── plan-queue-panel.tsx  # 聊天页计划设计待办队列进度面板
+│   └── day-design-card.tsx   # 聊天页单日训练方案卡（确认/调整）
 │
 ├── hooks/                    # 自定义 Hooks
 │   ├── use-threads.ts        # 线程列表管理
@@ -87,7 +90,7 @@ frontend/src/
 │   └── meta-utils.ts         # 元数据工具函数
 │
 └── types/
-    ├── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程/AgentStep）
+    ├── chat.ts               # 聊天域类型定义（SSE 事件/消息/线程/AgentStep + 计划设计待办队列 PlanQueue/DayDesign）
     ├── memory.ts             # 语义记忆类型（SemanticMemoryItem）
     └── exercise.ts           # 动作库类型定义（Exercise/统计）
 ```

@@ -150,7 +150,7 @@ KBListItem、KB、KBDocument、KBDocumentContent、KBSearchResult、KBGraphNode�
 3. 事件分发：
    - `start` → 同步 thread_id 到 useChatStore
    - `thinking` → 累积推理内容，记录 thinkingOffset
-   - `step` → 追加 AgentStep（thought 增量累积 / tool 新建步骤 / tool_result 匹配更新）
+   - `step` → 追加 AgentStep（thought 增量累积 / reply 回复增量累积 / tool 新建步骤 / tool_result 匹配更新）
    - `token` → 追加助手回复文本
    - `tool_start` → 添加 ToolCall（run_id 为 id，记录 thinkingOffset）
    - `tool_result` → 按 id 匹配 → 更新为 completed

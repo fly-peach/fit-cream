@@ -75,6 +75,7 @@ HealthMetricService（含于 UserService）
 | add_exercise_to_day | 添加动作到训练日 | 返回 (plan_exercise, plan) |
 | update_exercise | 更新动作 | 返回 (plan_exercise, plan) |
 | delete_exercise | 删除动作 | 返回 (plan_exercise, plan) |
+| copy_plan_day | 同步训练日 | 把源星期训练日整体复制到目标星期（源不存在抛错；目标不存在新建，存在则清空动作后覆盖） |
 | generate_plan_from_goal | AI 生成计划 | 根据目标、难度自动创建完整计划 |
 
 归属验证优化：`_verify_plan_day_ownership` 和 `_verify_exercise_ownership` 使用单条 JOIN 查询（PlanDayExercise → PlanDay → Plan）替代原有的 2-3 次串行查询。

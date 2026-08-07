@@ -44,6 +44,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FormCard } from "@/components/form-card";
+import { DayDesignCard } from "@/components/day-design-card";
+import { PlanQueuePanel } from "@/components/plan-queue-panel";
 import {
   Attachments,
   Attachment,
@@ -81,6 +83,7 @@ import { MemoryPanel } from "@/components/memory-panel";
 import { ThreadHistoryItem } from "@/components/thread-history-item";
 import { ToolCallCard } from "@/components/tool-call-card";
 import { toolNameMap } from "@/components/tool-meta";
+import type { PlanQueue } from "@/types/chat";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -465,6 +468,16 @@ function StreamSteps({
           }
           if (tool === "present_plan_tool") {
             return <PlanCard key={step.id || i} step={step} />;
+          }
+          if (tool === "present_day_design_tool") {
+            return (
+              <DayDesignCard
+                key={step.id || i}
+                step={step}
+                interactive={!!formInteractive}
+                onSubmit={(text) => onSubmitForm?.(text)}
+              />
+            );
           }
           return <ToolCallCard key={step.id || i} tc={toolCallFromStep(step)} embedded />;
         }
@@ -1017,6 +1030,26 @@ export default function ChatPage() {
     [threads, currentThreadId]
   );
 
+  // 计划设计待办队列：从全线程 messages.steps 取最新一次
+  // present_plan_queue_tool（入参整体即队列）或 update_plan_queue_item_tool（入参.queue）
+  // 的快照，驱动顶部持久化进度面板。跨多轮用户消息始终反映最新进度。
+  const latestQueue = useMemo<PlanQueue | null>(() => {
+    let latest: PlanQueue | null = null;
+    for (const msg of messages) {
+      for (const s of msg.steps || []) {
+        if (s.type !== "tool") continue;
+        if (s.tool === "present_plan_queue_tool") {
+          const q = (s.input || {}) as PlanQueue;
+          if (q && q.phases) latest = q;
+        } else if (s.tool === "update_plan_queue_item_tool") {
+          const q = (s.input || {}).queue as PlanQueue | undefined;
+          if (q && q.phases) latest = q;
+        }
+      }
+    }
+    return latest;
+  }, [messages]);
+
   // 发送消息：支持文本 + 图片。图片先经后端转存阿里云 OSS（返回签名 URL），
   // 再以 URL 形式提交，后端走 image_analysis 意图链路（DashScope Qwen-VL）。
   const handleSend = useCallback(
@@ -1286,6 +1319,7 @@ export default function ChatPage() {
 
         {tab === "chat" ? (
           <>
+        {isPlanDesignThread && latestQueue && <PlanQueuePanel queue={latestQueue} />}
         <Conversation key={conversationKey} className="flex-1">
           <ConversationContent>
             <OlderMessagesLoader

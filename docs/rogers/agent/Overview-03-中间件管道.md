@@ -7,13 +7,15 @@
 | 序号 | 中间件 | 作用域 | 核心功能 |
 |------|--------|--------|----------|
 | 1 | IntentMiddleware | before_model | 检测用户意图，注入意图专用提示词 |
-| 2 | AgentLoggingMiddleware | 全生命周期 | 记录 Agent / LLM / Tool 调用日志 |
-| 3 | ModelCallLimitMiddleware | before_model | LLM 调用次数限制（默认 15 次/轮） |
-| 4 | ToolCallLimitMiddleware | wrap_tool_call | 工具调用次数限制（默认 10 次/轮） |
-| 5 | SameToolLimitMiddleware | wrap_tool_call | 同一工具重复调用限制（默认 5 次） |
-| 6 | TokenUsageMiddleware | after_model | 追踪 Token 用量，超限警告 |
-| 7 | MemoryUpdateMiddleware | after_model | 达到阈值时触发记忆提取 |
-| 8 | SummarizationMiddleware | after_model | Token 超量时压缩对话历史 |
+| 2 | SkillsMiddleware | 占位 | 纯占位（catalog 已静态烘焙进 system_prompt） |
+| 3 | PlanQueueMiddleware | before_model | 计划设计队列进度快照注入（仅 plan_design 流程有队列时生效） |
+| 4 | AgentLoggingMiddleware | 全生命周期 | 记录 Agent / LLM / Tool 调用日志 |
+| 5 | ModelCallLimitMiddleware | before_model | LLM 调用次数限制（默认 15 次/轮） |
+| 6 | ToolCallLimitMiddleware | wrap_tool_call | 工具调用次数限制（默认 10 次/轮） |
+| 7 | SameToolLimitMiddleware | wrap_tool_call | 同一工具重复调用限制（默认 5 次） |
+| 8 | TokenUsageMiddleware | after_model | 追踪 Token 用量，超限警告 |
+| 9 | SummarizationMiddleware | after_model | Token 超量时压缩对话历史 |
+| 10 | MemoryUpdateMiddleware | after_model | 达到阈值时触发记忆提取 |
 
 > 注：对话持久化不在此管道内，由 SSE 流（chat.py `_run_agent_sse`）同步落库到 `conversations` 表。
 
@@ -41,19 +43,30 @@
 | knowledge_query | 什么是、原理、为什么、知识、解释 | 注入知识库搜索要求 |
 | general_chat | （默认 fallback） | 注入通用对话指南 |
 
+### PlanQueueMiddleware
+
+计划设计待办队列上下文注入中间件（无状态）。与 IntentMiddleware 架构一致：
+
+- 仅在最新消息为 **HumanMessage** 时注入（跳过 ToolMessage/AIMessage，避免 tool 循环重复注入）
+- 从消息历史中扫描 `AIMessage.tool_calls`，取最后一个 `present_plan_queue_tool`（入参整体即队列）或 `update_plan_queue_item_tool`（入参 `.queue` 字段）的队列快照，重建当前进度
+- 渲染成 SystemMessage 注入（目标/训练类型/频率/难度 + 各 phase 完成数 + 当前应推进的日），防止多轮对话后失忆或重复设计已完成日
+- 无实例级可变状态，编译进共享 graph，并发运行互不影响
+
+队列工具调用本身是 AIMessage，故只在用户每轮新消息时刷新一次快照，token 开销可控。
+
 ### AgentLoggingMiddleware
 
 全生命周期日志中间件。记录以下关键节点：
 
 | 钩子 | 记录内容 |
 |------|----------|
-| before_agent | Agent 启动、user_id、thread_id |
+| before_agent | Agent 启动 |
 | before_model | LLM 调用次数、输入消息数量 |
 | after_model | 响应摘要、累积 Token 用量 |
 | wrap_tool_call | 工具名称、输入参数、执行耗时、输出预览 |
 | after_agent | 总耗时、LLM 调用次数、Tool 调用次数、总 Token |
 
-日志级别为 INFO，Logger 名称为 `fitcream.agent`。
+日志级别为 INFO，Logger 名称为 `fitcream.agent`。user_id / thread_id 不再拼入 message 文本，改由 ContextVar 经格式化器注入为顶层字段/前缀（见后端日志体系）。
 
 ### RateLimit 三层限流
 

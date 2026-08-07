@@ -24,8 +24,12 @@ from src.agents.harness.tools.plan import (
     list_plans_tool,
     present_plan_tool,
     present_form_tool,
+    present_plan_queue_tool,
+    present_day_design_tool,
+    update_plan_queue_item_tool,
     remove_exercise_tool,
     remove_plan_day_tool,
+    sync_plan_day_tool,
     update_exercise_tool,
     update_plan_tool,
 )
@@ -58,6 +62,7 @@ __all__ = [
     "delete_plan_tool",
     "add_plan_day_tool",
     "remove_plan_day_tool",
+    "sync_plan_day_tool",
     "add_exercise_tool",
     "update_exercise_tool",
     "remove_exercise_tool",
@@ -77,4 +82,7 @@ __all__ = [
     "get_user_summary_tool",
     "present_plan_tool",
     "present_form_tool",
+    "present_plan_queue_tool",
+    "present_day_design_tool",
+    "update_plan_queue_item_tool",
 ]

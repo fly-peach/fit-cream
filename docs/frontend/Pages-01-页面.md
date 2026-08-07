@@ -36,13 +36,15 @@
 | 路径 | `/chat` |
 | 守卫 | ProtectedRoute |
 
-AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、Agent ReAct 步骤流可视化（AgentTrace 平铺 thought/tool/tool_result 步骤）、工具调用块渲染、图片附件（相册 + 摄像头，发送前自动上传 OSS 获取签名 URL 再提交，历史消息按 metadata.images 原图渲染）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
+AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Thought）内联显示、Agent ReAct 步骤流可视化（AgentTrace 平铺 thought/reply/tool/tool_result 步骤）、工具调用块渲染、图片附件（相册 + 摄像头，发送前自动上传 OSS 获取签名 URL 再提交，历史消息按 metadata.images 原图渲染）、Token 用量弹出层、线程历史侧边栏（重命名/删除）。
 
-历史消息分页：首屏仅加载最近 10 条（HISTORY_PAGE_SIZE=10，请求 `page=1&size=10` 后取最后一页），向上滚动触发加载更早分页，无更多时停止。
+历史消息分页：首屏仅加载最近 8 条（HISTORY_PAGE_SIZE=8，请求 `page=1&size=8` 后取最后一页），向上滚动触发加载更早分页，无更多时停止。
 
 右侧「我的记忆」面板：Tab 展示语义记忆列表（MemoryPanel，按偏好/事实/规则/状态分组，显示置信度/版本/相对时间，支持刷新与错误重试）。
 
-**子组件：** ToolBlock、InterleavedReasoning、AgentTrace、ToolCallCard、MemoryPanel、MessageItem、AttachmentItem、ChatPromptInner
+计划设计待办队列：当处于 plan_design 线程且检测到队列步骤时，顶部常驻渲染 PlanQueuePanel 进度面板（从全线程 messages.steps 取最新一次 `present_plan_queue_tool` / `update_plan_queue_item_tool` 的快照，跨多轮用户消息始终反映最新进度）。`present_day_design_tool` 步骤内联渲染 DayDesignCard（确认后发结构化消息回对话）。
+
+**子组件：** ToolBlock、InterleavedReasoning、AgentTrace、ToolCallCard、MemoryPanel、PlanQueuePanel、DayDesignCard、MessageItem、AttachmentItem、ChatPromptInner
 
 **使用 vendored ai-elements：** Conversation、Message、Reasoning、Tool、Attachments、PromptInput、Context
 
@@ -58,17 +60,20 @@ AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Though
 | 守卫 | ProtectedRoute |
 | 文件 | `src/pages/plans/`（目录，index.tsx 入口） |
 
-训练与饮食计划管理页。实现打卡日历（锻炼/饮食双模式切换）、活跃训练计划详情（可编辑训练日与动作的 CRUD，搜索动作库）、饮食计划卡片（可编辑餐食与饮食日）。URL 编码选中日期（`/plans/exercise-plan-date=YYYY-MM-DD/diet-plan-date=YYYY-MM-DD`）。
+训练与饮食计划管理页。实现打卡日历（锻炼/饮食双模式切换）、活跃训练计划详情（可编辑训练日与动作的 CRUD，搜索动作库，含「同步计划」按钮）、饮食计划卡片（可编辑餐食与饮食日）。URL 编码选中日期（`/plans/exercise-plan-date=YYYY-MM-DD/diet-plan-date=YYYY-MM-DD`）。
+
+「同步计划」：点击活跃计划详情区的「同步计划」按钮打开 SyncPlanDialog，月历选择源日期（自动映射星期），预览该日训练内容，确认后把源星期训练日整体复制/覆盖到当前星期（`POST /plans/{plan_id}/copy-day`）。
 
 **文件结构：**
 
 | 文件 | 组件 | 说明 |
 |------|------|------|
-| index.tsx | PlansPage | 主页面（~280 行） |
+| index.tsx | PlansPage | 主页面（~containing 同步计划按钮） |
 | checkin-calendar.tsx | CheckinCalendar | 锻炼/饮食日历切换 |
 | day-detail-dialog.tsx | DayDetailDialog | 训练日详情弹窗（编辑动作/训练日信息） |
 | exercise-search.tsx | ExerciseSearchInline | 动作内联搜索（300ms 防抖自动搜索 + Enter 立即搜索） |
 | diet-plan-card.tsx | DietPlanCard | 饮食计划卡片（餐食 CRUD） |
+| sync-plan-dialog.tsx | SyncPlanDialog | 训练日同步弹窗（源日期预览 + 同步确认） |
 | types.ts | — | 共享类型 + 常量 + 日期工具函数 |
 
 **数据流：** 所有 mutation 操作直接使用后端响应更新 state（后端 mutation 端点统一返回完整 PlanOut/DietPlanOut），不再额外发 GET 回捞。
@@ -77,7 +82,7 @@ AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Though
 
 **表单校验：** 动作编辑 sets∈[1,20]、reps∈[1,100]、weight≥0；训练日 rest_seconds≥0；添加餐食 food_name 非空、calories≥0。
 
-**API 调用：** `GET /api/plans/active`、`POST /api/plans/{id}/days`、`PUT /api/plans/days/{id}`、`DELETE /api/plans/days/{id}`、`PUT /api/plans/exercises/{id}`、`DELETE /api/plans/exercises/{id}`、`POST /api/plans/days/{id}/exercises`、`GET /api/exercises?limit=12&keyword=`、`POST /api/checkins`、`GET /api/checkins/streak`、`GET /api/checkins?limit=200`、`GET /api/diet-plans/active`、`POST /api/diet-plans`、`POST /api/diet-plans/{id}/days`、`PUT /api/diet-plans/days/{id}`、`POST /api/diet-plans/days/{id}/meals`、`PUT /api/diet-plans/meals/{id}`、`DELETE /api/diet-plans/meals/{id}`
+**API 调用：** `GET /api/plans/active`、`POST /api/plans/{id}/days`、`PUT /api/plans/days/{id}`、`DELETE /api/plans/days/{id}`、`PUT /api/plans/exercises/{id}`、`DELETE /api/plans/exercises/{id}`、`POST /api/plans/days/{id}/exercises`、`POST /api/plans/{id}/copy-day`、`GET /api/exercises?limit=12&keyword=`、`POST /api/checkins`、`GET /api/checkins/streak`、`GET /api/checkins?limit=200`、`GET /api/diet-plans/active`、`POST /api/diet-plans`、`POST /api/diet-plans/{id}/days`、`PUT /api/diet-plans/days/{id}`、`POST /api/diet-plans/days/{id}/meals`、`PUT /api/diet-plans/meals/{id}`、`DELETE /api/diet-plans/meals/{id}`
 
 **依赖：** sonner（toast）、date-fns（zhCN 本地化）、MetadataEditor / MetadataPreview（元数据键值编辑）、DietRecordSection（饮食记录）
 

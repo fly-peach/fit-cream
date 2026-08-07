@@ -124,3 +124,22 @@
 | VERIFICATION_CODE_COOLDOWN | 60 | 验证码发送冷却(秒) |
 | VERIFICATION_CODE_MAX_PER_HOUR | 5 | 每手机号每小时验证码上限 |
 | VERIFICATION_CODE_MAX_PER_IP_HOUR | 10 | 每 IP 每小时验证码上限 |
+| SLOW_REQUEST_MS | 3000 | 慢请求阈值(毫秒)，超过则 access log 以 WARNING 高亮并标记 slow |
+
+## HTTP 请求日志（RequestLoggingMiddleware）
+
+记录每次非静态 HTTP 请求的 access log，并贯穿请求链路注入上下文：
+
+| 行为 | 说明 |
+|------|------|
+| request_id 生成/透传 | 优先取请求头 `X-Request-ID`，否则生成 uuid 短串；写入 `request.state`、响应头 `X-Request-ID`，并经 ContextVar 贯穿该请求所有日志 |
+| user_id 注入 | 认证路由（chat/message、chat/resume）在认证后写 `request.state.user_id`，access log 携带该字段 |
+| 慢请求高亮 | 耗时 ≥ `SLOW_REQUEST_MS` 时以 WARNING 输出并标记 `slow`（JSON 格式加字段，文本格式加 `| SLOW` 标签） |
+| 状态码高亮 | 状态码 ≥ 400 以 WARNING 输出 |
+| 日志格式 | 由 `LOG_FORMAT` 控制：json（含 request_id/user_id/thread_id 字段）或 text（`[req=] [user=] [thread=]` 前缀） |
+
+跳过的路径前缀：`/assets/`、`/favicon.ico`、`/robots.txt`。
+
+## Docker 日志轮转
+
+`docker-compose.yml` 为 db / app / backup 三个服务配置 `json-file` 日志驱动轮转：db 与 backup 单文件 10m、保留 3 份；app 单文件 20m、保留 5 份。

@@ -110,6 +110,8 @@ agent、artifact、audio-player、canvas/node/edge/connection/controls/panel/too
 | AgentTrace | ChatPage | pages/chat.tsx | ReAct 步骤流平铺渲染（type=tool 转 ToolCallCard，thought 展示推理增量） |
 | ToolCallCard | ChatPage | pages/chat.tsx | 单条工具调用卡片（输入/输出/状态） |
 | MemoryPanel | ChatPage | components/memory-panel.tsx | 「我的记忆」面板（语义记忆按分类分组卡片，支持刷新/重试/空态） |
+| PlanQueuePanel | ChatPage | components/plan-queue-panel.tsx | 计划设计待办队列进度面板（顶部常驻，按 phase 分区 + 逐日待办状态，completed 可展开看当日方案表格） |
+| DayDesignCard | ChatPage | components/day-design-card.tsx | 单日训练方案卡（动作表格 + 设计依据 + 确认按钮，确认发「[确认当日设计: <item_id>]」结构化消息） |
 | MessageItem | ChatPage | pages/chat.tsx | 单条消息渲染（含角色/内容/元数据，历史图片按 metadata.images 渲染） |
 | AttachmentItem | ChatPage | pages/chat.tsx | 图片附件缩略图 |
 | ChatPromptInner | ChatPage | pages/chat.tsx | 聊天输入框内部（附件预览） |
@@ -117,3 +119,16 @@ agent、artifact、audio-player、canvas/node/edge/connection/controls/panel/too
 | CheckinCalendar | PlansPage | pages/plans.tsx | 打卡日历（date-fns 月网格） |
 | DayDetailDialog | PlansPage | pages/plans.tsx | 训练日详情弹窗 |
 | DietPlanCard | PlansPage | pages/plans.tsx | 饮食计划卡片 |
+| SyncPlanDialog | PlansPage | pages/plans/sync-plan-dialog.tsx | 训练日同步弹窗（月历选源日期 → 预览源日内容 → 确认同步到目标星期） |
+
+## PlansPage 子文件
+
+| 文件 | 组件 | 说明 |
+|------|------|------|
+| index.tsx | PlansPage | 主页面（含「同步计划」按钮） |
+| checkin-calendar.tsx | CheckinCalendar | 锻炼/饮食日历切换 |
+| day-detail-dialog.tsx | DayDetailDialog | 训练日详情弹窗 |
+| exercise-search.tsx | ExerciseSearchInline | 动作内联搜索 |
+| diet-plan-card.tsx | DietPlanCard | 饮食计划卡片 |
+| sync-plan-dialog.tsx | SyncPlanDialog | 训练日同步弹窗 |
+| types.ts | — | 共享类型 + 常量 + 日期工具函数 |

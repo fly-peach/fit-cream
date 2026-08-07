@@ -157,6 +157,15 @@
 
 ## 四、已完成变更记录
 
+### 2026-08-07 - 计划设计队列 + 训练日同步 + 请求日志上下文文档同步
+
+- [x] 新建 docs/rogers/update/done-需求-agent-计划设计队列与训练日同步与日志上下文文档同步.md
+- [x] agent 工具系统：补 sync_plan_day_tool、计划设计待办队列工具组（present_plan_queue_tool / present_day_design_tool / update_plan_queue_item_tool）、create_plan_tool 的 days 直落库路径
+- [x] 中间件管道：中间件顺序表补 SkillsMiddleware / PlanQueueMiddleware，补 PlanQueue 详情与 AgentLogging 上下文注入
+- [x] fitme Service 层：PlanService 补 copy_plan_day
+- [x] routers：Endpoints-03 补 copy-day 端点、Endpoints-02 SSE step 补 reply + token 汇总日志、Overview 补 SLOW_REQUEST_MS 与日志体系
+- [x] frontend：Components 补 PlanQueuePanel / DayDesignCard / SyncPlanDialog；Pages 补同步计划与队列面板、分页 8 条；Services/Overview 同步
+
 ### 2026-07-28 — fitme 模块代码优化（25项）+ 文档体系重构 + 前端改进
 
 - [x] 优化 StatsService N+1 查询问题（批量 IN 查询）

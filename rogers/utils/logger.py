@@ -10,11 +10,10 @@
 
 在 FastAPI lifespan startup 中调用 setup_logging() 初始化。
 """
+import contextvars
 import json
 import logging
-import os
 import sys
-import time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 from typing import Optional
@@ -22,6 +21,68 @@ from typing import Optional
 from app.config import settings
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+# ============================================================
+# 请求链路上下文（ContextVar）
+# ------------------------------------------------------------
+# request_id 在 HTTP 中间件层设置（dispatch 在 call_next 之前 set，context 经
+# task 拷贝透传到路由与 Agent 日志）。user_id / thread_id 在路由层设置（认证
+# 之后才可知）。三者均「存在则注入，不存在静默降级」--后台/定时任务无上下文
+# 时日志不报错。
+# ============================================================
+_request_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "fitcream_request_id", default=None
+)
+_user_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "fitcream_user_id", default=None
+)
+_thread_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "fitcream_thread_id", default=None
+)
+
+
+def get_request_id() -> Optional[str]:
+    return _request_id_var.get()
+
+
+def set_request_id(request_id: str):
+    return _request_id_var.set(request_id)
+
+
+def reset_request_id(token) -> None:
+    _request_id_var.reset(token)
+
+
+def set_user_context(
+    *, user_id: Optional[str] = None, thread_id: Optional[str] = None
+):
+    """设置当前请求的用户/线程上下文，返回 reset token 元组。"""
+    t_u = _user_id_var.set(user_id) if user_id is not None else None
+    t_t = _thread_id_var.set(thread_id) if thread_id is not None else None
+    return (t_u, t_t)
+
+
+def reset_user_context(tokens) -> None:
+    t_u, t_t = tokens
+    if t_u is not None:
+        _user_id_var.reset(t_u)
+    if t_t is not None:
+        _thread_id_var.reset(t_t)
+
+
+def _context_prefix() -> str:
+    """构造 text 格式的上下文前缀片段（如 [req=xxx] [user=xxx] [thread=xxx]）。"""
+    parts = []
+    rid = _request_id_var.get()
+    if rid:
+        parts.append(f"[req={rid}]")
+    uid = _user_id_var.get()
+    if uid:
+        parts.append(f"[user={uid[:8]}]")
+    tid = _thread_id_var.get()
+    if tid:
+        parts.append(f"[thread={tid[:8]}]")
+    return " ".join(parts)
 
 
 def _resolve_log_dir() -> Optional[Path]:
@@ -33,7 +94,13 @@ def _resolve_log_dir() -> Optional[Path]:
 
 
 def _make_text_formatter() -> logging.Formatter:
-    return logging.Formatter(
+    class TextFormatter(logging.Formatter):
+        def format(self, record: logging.LogRecord) -> str:
+            base = super().format(record)
+            prefix = _context_prefix()
+            return f"{prefix} {base}" if prefix else base
+
+    return TextFormatter(
         "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
@@ -49,6 +116,15 @@ def _make_json_formatter() -> logging.Formatter:
                 "line": record.lineno,
                 "message": record.getMessage(),
             }
+            rid = _request_id_var.get()
+            if rid:
+                log_obj["request_id"] = rid
+            uid = _user_id_var.get()
+            if uid:
+                log_obj["user_id"] = uid
+            tid = _thread_id_var.get()
+            if tid:
+                log_obj["thread_id"] = tid
             if record.exc_info and record.exc_info[0]:
                 log_obj["exception"] = self.formatException(record.exc_info)
             return json.dumps(log_obj, ensure_ascii=False)

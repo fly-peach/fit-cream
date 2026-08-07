@@ -60,12 +60,9 @@ class AgentLoggingMiddleware(AgentMiddleware):
         self.verbose = verbose
 
     def _log_prefix(self) -> str:
-        parts = ["[Agent]"]
-        if self.user_id:
-            parts.append(f"user={self.user_id[:8]}")
-        if self.thread_id:
-            parts.append(f"thread={self.thread_id[:8]}")
-        return " ".join(parts)
+        # user_id / thread_id 现由 ContextVar 经格式化器注入为顶层字段/前缀，
+        # 不再拼入 message 文本，避免与日志平台索引重复。
+        return "[Agent]"
 
     def before_agent(self, state: AgentLoggingState, runtime: Runtime) -> dict[str, Any] | None:
         logger.info(f"{self._log_prefix()} Agent started")

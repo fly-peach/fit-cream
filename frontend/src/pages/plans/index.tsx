@@ -22,6 +22,7 @@ import {
   Pencil,
   Plus,
   CheckCircle,
+  RefreshCw,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/toast";
@@ -30,6 +31,7 @@ import { CheckinCalendar } from "./checkin-calendar";
 import { DayDetailDialog } from "./day-detail-dialog";
 import { DietPlanCard } from "./diet-plan-card";
 import { NutritionOverview } from "./nutrition-overview";
+import { SyncPlanDialog } from "./sync-plan-dialog";
 import {
   dayNames,
   parseDateLocal,
@@ -85,6 +87,7 @@ export default function PlansPage() {
   const [editingExerciseId, setEditingExerciseId] = useState<string | null>(null);
   const [checkinLoading, setCheckinLoading] = useState<string | null>(null);
   const [calMode, setCalMode] = useState<CalMode>("exercise");
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
   // 创建首个训练计划的内联表单状态
   const [creatingPlan, setCreatingPlan] = useState(false);
@@ -466,6 +469,16 @@ export default function PlansPage() {
                           <Plus className="mr-1 size-4" />
                           添加{dayNames[exDow - 1]}训练日
                         </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-emerald-600 hover:bg-emerald-50"
+                          onClick={() => setSyncDialogOpen(true)}
+                          disabled={!activePlan}
+                        >
+                          <RefreshCw className="mr-1 size-4" />
+                          同步计划
+                        </Button>
                       </div>
                     ) : (
                       <>
@@ -608,6 +621,14 @@ export default function PlansPage() {
           const updatedDay = plan.days.find((d) => d.id === selectedDay?.id);
           if (updatedDay) setSelectedDay(updatedDay);
         }}
+      />
+
+      <SyncPlanDialog
+        activePlan={activePlan}
+        targetDayOfWeek={exDow}
+        open={syncDialogOpen}
+        onClose={() => setSyncDialogOpen(false)}
+        onPlanUpdated={setActivePlan}
       />
     </AppLayout>
   );

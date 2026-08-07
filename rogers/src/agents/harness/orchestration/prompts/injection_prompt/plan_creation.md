@@ -7,6 +7,7 @@
 - **查看现有计划** -> list_plans_tool
 - **创建新计划** -> 先 get_user_profile_tool 查数据 -> create_plan_tool
 - **编辑/删除计划** -> 先 `get_plan_detail_tool` 看结构与动作ID -> 按需调 `update_plan_tool`/`add_plan_day_tool`/`remove_plan_day_tool`/`add_exercise_tool`/`update_exercise_tool`/`remove_exercise_tool`/`delete_plan_tool`
+- **同步训练日**（把某星期训练复制到另一星期）-> `sync_plan_day_tool(source_day_of_week, target_day_of_week)`
 - **创建饮食计划** -> create_diet_plan_tool
 
 ## 信息采集（表单工具）

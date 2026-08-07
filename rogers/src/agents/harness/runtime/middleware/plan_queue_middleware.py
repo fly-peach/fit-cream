@@ -1,0 +1,137 @@
+"""
+计划设计队列上下文注入中间件（无状态）
+
+配合 plan_queue_tools 的队列流程（见 skills/plan-creation/SKILL.md）：
+队列状态不进 agent state_schema，而是由消息历史中的工具调用承载--
+每个 present_plan_queue_tool / update_plan_queue_item_tool 调用都会留下
+AIMessage.tool_calls（含完整 queue 入参）。
+
+before_model 在用户新消息（HumanMessage）时，扫描消息历史重建当前队列快照，
+注入 SystemMessage，让 agent 始终知道：哪些日已完成、当前在推进哪一日、
+下一步该做什么，避免多轮对话后失忆或重复设计已完成日。
+
+架构与 IntentMiddleware 一致：
+- 仅在最新消息为 HumanMessage 时注入（跳过 ToolMessage/AIMessage，避免 tool 循环重复注入）
+- 无实例级可变状态，编译进共享 graph，并发运行互不影响
+"""
+
+import logging
+from typing import Any
+
+from langchain.agents.middleware import AgentMiddleware, AgentState
+from langchain.messages import HumanMessage, SystemMessage
+from langgraph.runtime import Runtime
+
+logger = logging.getLogger("fitcream.agent")
+
+# 这两个工具的入参携带完整队列快照（前端/中间件重建的来源）
+_QUEUE_TOOLS = ("present_plan_queue_tool", "update_plan_queue_item_tool")
+
+
+def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
+    """从工具调用入参提取完整队列快照。
+
+    - present_plan_queue_tool：入参整体即 PlanQueue（goal/training_type/phases...）
+    - update_plan_queue_item_tool：入参含 queue 字段（更新后的完整快照）
+    """
+    if not isinstance(args, dict):
+        return None
+    if name == "present_plan_queue_tool":
+        return args if args.get("phases") is not None else None
+    if name == "update_plan_queue_item_tool":
+        q = args.get("queue")
+        return q if isinstance(q, dict) else None
+    return None
+
+
+def _reconstruct_queue(messages: list) -> dict | None:
+    """扫描消息历史，返回最新的队列快照。
+
+    遍历所有 AIMessage.tool_calls，找最后一个 present_plan_queue_tool 或
+    update_plan_queue_item_tool 调用，取其 queue 入参。update 携带全量更新后快照，
+    故「最新一次」即当前真实状态。
+    """
+    latest: dict | None = None
+    for msg in messages:
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        if not tool_calls:
+            continue
+        for tc in tool_calls:
+            name = tc.get("name") if isinstance(tc, dict) else None
+            if name not in _QUEUE_TOOLS:
+                continue
+            args = tc.get("args") if isinstance(tc, dict) else None
+            q = _extract_queue_from_tool_call(name, args or {})
+            if q:
+                latest = q
+    return latest
+
+
+def _render_snapshot(queue: dict) -> str:
+    """把队列快照渲染成注入给模型的简明文本。"""
+    goal = queue.get("goal", "?")
+    ttype = queue.get("training_type", "?")
+    freq = queue.get("weekly_frequency", "?")
+    diff = queue.get("difficulty", "?")
+    lines = [
+        "# 计划设计进度（务必据此推进，勿重复设计已完成日）",
+        f"目标={goal} | 训练类型={ttype} | 每周{freq}天 | 难度={diff}",
+    ]
+    phases = queue.get("phases") or []
+    next_todo = None
+    for ph in phases:
+        title = ph.get("phase_title", ph.get("phase_id", "阶段"))
+        todos = ph.get("todos") or []
+        done = sum(1 for t in todos if t.get("status") == "completed")
+        lines.append(f"- {title}（{done}/{len(todos)} 完成）")
+        for t in todos:
+            status = t.get("status", "pending")
+            mark = {
+                "completed": "✓",
+                "in_progress": "▸",
+                "skipped": "·",
+                "pending": "○",
+            }.get(status, "○")
+            day_desc = ""
+            dd = t.get("day_design")
+            if dd and isinstance(dd, dict):
+                exs = dd.get("exercises") or []
+                ex_names = "、".join(e.get("name", "?") for e in exs[:4])
+                day_desc = f" -> {exs and len(exs) or 0}动作({ex_names})"
+            lines.append(f"    {mark} {t.get('title', t.get('id', '?'))}{day_desc}")
+            if status == "in_progress":
+                next_todo = t.get("title", t.get("id", "当前日"))
+            elif status == "pending" and next_todo is None:
+                next_todo = t.get("title", t.get("id", "下一个待设计日"))
+    if next_todo:
+        lines.append(f"当前应推进：{next_todo}")
+    else:
+        lines.append("所有日均已完成：装配全量计划 -> present_plan_tool -> create_plan_tool(传入 days) -> 审批")
+    return "\n".join(lines)
+
+
+class PlanQueueMiddleware(AgentMiddleware):
+    """计划设计队列上下文注入（无状态，编译进共享 graph）。
+
+    before_model：仅当最新消息为 HumanMessage 时，从消息历史重建队列快照并注入
+    SystemMessage。队列工具调用本身是 AIMessage（非 HumanMessage），故 tool 循环
+    中不会重复注入，只在用户每轮新消息时刷新一次快照，token 开销可控。
+    """
+
+    def before_model(
+        self, state: AgentState, runtime: Runtime
+    ) -> dict[str, Any] | None:
+        messages = state.get("messages", [])
+        if not messages:
+            return None
+
+        last_msg = messages[-1]
+        if not isinstance(last_msg, HumanMessage):
+            return None
+
+        snapshot = _reconstruct_queue(messages)
+        if not snapshot:
+            return None
+
+        logger.info("[PlanQueue] Injected queue snapshot into context")
+        return {"messages": [SystemMessage(content=_render_snapshot(snapshot))]}

@@ -121,6 +121,12 @@ class PlanDayUpdate(BaseModel):
     metadata_: Optional[dict[str, Any]] = Field(default=None, description="自定义扩展数据")
 
 
+class PlanDaySync(BaseModel):
+    """训练日同步（把源星期训练日复制到目标星期）"""
+    source_day_of_week: int = Field(ge=1, le=7, description="源训练日星期，1=周一...7=周日")
+    target_day_of_week: int = Field(ge=1, le=7, description="目标训练日星期，1=周一...7=周日")
+
+
 class PlanDayOut(BaseModel):
     """训练日输出"""
     id: UUID

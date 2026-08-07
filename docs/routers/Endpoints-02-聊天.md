@@ -30,7 +30,7 @@ prefix: `/chat`
 | start | 流开始 | `{"thread_id": str}` |
 | thinking | 模型推理中 | `{"content": str}`（reasoning_content 逐块） |
 | token | 文本生成中 | `{"content": str}`（回复文本逐块） |
-| step | ReAct 步骤流（与 thinking/tool_* 并行） | `{"type": str, ...}`，type 为 `thought`（含 `delta` 推理增量）/ `tool`（含 `id/tool/input` 工具开始）/ `tool_result`（含 `id/tool/data` 工具结果，data 截断 2000 字符） |
+| step | ReAct 步骤流（与 thinking/tool_* 并行） | `{"type": str, ...}`，type 为 `thought`（含 `delta` 推理增量）/ `reply`（含 `delta` 回复文本增量，与 token 并行）/ `tool`（含 `id/tool/input` 工具开始）/ `tool_result`（含 `id/tool/data` 工具结果，data 截断 2000 字符） |
 | tool_start | 工具调用开始 | `{"id": str, "tool": str, "input": dict}` |
 | tool_result | 工具调用完成 | `{"id": str, "tool": str, "data": str}`（输出截断 2000 字符） |
 | usage | 流结束前 | `{"input_tokens": int, "output_tokens": int, "total_tokens": int}` |
@@ -45,6 +45,7 @@ prefix: `/chat`
 4. 调用 LangGraph Agent 的 `astream_events` 流式输出
 5. 按 SSE 事件类型逐帧转发（thinking/token/step/tool_start/tool_result）
 6. 流结束时保存助手消息（metadata 含 thinking/tool_calls/steps），累加 Token 用量到 thread_usages
+7. 流结束时输出本次请求的 token 汇总摘要日志（`fitcream.usage` logger，累加所有 LLM 调用真实 usage，含 input/output/total/llm_calls/estimated 标记）
 
 ## 停止生成
 
