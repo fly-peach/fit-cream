@@ -509,7 +509,8 @@ class KnowledgeBaseService:
 
         ordered = sorted(scores.values(), key=lambda x: x.get("_rrf", 0.0), reverse=True)
         for doc in ordered:
-            doc.pop("_rrf", None)
+            # rank 覆盖为融合后的 RRF 分数，供 search_across_subscriptions 跨库合并排序
+            doc["rank"] = doc.pop("_rrf", 0.0)
         return ordered[:limit]
 
     @staticmethod
@@ -546,10 +547,7 @@ class KnowledgeBaseService:
                 ),
                 func.count(KBDocument.id).filter(
                     (KBDocument.last_indexed_at.is_(None))
-                    | (
-                        (KBDocument.content_hash != compute_content_hash(KBDocument.content))
-                        & (KBDocument.content.isnot(None))
-                    )
+                    | (KBDocument.status == "failed")
                 ),
                 func.max(KBDocument.last_indexed_at),
             ).where(

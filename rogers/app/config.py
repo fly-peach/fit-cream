@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     RERANK_ENABLED: bool = True
     RERANK_MODEL: str = "gte-rerank-v2"
     RERANK_TOP_N: int = 20
+    # 知识库语义向量整体开关（关闭后检索/摄入退化为纯全文）
+    KB_EMBEDDING_ENABLED: bool = True
 
     # ---------- 计划设计专用模型 ----------
     # 「为我设计健身计划」会话全程使用该模型（经同一 DashScope endpoint/API key）。
