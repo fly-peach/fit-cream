@@ -11,7 +11,7 @@ WORKDIR /app
 # 配置国内 Debian 源，加速系统包安装
 RUN sed -i 's/deb.debian.org/mirrors.ustc.edu.cn/g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
-    apt-get install -y --no-install-recommends libpq-dev curl && \
+    apt-get install -y --no-install-recommends libpq-dev curl ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 # 直接用 pip 安装 uv，避免从 ghcr.io 拉取（国内镜像）

@@ -52,6 +52,7 @@ from src.agents.harness.tools.user import (
 )
 from src.agents.harness.tools.knowledge import search_knowledge_base, read_kb_document
 from src.agents.harness.tools.skill import skill_load_tool
+from src.agents.harness.tools.bilibili import read_bilibili_video
 
 __all__ = [
     "create_plan_tool",
@@ -85,4 +86,5 @@ __all__ = [
     "present_plan_queue_tool",
     "present_day_design_tool",
     "update_plan_queue_item_tool",
+    "read_bilibili_video",
 ]

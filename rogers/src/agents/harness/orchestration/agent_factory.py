@@ -399,4 +399,12 @@ def _get_default_tools() -> list:
     except ImportError:
         pass
 
+    # 5. B 站视频直读工具（只读，不涉及 HITL）
+    try:
+        from src.agents.harness.tools.bilibili.bilibili_tool import read_bilibili_video
+
+        tools.append(read_bilibili_video)
+    except ImportError:
+        pass
+
     return tools

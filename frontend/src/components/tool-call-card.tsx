@@ -40,6 +40,7 @@ const iconTintMap: Record<string, string> = {
   save_event: "from-emerald-400 to-teal-500",
   skill_load_tool: "from-teal-500 to-cyan-600",
   get_user_summary_tool: "from-emerald-400 to-teal-500",
+  read_bilibili_video: "from-pink-500 to-rose-600",
 };
 
 /** 常见输出字段的中文标签 */
@@ -101,6 +102,13 @@ const keyLabelMap: Record<string, string> = {
   total_protein_g: "总蛋白(g)",
   total_carbs_g: "总碳水(g)",
   total_fat_g: "总脂肪(g)",
+  bvid: "BV号",
+  duration: "时长(秒)",
+  play: "播放量",
+  source: "来源",
+  sub_lan: "字幕语言",
+  text: "内容",
+  cues_count: "字幕条数",
 };
 
 /** 枚举值 -> 中文 */
@@ -398,9 +406,91 @@ function RawData({ tc }: { tc: ToolCall }) {
   );
 }
 
+/** B 站视频专属卡片正文：元信息行 + 可展开的文本内容 */
+function formatDuration(sec: number): string {
+  if (!sec || sec <= 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function formatPlay(n: number): string {
+  if (!n || n <= 0) return "—";
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}w`;
+  return String(n);
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  subtitle: "字幕",
+  asr: "转写",
+  none: "无文本",
+};
+
+function BilibiliVideoBody({ data }: { data: Record<string, unknown> }) {
+  const [showText, setShowText] = useState(false);
+  const video = (data.video && typeof data.video === "object" ? data.video : {}) as Record<
+    string,
+    unknown
+  >;
+  const source = String(video.source || "none");
+  const vUrl = String(video.url || "");
+  const text = typeof data.text === "string" ? data.text : "";
+  const truncated = Boolean(data.truncated);
+  const manyCues = text.length > 200;
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-full bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700 ring-1 ring-pink-200/70">
+          {SOURCE_LABEL[source] ?? source}
+        </span>
+        <span className="text-[11px] text-emerald-700/60">
+          时长{formatDuration(Number(video.duration || 0))}
+        </span>
+        <span className="text-[11px] text-emerald-700/60">
+          播放{formatPlay(Number(video.play || 0))}
+        </span>
+        {vUrl && (
+          <a
+            href={vUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-medium text-pink-600/80 underline-offset-2 hover:underline"
+          >
+            🔗 原视频
+          </a>
+        )}
+      </div>
+      {text && (
+        <div className="space-y-1">
+          <p
+            className={cn(
+              "whitespace-pre-wrap rounded-md bg-white/80 px-2.5 py-1.5 text-xs leading-relaxed text-emerald-950/85 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]",
+              !showText && manyCues && "line-clamp-4"
+            )}
+          >
+            {text}
+          </p>
+          {truncated && (
+            <p className="text-[10px] text-emerald-700/50">内容较长，已截断，可让助手读取更多。</p>
+          )}
+          {manyCues && (
+            <button
+              type="button"
+              onClick={() => setShowText((s) => !s)}
+              className="text-[11px] font-medium text-emerald-600/70 transition-colors hover:text-emerald-700"
+            >
+              {showText ? "收起" : "展开更多"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * 工具调用卡片：把一次 Tool 调用封装为可读卡片。
- *
  * - 头部：图标 + 中文名 + 状态徽标 + 一句话摘要，始终可见
  * - 正文：结构化、中文化的结果渲染（键值对 / 分组 / 列表），不直接暴露字典
  * - 内容较多时默认折叠为 expander，点开头部展开
@@ -432,6 +522,16 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
   const Icon = toolIconMap[tc.name] ?? WrenchIcon;
   const title = toolNameMap[tc.name] ?? tc.name;
   const tint = iconTintMap[tc.name] ?? "from-emerald-500 to-teal-600";
+  const isVideo = tc.name === "read_bilibili_video";
+  const renderBody = () =>
+    isVideo && obj ? (
+      <BilibiliVideoBody data={obj} />
+    ) : (
+      <>
+        {obj && <ReadableFields data={obj} />}
+        {text && <TextBlock label="结果" value={text} />}
+      </>
+    );
   const summary = getSummary(tc, obj, text);
   const errorMsg = failed
     ? tc.error || (obj && String(obj.error || "")) || "执行失败"
@@ -457,15 +557,13 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
             </CollapsibleTrigger>
             {open && (
               <CollapsibleContent className="pt-1.5">
-                {obj && <ReadableFields data={obj} />}
-                {text && <TextBlock label="结果" value={text} />}
+                {renderBody()}
               </CollapsibleContent>
             )}
           </Collapsible>
         ) : (
           <>
-            {obj && <ReadableFields data={obj} />}
-            {text && <TextBlock label="结果" value={text} />}
+            {renderBody()}
           </>
         )}
         <RawData tc={tc} />
@@ -549,8 +647,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
                     <span>{errorMsg}</span>
                   </div>
                 )}
-                {obj && <ReadableFields data={obj} />}
-                {text && <TextBlock label="结果" value={text} />}
+                {renderBody()}
                 <RawData tc={tc} />
               </div>
             </CollapsibleContent>

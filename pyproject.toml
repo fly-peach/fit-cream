@@ -55,6 +55,12 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.13.0",
 ]
+# B 站无字幕视频 ASR 兜底（懒加载，未安装时不影响主体功能）。
+# 启用需同时：uv sync --extra asr + 重新生成 uv.lock + 服务器 apt 安装 ffmpeg。
+asr = [
+    "yt-dlp>=2024.0.0",
+    "faster-whisper>=1.0.0",
+]
 
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"

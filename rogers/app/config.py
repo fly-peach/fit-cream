@@ -117,6 +117,20 @@ class Settings(BaseSettings):
     MCP_USER_MOUNT_PATH: str = "/mcp/user"
     MCP_ADMIN_MOUNT_PATH: str = "/mcp/admin"
 
+    # ---------- B 站视频直读 ----------
+    # 缓存目录（Docker volume 挂载），留空则禁用缓存
+    BILIBILI_CACHE_DIR: str = ""
+    # 可选持久化 cookie（应对风控），走环境变量，不硬编码
+    BILIBILI_COOKIE: str = ""
+    BILIBILI_REQUEST_TIMEOUT: float = 15.0
+    BILIBILI_MAX_RETRIES: int = 4
+    # ASR 兜底
+    BILIBILI_ASR_ENABLED: bool = True
+    BILIBILI_ASR_MODEL: str = "small"
+    BILIBILI_ASR_DEVICE: str = "cpu"
+    BILIBILI_ASR_COMPUTE_TYPE: str = "int8"
+    BILIBILI_ASR_VAD: bool = True
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",

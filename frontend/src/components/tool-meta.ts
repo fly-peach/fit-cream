@@ -8,6 +8,7 @@ import {
   FileTextIcon,
   FlameIcon,
   PencilIcon,
+  PlayCircleIcon,
   PlusIcon,
   SaladIcon,
   ScaleIcon,
@@ -60,6 +61,7 @@ export const toolNameMap: Record<string, string> = {
   get_user_summary_tool: "用户画像摘要",
   present_plan_tool: "计划提案",
   present_form_tool: "信息采集表单",
+  read_bilibili_video: "B站视频",
 };
 
 /** 工具名 -> 图标 */
@@ -101,4 +103,5 @@ export const toolIconMap: Record<string, LucideIcon> = {
   get_user_summary_tool: UserIcon,
   present_plan_tool: ClipboardListIcon,
   present_form_tool: ClipboardListIcon,
+  read_bilibili_video: PlayCircleIcon,
 };
