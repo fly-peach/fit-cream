@@ -27,21 +27,33 @@ def _doc_path(doc: KBDocument) -> str:
     return f"{doc.path}{doc.filename}"
 
 
-async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
-    """全量重建知识图谱（原子操作）。
+# 语义着色分组：按 tags 关键词归 5 大类，无法归类回退 source_kind
+_GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
+    ("训练动作", ("动作", "训练", "exercise", "workout", "力量", "有氧", "hiit")),
+    ("饮食营养", ("饮食", "营养", "蛋白", "碳水", "热量", "diet", "nutrition", "食谱")),
+    ("康复拉伸", ("康复", "拉伸", "放松", "按摩", "rehab", "stretch", "损伤")),
+    ("装备选购", ("装备", "器械", "器材", "选购", "gear", "equipment", "购买")),
+    ("计划", ("计划", "program", "plan", "方案", "周期")),
+]
 
-    流程: 获取所有文档 -> 构建 3 层查找映射 -> 只扫描 wiki 页面
-          (path LIKE '/wiki/%' AND file_type='md') -> 解析引用
-          -> 原子 DELETE 旧边 + INSERT 新边（单事务，失败 rollback）
-    返回: {"citations": N, "links": N, "errors": N}
-    """
+
+def _semantic_group(tags: list[str]) -> str:
+    """按 tags 归语义分组（训练动作/饮食营养/康复拉伸/装备选购/计划）。"""
+    tag_text = " | ".join(tags or []).lower()
+    for group, keywords in _GROUP_RULES:
+        if any(kw in tag_text for kw in keywords):
+            return group
+    return "其他"
+
+
+async def _load_docs(db: AsyncSession, kb_id: UUID) -> tuple[list[KBDocument], dict, dict, dict]:
+    """加载知识库全部文档 + 构建引用查找映射。"""
     result = await db.execute(
         select(KBDocument).where(
             KBDocument.kb_id == kb_id, KBDocument.archived == False  # noqa: E712
         )
     )
     all_docs = list(result.scalars().all())
-
     doc_dicts = [
         {
             "id": str(d.id),
@@ -53,8 +65,65 @@ async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
         for d in all_docs
     ]
     filename_map, base_map, wiki_map = build_lookup_maps(doc_dicts)
+    return all_docs, filename_map, base_map, wiki_map
 
-    wiki_pages = [d for d in all_docs if d.path.startswith("/wiki/") and d.file_type == "md" and (d.content or "")]
+
+async def reindex_document_references(
+    db: AsyncSession,
+    doc: KBDocument,
+    kb_id: UUID,
+    filename_map: dict,
+    base_map: dict,
+    wiki_map: dict,
+) -> dict:
+    """增量重建单文档的出边（DELETE 旧边 + 重提取，同事务）。
+
+    仅 wiki 页面会产生引用边；raw 文档仅清空其出边。返回 {"citations", "links", "errors"}。
+    """
+    await db.execute(
+        delete(KBReference).where(KBReference.source_document_id == doc.id)
+    )
+    await db.flush()
+
+    if not (doc.path.startswith("/wiki/") and doc.file_type == "md" and (doc.content or "")):
+        return {"citations": 0, "links": 0, "errors": 0}
+
+    wiki_dir = doc.path.replace("/wiki/", "", 1) if doc.path.startswith("/wiki/") else ""
+    try:
+        edges = extract_references(
+            doc.content or "", str(doc.id), wiki_dir, filename_map, base_map, wiki_map
+        )
+    except Exception:
+        return {"citations": 0, "links": 0, "errors": 1}
+
+    cites = 0
+    links = 0
+    for edge in edges:
+        ref = KBReference(
+            source_document_id=doc.id,
+            target_document_id=edge["target_id"],
+            kb_id=kb_id,
+            reference_type=edge["type"],
+            page=edge.get("page"),
+        )
+        db.add(ref)
+        if edge["type"] == "cites":
+            cites += 1
+        else:
+            links += 1
+    await db.flush()
+    return {"citations": cites, "links": links, "errors": 0}
+
+
+async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
+    """全量重建知识图谱（原子操作）。
+
+    流程: 获取所有文档 -> 构建 3 层查找映射 -> 只扫描 wiki 页面
+          (path LIKE '/wiki/%' AND file_type='md') -> 解析引用
+          -> 原子 DELETE 旧边 + INSERT 新边（单事务，失败 rollback）
+    返回: {"citations": N, "links": N, "errors": N}
+    """
+    all_docs, filename_map, base_map, wiki_map = await _load_docs(db, kb_id)
 
     await db.execute(delete(KBReference).where(KBReference.kb_id == kb_id))
     await db.flush()
@@ -62,37 +131,16 @@ async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
     total_cites = 0
     total_links = 0
     errors = 0
-    doc_by_id = {str(d.id): d for d in all_docs}
 
-    for page in wiki_pages:
-        content = page.content or ""
-        if not content:
+    for page in all_docs:
+        if not (page.path.startswith("/wiki/") and page.file_type == "md"):
             continue
-        wiki_dir = page.path.replace("/wiki/", "", 1) if page.path.startswith("/wiki/") else ""
-        try:
-            edges = extract_references(
-                content, str(page.id), wiki_dir, filename_map, base_map, wiki_map
-            )
-        except Exception:
-            errors += 1
-            continue
-
-        for edge in edges:
-            target = doc_by_id.get(edge["target_id"])
-            if not target:
-                continue
-            ref = KBReference(
-                source_document_id=page.id,
-                target_document_id=target.id,
-                kb_id=kb_id,
-                reference_type=edge["type"],
-                page=edge.get("page"),
-            )
-            db.add(ref)
-            if edge["type"] == "cites":
-                total_cites += 1
-            else:
-                total_links += 1
+        res = await reindex_document_references(
+            db, page, kb_id, filename_map, base_map, wiki_map
+        )
+        total_cites += res["citations"]
+        total_links += res["links"]
+        errors += res["errors"]
 
     await db.flush()
     logger.info(
@@ -101,8 +149,21 @@ async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
     return {"citations": total_cites, "links": total_links, "errors": errors}
 
 
-async def get_graph(db: AsyncSession, kb_id: UUID) -> dict:
-    """返回 {nodes, edges, stats} 供可视化"""
+async def get_graph(
+    db: AsyncSession,
+    kb_id: UUID,
+    mode: str = "full",
+    overview_threshold: int = 200,
+    overview_limit: int = 300,
+) -> dict:
+    """返回 {nodes, edges, stats} 供可视化。
+
+    mode:
+      - full: 返回全部节点/边
+      - overview: 节点数达到 overview_threshold 时，按节点度数降序取前 overview_limit 个
+        （边仅保留两端均在选定节点内的）；未达阈值时等价于 full。
+    节点含 stale / uncited / degree / semantic_group 供前端着色与降采样。
+    """
     doc_result = await db.execute(
         select(KBDocument).where(
             KBDocument.kb_id == kb_id,
@@ -118,6 +179,23 @@ async def get_graph(db: AsyncSession, kb_id: UUID) -> dict:
     refs = list(ref_result.scalars().all())
 
     doc_ids = {str(d.id) for d in docs}
+    refs = [
+        r for r in refs
+        if str(r.source_document_id) in doc_ids and str(r.target_document_id) in doc_ids
+    ]
+
+    # 度数统计（出入度合计）
+    degree: dict[str, int] = {}
+    for r in refs:
+        degree[str(r.source_document_id)] = degree.get(str(r.source_document_id), 0) + 1
+        degree[str(r.target_document_id)] = degree.get(str(r.target_document_id), 0) + 1
+
+    # 被 cites 引用集合（用于 uncited 标记）
+    cited_ids = {
+        str(r.target_document_id)
+        for r in refs
+        if r.reference_type == "cites"
+    }
 
     nodes = [
         {
@@ -127,9 +205,14 @@ async def get_graph(db: AsyncSession, kb_id: UUID) -> dict:
             "file_type": d.file_type,
             "source_kind": "wiki" if d.path.startswith("/wiki/") else "raw",
             "tags": d.tags or [],
+            "stale_since": d.stale_since.isoformat() if d.stale_since else None,
+            "uncited": str(d.id) not in cited_ids,
+            "degree": degree.get(str(d.id), 0),
+            "semantic_group": _semantic_group(d.tags or []),
         }
         for d in docs
     ]
+
     edges = [
         {
             "source": str(r.source_document_id),
@@ -138,16 +221,32 @@ async def get_graph(db: AsyncSession, kb_id: UUID) -> dict:
             "page": r.page,
         }
         for r in refs
-        if str(r.source_document_id) in doc_ids and str(r.target_document_id) in doc_ids
     ]
+
+    # overview 降采样
+    show_nodes = nodes
+    show_edges = edges
+    if mode == "overview" and len(nodes) >= overview_threshold:
+        top = sorted(nodes, key=lambda x: x["degree"], reverse=True)[:overview_limit]
+        top_ids = {n["id"] for n in top}
+        show_nodes = top
+        show_edges = [
+            e for e in edges
+            if e["source"] in top_ids and e["target"] in top_ids
+        ]
+
     return {
-        "nodes": nodes,
-        "edges": edges,
+        "nodes": show_nodes,
+        "edges": show_edges,
         "stats": {
             "documents": len(docs),
-            "references": len(edges),
-            "citations": sum(1 for e in edges if e["type"] == "cites"),
-            "links": sum(1 for e in edges if e["type"] == "links_to"),
+            "references": len(refs),
+            "citations": sum(1 for e in refs if e.reference_type == "cites"),
+            "links": sum(1 for e in refs if e.reference_type == "links_to"),
+            "total_nodes": len(nodes),
+            "total_edges": len(edges),
+            "mode": mode,
+            "downsampled": mode == "overview" and len(show_nodes) != len(nodes),
         },
     }
 
@@ -185,6 +284,7 @@ async def get_backlinks(db: AsyncSession, doc_id: UUID) -> list[dict]:
     return [
         {
             "id": str(r.id),
+            "document_id": str(r.source_document_id),
             "reference_type": r.reference_type,
             "page": r.page,
             "path": _doc_path(d),
@@ -206,6 +306,7 @@ async def get_forward_references(db: AsyncSession, doc_id: UUID) -> list[dict]:
     return [
         {
             "id": str(r.id),
+            "document_id": str(r.target_document_id),
             "reference_type": r.reference_type,
             "page": r.page,
             "path": _doc_path(d),

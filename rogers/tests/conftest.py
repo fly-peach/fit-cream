@@ -29,6 +29,9 @@ os.environ["ACCESS_LOG_ENABLED"] = "false"
 os.environ["MCP_ENABLED"] = "false"
 os.environ["ALIBABA_CLOUD_ACCESS_KEY_ID"] = ""
 os.environ["ALIBABA_CLOUD_ACCESS_KEY_SECRET"] = ""
+# 关闭知识库语义向量（避免测试触发 DashScope 网络调用；检索退化为纯全文）
+os.environ["KB_EMBEDDING_ENABLED"] = "false"
+os.environ["RERANK_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

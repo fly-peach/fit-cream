@@ -18,7 +18,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.knowledge_base.embeddings import rerank, semantic_available
 from src.knowledge_base.graph import (
+    _load_docs,
     find_stale_pages,
     find_uncited_sources,
     get_backlinks,
@@ -26,6 +28,7 @@ from src.knowledge_base.graph import (
     get_graph,
     propagate_staleness,
     rebuild_graph,
+    reindex_document_references,
 )
 from src.knowledge_base.indexer import (
     compute_content_hash,
@@ -359,6 +362,15 @@ class KnowledgeBaseService:
         doc.stale_since = None
         await db.flush()
 
+        # 增量重建本文档出边（仅受影响文档，不触发全库）
+        try:
+            _all, filename_map, base_map, wiki_map = await _load_docs(db, doc.kb_id)
+            await reindex_document_references(
+                db, doc, doc.kb_id, filename_map, base_map, wiki_map
+            )
+        except Exception as e:
+            logger.warning("文档 %s 出边重建失败（不影响内容更新）: %s", str(doc.id)[:8], e)
+
         # 过期传播：通知引用本文档的 wiki 页
         await propagate_staleness(db, doc.id)
         return doc
@@ -404,7 +416,14 @@ class KnowledgeBaseService:
     async def search_documents(
         db: AsyncSession, kb_id: UUID, query: str, limit: int = 20
     ) -> list:
-        """PostgreSQL 全文搜索（websearch_to_tsquery）"""
+        """语义 + 关键词混合检索（双路召回 + RRF 融合，可选 rerank 精排）。
+
+        全文路：websearch_to_tsquery + ts_rank（现状）。
+        向量路：embedding 列可用时按余弦距离 top-K（K = max(limit*3, limit)）。
+        融合：RRF（Reciprocal Rank Fusion, k=60）按 chunk_id 去重合并。
+        精排：RRF 后 top-N 进 DashScope rerank（不可用/异常回退 RRF）。
+        降级：embedding 列缺失 / 服务失败 -> 纯全文（返回现状行为）。
+        """
         from src.knowledge_base.models import KBChunk
 
         tsquery = func.websearch_to_tsquery("simple", query)
@@ -418,8 +437,9 @@ class KnowledgeBaseService:
             .limit(limit)
         )
         rows = result.all()
-        return [
-            {
+
+        def _to_dict(chunk, doc, rank) -> dict:
+            return {
                 "chunk_id": str(chunk.id),
                 "document_id": str(chunk.document_id),
                 "document_title": doc.title,
@@ -431,8 +451,66 @@ class KnowledgeBaseService:
                 "token_count": chunk.token_count,
                 "rank": float(rank) if rank else 0.0,
             }
-            for chunk, doc, rank in rows
+
+        fulltext = [_to_dict(chunk, doc, rank) for chunk, doc, rank in rows]
+
+        if not await semantic_available(db):
+            return fulltext[:limit]
+
+        # ---- 向量路：top-K 余弦最近邻 ----
+        try:
+            from src.agents.harness.runtime.memory.embeddings import get_embedding_model
+
+            embed_model = get_embedding_model()
+            query_embedding = await embed_model.aget_text_embedding(query)
+        except Exception:
+            return fulltext[:limit]
+
+        vector_k = max(limit * 3, limit)
+        dist = KBChunk.embedding.cosine_distance(query_embedding)
+        vec_result = await db.execute(
+            select(KBChunk, KBDocument, dist.label("distance"))
+            .join(KBDocument, KBChunk.document_id == KBDocument.id)
+            .where(KBDocument.kb_id == kb_id)
+            .where(KBDocument.archived == False)  # noqa: E712
+            .where(KBChunk.embedding.isnot(None))
+            .order_by(dist)
+            .limit(vector_k)
+        )
+        semantic = [
+            _to_dict(chunk, doc, 1.0 - float(distance))
+            for chunk, doc, distance in vec_result.all()
         ]
+
+        # ---- RRF 融合 ----
+        fused = KnowledgeBaseService._rrf_fuse(fulltext, semantic, limit)
+        if not fused:
+            return fulltext[:limit]
+
+        # ---- 可选 rerank 精排 ----
+        return await rerank(query, fused[:limit], top_n=min(limit, 20))
+
+    @staticmethod
+    def _rrf_fuse(
+        fulltext: list[dict], semantic: list[dict], limit: int, k: int = 60
+    ) -> list[dict]:
+        """Reciprocal Rank Fusion：合并两路排名，按 chunk_id 去重。
+
+        fulltext / semantic 均按相关度降序，RRF 分数 = 求和 1/(k+rank)。
+        """
+        scores: dict[str, dict] = {}
+
+        for rank, doc in enumerate(fulltext, start=1):
+            entry = scores.setdefault(doc["chunk_id"], doc)
+            entry["_rrf"] = entry.get("_rrf", 0.0) + 1.0 / (k + rank)
+        for rank, doc in enumerate(semantic, start=1):
+            entry = scores.setdefault(doc["chunk_id"], doc)
+            entry["_rrf"] = entry.get("_rrf", 0.0) + 1.0 / (k + rank)
+
+        ordered = sorted(scores.values(), key=lambda x: x.get("_rrf", 0.0), reverse=True)
+        for doc in ordered:
+            doc.pop("_rrf", None)
+        return ordered[:limit]
 
     @staticmethod
     async def get_document_references(db: AsyncSession, doc_id: UUID) -> dict:
@@ -447,8 +525,67 @@ class KnowledgeBaseService:
         }
 
     @staticmethod
-    async def get_graph(db: AsyncSession, kb_id: UUID) -> dict:
-        return await get_graph(db, kb_id)
+    async def get_graph(
+        db: AsyncSession, kb_id: UUID, mode: str = "full"
+    ) -> dict:
+        return await get_graph(db, kb_id, mode=mode)
+
+    @staticmethod
+    async def get_index_status(db: AsyncSession, kb_id: UUID) -> dict:
+        """索引状态（从 kb_documents / kb_chunks 派生，不新增表）。
+
+        返回总/已索引/待索引文档数、chunk 总数与未回填向量数、最后索引时间。
+        """
+        from src.knowledge_base.models import KBChunk
+
+        doc_result = await db.execute(
+            select(
+                func.count(KBDocument.id),
+                func.count(KBDocument.id).filter(
+                    KBDocument.last_indexed_at.isnot(None)
+                ),
+                func.count(KBDocument.id).filter(
+                    (KBDocument.last_indexed_at.is_(None))
+                    | (
+                        (KBDocument.content_hash != compute_content_hash(KBDocument.content))
+                        & (KBDocument.content.isnot(None))
+                    )
+                ),
+                func.max(KBDocument.last_indexed_at),
+            ).where(
+                KBDocument.kb_id == kb_id,
+                KBDocument.archived == False,  # noqa: E712
+            )
+        )
+        total, indexed, pending, last_indexed = doc_result.one()
+
+        chunk_result = await db.execute(
+            select(
+                func.count(KBChunk.id),
+                func.count(KBChunk.id).filter(KBChunk.embedding.is_(None)),
+                func.max(KBChunk.created_at),
+            )
+            .join(KBDocument, KBChunk.document_id == KBDocument.id)
+            .where(
+                KBDocument.kb_id == kb_id,
+                KBDocument.archived == False,  # noqa: E712
+            )
+        )
+        chunks_total, chunks_no_embedding, last_chunk_indexed = chunk_result.one()
+
+        return {
+            "kb_id": str(kb_id),
+            "total_documents": total,
+            "indexed_documents": indexed,
+            "pending_documents": pending,
+            "chunks_total": chunks_total,
+            "chunks_embedded": chunks_total - (chunks_no_embedding or 0),
+            "chunks_pending_embedding": chunks_no_embedding,
+            "last_indexed_at": last_indexed.isoformat() if last_indexed else None,
+            "last_chunk_indexed_at": (
+                last_chunk_indexed.isoformat() if last_chunk_indexed else None
+            ),
+        }
 
     @staticmethod
     async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:

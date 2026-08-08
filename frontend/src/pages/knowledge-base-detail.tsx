@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { KbMcpPanel } from "@/components/kb-mcp-panel";
+import { KBGraph } from "@/components/kb-graph";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
 import {
@@ -84,6 +85,17 @@ export default function KnowledgeBaseDetailPage() {
     setGraphLoading(true);
     try {
       setGraph(await kbApi.getGraph(kbId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "加载图谱失败");
+    } finally {
+      setGraphLoading(false);
+    }
+  };
+
+  const requestGraphMode = async (mode: "full" | "overview") => {
+    setGraphLoading(true);
+    try {
+      setGraph(await kbApi.getGraph(kbId, mode));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "加载图谱失败");
     } finally {
@@ -231,35 +243,25 @@ export default function KnowledgeBaseDetailPage() {
                     <Loader2 className="size-5 animate-spin" />
                   </div>
                 ) : graph ? (
-                  <Card className="border-emerald-100 bg-white/80">
-                    <CardContent className="space-y-4 p-5">
-                      <div className="flex items-center gap-2 text-sm text-emerald-700">
-                        <Share2Icon className="size-4" />
-                        <span>
-                          {graph.nodes.length} 个文档 · {graph.edges.length} 条引用
-                        </span>
-                      </div>
-                      {graph.nodes.length === 0 ? (
-                        <p className="py-6 text-center text-sm text-emerald-600/50">
-                          暂无图谱数据
-                        </p>
-                      ) : (
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          {graph.nodes.map((n) => (
-                            <div
-                              key={n.id}
-                              className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3"
-                            >
-                              <p className="truncate text-sm font-medium text-emerald-900">
-                                {n.title}
-                              </p>
-                              <p className="text-xs text-emerald-500/70">{n.path}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 text-sm text-emerald-700">
+                      <Share2Icon className="size-4" />
+                      <span>
+                        {graph.nodes.length} 个文档 · {graph.edges.length} 条引用
+                      </span>
+                    </div>
+                    {graph.nodes.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-emerald-600/50">
+                        暂无图谱数据
+                      </p>
+                    ) : (
+                      <KBGraph
+                        kbId={kbId}
+                        graph={graph}
+                        onRequestMode={requestGraphMode}
+                      />
+                    )}
+                  </div>
                 ) : null}
               </TabsContent>
 

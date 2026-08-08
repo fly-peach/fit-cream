@@ -15,6 +15,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge_base.chunker import chunk_elements, chunk_text
+from src.knowledge_base.embeddings import embed_chunks, semantic_available
 from src.knowledge_base.models import KBChunk, KBDocument
 
 logger = logging.getLogger("fitcream")
@@ -44,7 +45,13 @@ async def index_document(
     if not chunks:
         return 0
 
-    for c in chunks:
+    # 语义向量列存在时才打点（否则跳过，避免在无 pgvector 环境触发网络调用）
+    if await semantic_available(db):
+        embeddings = await embed_chunks([c.content for c in chunks])
+    else:
+        embeddings = [None] * len(chunks)
+
+    for i, c in enumerate(chunks):
         chunk = KBChunk(
             document_id=doc_id,
             chunk_index=c.index,
@@ -53,6 +60,7 @@ async def index_document(
             token_count=c.token_count,
             start_char=c.start_char,
             header_breadcrumb=c.header_breadcrumb,
+            embedding=embeddings[i],
         )
         db.add(chunk)
 

@@ -14,6 +14,7 @@ dependencies = [
     "llama-index-core>=0.12.0",
     "llama-index-embeddings-dashscope>=0.2.0",
     "llama-index-vector-stores-postgres>=0.3.0",
+    "llama-index-postprocessor-dashscope-rerank>=0.2.0",
     "pgvector>=0.3.0",
     # Web
     "fastapi>=0.115.0",

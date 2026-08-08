@@ -200,6 +200,10 @@ class KBGraphNode(BaseModel):
     file_type: str
     source_kind: str
     tags: List[str] = Field(default_factory=list)
+    stale_since: Optional[str] = None
+    uncited: bool = False
+    degree: int = 0
+    semantic_group: str = "其他"
 
 
 class KBGraphEdge(BaseModel):
@@ -213,6 +217,19 @@ class KBGraphData(BaseModel):
     nodes: List[KBGraphNode]
     edges: List[KBGraphEdge]
     stats: dict = Field(default_factory=dict)
+
+
+class KBIndexStatus(BaseModel):
+    """索引状态（FR-3 可观测性）"""
+    kb_id: UUID
+    total_documents: int
+    indexed_documents: int
+    pending_documents: int
+    chunks_total: int = 0
+    chunks_embedded: int = 0
+    chunks_pending_embedding: int = 0
+    last_indexed_at: Optional[str] = None
+    last_chunk_indexed_at: Optional[str] = None
 
 
 class KBDocumentReferences(BaseModel):

@@ -90,6 +90,10 @@ export interface KBGraphNode {
   file_type: string;
   source_kind: string;
   tags: string[];
+  stale_since?: string | null;
+  uncited?: boolean;
+  degree?: number;
+  semantic_group?: string;
 }
 
 export interface KBGraphEdge {
@@ -103,6 +107,36 @@ export interface KBGraphData {
   nodes: KBGraphNode[];
   edges: KBGraphEdge[];
   stats: Record<string, unknown>;
+}
+
+export interface KBReference {
+  id: string;
+  document_id: string;
+  reference_type: string;
+  page?: number | null;
+  path: string;
+  filename: string;
+  title: string;
+}
+
+export interface KBDocumentReferences {
+  document_id: string;
+  cites: KBReference[];
+  links_to: KBReference[];
+  cited_by: KBReference[];
+  linked_by: KBReference[];
+}
+
+export interface KBIndexStatus {
+  kb_id: string;
+  total_documents: number;
+  indexed_documents: number;
+  pending_documents: number;
+  chunks_total: number;
+  chunks_embedded: number;
+  chunks_pending_embedding: number;
+  last_indexed_at?: string | null;
+  last_chunk_indexed_at?: string | null;
 }
 
 export interface KBSubscription {
@@ -210,9 +244,14 @@ export const kbApi = {
     api.get<KBSearchResult[]>(
       withQuery(`/knowledge-bases/${kbId}/search`, { query, limit })
     ),
-  getGraph: (kbId: string) => api.get<KBGraphData>(`/knowledge-bases/${kbId}/graph`),
+  getGraph: (kbId: string, mode?: "full" | "overview") =>
+    api.get<KBGraphData>(
+      withQuery(`/knowledge-bases/${kbId}/graph`, { mode })
+    ),
+  getIndexStatus: (kbId: string) =>
+    api.get<KBIndexStatus>(`/knowledge-bases/${kbId}/index-status`),
   getReferences: (kbId: string, docId: string) =>
-    api.get<unknown>(`/knowledge-bases/${kbId}/documents/${docId}/references`),
+    api.get<KBDocumentReferences>(`/knowledge-bases/${kbId}/documents/${docId}/references`),
   subscribe: (id: string) => api.post<KBSubscription>(`/knowledge-bases/${id}/subscribe`),
   unsubscribe: (id: string) => api.delete(`/knowledge-bases/${id}/subscribe`),
 

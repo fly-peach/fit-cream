@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v3"
     EMBEDDING_DIMENSION: int = 1024
 
+    # ---------- 知识库语义检索（rerank） ----------
+    RERANK_ENABLED: bool = True
+    RERANK_MODEL: str = "gte-rerank-v2"
+    RERANK_TOP_N: int = 20
+
     # ---------- 计划设计专用模型 ----------
     # 「为我设计健身计划」会话全程使用该模型（经同一 DashScope endpoint/API key）。
     # 非 Qwen 模型须 PLAN_DESIGN_ENABLE_THINKING=false（避免发送 Qwen 专有 enable_thinking extra_body）。

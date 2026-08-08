@@ -28,6 +28,7 @@ from src.knowledge_base.schemas import (
     KBDocumentOut,
     KBDocumentReferences,
     KBGraphData,
+    KBIndexStatus,
     KBListOut,
     KBOut,
     KBReindexResult,
@@ -434,12 +435,28 @@ async def search_documents(
 )
 async def get_graph(
     kb_id: UUID,
+    mode: str = Query("full", pattern="^(full|overview)$"),
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """知识图谱数据（登录用户可读）"""
-    graph = await KnowledgeBaseService.get_graph(db, kb_id)
+    """知识图谱数据（登录用户可读）；mode=overview 时大数据降采样"""
+    graph = await KnowledgeBaseService.get_graph(db, kb_id, mode=mode)
     return ResponseModel(data=KBGraphData(**graph))
+
+
+@router.get(
+    "/{kb_id}/index-status",
+    response_model=ResponseModel[KBIndexStatus],
+    operation_id="get_index_status",
+)
+async def get_index_status(
+    kb_id: UUID,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """索引状态（文档/分块/向量回填进度）（登录用户可读）"""
+    status = await KnowledgeBaseService.get_index_status(db, kb_id)
+    return ResponseModel(data=KBIndexStatus(**status))
 
 
 @router.get(
