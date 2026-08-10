@@ -245,7 +245,7 @@ class AdminService:
 
         # ---- 训练维度 ----
         total_checkins = (
-            await db.execute(select(func.count(Checkin.id))).scalar_one()
+            (await db.execute(select(func.count(Checkin.id)))).scalar_one()
         )
         checkins_30d = (
             await db.execute(
@@ -253,7 +253,7 @@ class AdminService:
             )
         ).scalar_one()
         total_plans = (
-            await db.execute(select(func.count(Plan.id))).scalar_one()
+            (await db.execute(select(func.count(Plan.id)))).scalar_one()
         )
         active_plans = (
             await db.execute(
@@ -263,10 +263,10 @@ class AdminService:
 
         # ---- 知识库维度 ----
         total_kbs = (
-            await db.execute(select(func.count(KnowledgeBase.id))).scalar_one()
+            (await db.execute(select(func.count(KnowledgeBase.id)))).scalar_one()
         )
         total_documents = (
-            await db.execute(select(func.count(KBDocument.id))).scalar_one()
+            (await db.execute(select(func.count(KBDocument.id)))).scalar_one()
         )
         pending_documents = (
             await db.execute(
@@ -277,7 +277,7 @@ class AdminService:
             )
         ).scalar_one()
         total_chunks = (
-            await db.execute(select(func.count(KBChunk.id))).scalar_one()
+            (await db.execute(select(func.count(KBChunk.id)))).scalar_one()
         )
 
         # ---- 对话维度 ----
@@ -287,7 +287,7 @@ class AdminService:
             )
         ).scalar_one()
         total_messages = (
-            await db.execute(select(func.count(Conversation.id))).scalar_one()
+            (await db.execute(select(func.count(Conversation.id)))).scalar_one()
         )
         threads_7d = (
             await db.execute(
