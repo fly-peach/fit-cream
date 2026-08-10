@@ -1,4 +1,4 @@
-"""知识库路由 /api/knowledge-bases/* 测试（两级权限：admin 写 / 用户读+订阅）"""
+"""知识库路由 /api/knowledge-bases/* 测试（两级权限：admin 写 / 用户只读）"""
 from tests.util import biz_code, unwrap
 
 
@@ -13,7 +13,6 @@ async def _create_kb(admin_client, name="健身知识库"):
 async def test_admin_create_kb(admin_client):
     data = await _create_kb(admin_client)
     assert data["name"] == "健身知识库"
-    assert data["visibility"] == "private"
 
 
 async def test_user_cannot_create_kb(user_client):
@@ -38,50 +37,6 @@ async def test_update_kb_permissions(user_client, admin_client):
     assert biz_code(await user_client.put(f"/api/knowledge-bases/{kb['id']}", json={"name": "y"})) == 40300
 
 
-async def test_subscription_flow(user_client, admin_client, user):
-    kb = await _create_kb(admin_client)
-    kbid = kb["id"]
-
-    # 订阅（幂等）
-    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
-    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
-
-    subs = unwrap(await user_client.get("/api/knowledge-bases/subscriptions"))
-    assert any(k["id"] == kbid for k in subs)
-
-    # admin 查看订阅者
-    subscribers = unwrap(await admin_client.get(f"/api/knowledge-bases/{kbid}/subscribers"))
-    assert any(s["user_id"] == str(user.id) for s in subscribers)
-
-    # 取消订阅
-    unwrap(await user_client.delete(f"/api/knowledge-bases/{kbid}/subscribe"))
-    subs_after = unwrap(await user_client.get("/api/knowledge-bases/subscriptions"))
-    assert not any(k["id"] == kbid for k in subs_after)
-
-
-async def test_remove_subscriber(user_client, admin_client, user):
-    kb = await _create_kb(admin_client)
-    kbid = kb["id"]
-    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
-    unwrap(await admin_client.delete(f"/api/knowledge-bases/{kbid}/subscribers/{user.id}"))
-    subs = unwrap(await user_client.get("/api/knowledge-bases/subscriptions"))
-    assert not any(k["id"] == kbid for k in subs)
-
-
-async def test_public_share_read(admin_client, client):
-    kb = await _create_kb(admin_client)
-    kbid = kb["id"]
-    unwrap(
-        await admin_client.post(
-            f"/api/knowledge-bases/{kbid}/share",
-            json={"visibility": "public", "public_slug": "fitkb"},
-        )
-    )
-    # 公开端点无需认证
-    data = unwrap(await client.get("/api/knowledge-bases/public/fitkb"))
-    assert data["id"] == kbid
-
-
 async def test_document_crud(user_client, admin_client):
     kb = await _create_kb(admin_client)
     kbid = kb["id"]
@@ -98,7 +53,7 @@ async def test_document_crud(user_client, admin_client):
     )
     doc_id = doc["id"]
 
-    # 用户可读
+    # 普通用户可读任意 KB 文档（登录即可）
     lst = unwrap(await user_client.get(f"/api/knowledge-bases/{kbid}/documents"))
     assert any(d["id"] == doc_id for d in lst)
 
@@ -150,31 +105,16 @@ async def test_search_documents(user_client, admin_client):
             },
         )
     )
+    # 写文档后需重建才能被检索
+    unwrap(await admin_client.post(f"/api/knowledge-bases/{kbid}/rebuild-lint"))
+    # 普通用户可直接搜索任意 KB
     results = unwrap(
         await user_client.get(
             f"/api/knowledge-bases/{kbid}/search", params={"query": "硬拉"}
         )
     )
     assert isinstance(results, list)
-
-
-async def test_kb_tokens(user_client, admin_client):
-    kb = await _create_kb(admin_client)
-    kbid = kb["id"]
-
-    created = unwrap(
-        await admin_client.post(f"/api/knowledge-bases/{kbid}/tokens", json={"name": "ci"})
-    )
-    assert created["token"]
-    token_id = created["token_out"]["id"]
-
-    # 普通用户不可管理令牌
-    assert biz_code(await user_client.get(f"/api/knowledge-bases/{kbid}/tokens")) == 40300
-
-    tokens = unwrap(await admin_client.get(f"/api/knowledge-bases/{kbid}/tokens"))
-    assert any(t["id"] == token_id for t in tokens)
-
-    unwrap(await admin_client.delete(f"/api/knowledge-bases/{kbid}/tokens/{token_id}"))
+    assert len(results) >= 1
 
 
 async def test_admin_maintenance_endpoints(admin_client):

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import { useAuthStore } from "@/stores/auth-store";
 import { AdminRoute } from "@/components/admin-route";
+import { AdminLayout } from "@/components/admin/admin-layout";
 import { LanguageProvider } from "@/lib/language-context";
 import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
@@ -15,6 +16,9 @@ import LoginPage from "@/pages/login";
 import HomePage from "@/pages/home";
 import PlansPage from "@/pages/plans";
 import ProfilePage from "@/pages/profile";
+import AdminOverviewPage from "@/pages/admin/overview";
+import AdminUsersPage from "@/pages/admin/users";
+import AdminUserDetailPage from "@/pages/admin/user-detail";
 import KbManagementPage from "@/pages/admin/kb-management";
 import KbDetailPage from "@/pages/admin/kb-detail";
 
@@ -145,10 +149,50 @@ export function App() {
 
         {/* 管理端 */}
         <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <Navigate to="/admin/overview" replace />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/overview"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminOverviewPage />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminUsersPage />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/users/:userId"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminUserDetailPage />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
           path="/admin/knowledge-bases"
           element={
             <AdminRoute>
-              <KbManagementPage />
+              <AdminLayout>
+                <KbManagementPage />
+              </AdminLayout>
             </AdminRoute>
           }
         />
@@ -156,7 +200,9 @@ export function App() {
           path="/admin/knowledge-bases/:kbId"
           element={
             <AdminRoute>
-              <KbDetailPage />
+              <AdminLayout>
+                <KbDetailPage />
+              </AdminLayout>
             </AdminRoute>
           }
         />

@@ -2,44 +2,28 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookOpenIcon,
-  CheckIcon,
   Loader2,
-  PlusIcon,
   SearchIcon,
   ArrowRightIcon,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
 import { kbApi, type KBListItem } from "@/lib/kb-api";
 
-const VISIBILITY_LABEL: Record<string, string> = {
-  private: "私有",
-  shared: "共享",
-  public: "公开",
-};
-
 export default function KnowledgeBasesPage() {
   const [allKbs, setAllKbs] = useState<KBListItem[]>([]);
-  const [myKbs, setMyKbs] = useState<KBListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
-  const [toggling, setToggling] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
-      const [list, mine] = await Promise.all([
-        kbApi.list(),
-        kbApi.mySubscriptions(),
-      ]);
+      const list = await kbApi.list();
       setAllKbs(list);
-      setMyKbs(mine);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "加载知识库失败");
@@ -51,35 +35,6 @@ export default function KnowledgeBasesPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
-
-  const toggleSubscribe = async (kb: KBListItem) => {
-    setToggling(kb.id);
-    const wasSubscribed = kb.subscribed;
-    // 乐观更新
-    setAllKbs((prev) =>
-      prev.map((k) => (k.id === kb.id ? { ...k, subscribed: !wasSubscribed } : k))
-    );
-    try {
-      if (wasSubscribed) {
-        await kbApi.unsubscribe(kb.id);
-        setMyKbs((prev) => prev.filter((k) => k.id !== kb.id));
-      } else {
-        await kbApi.subscribe(kb.id);
-        setMyKbs((prev) => [
-          { ...kb, subscribed: true },
-          ...prev.filter((k) => k.id !== kb.id),
-        ]);
-      }
-    } catch (e) {
-      // 回滚
-      setAllKbs((prev) =>
-        prev.map((k) => (k.id === kb.id ? { ...k, subscribed: wasSubscribed } : k))
-      );
-      setError(e instanceof ApiError ? e.message : "操作失败");
-    } finally {
-      setToggling(null);
-    }
-  };
 
   const filterKbs = (list: KBListItem[]) => {
     const kw = keyword.trim().toLowerCase();
@@ -109,46 +64,13 @@ export default function KnowledgeBasesPage() {
             className="flex flex-col border-emerald-100 bg-white/80 transition-shadow hover:shadow-md"
           >
             <CardContent className="flex flex-1 flex-col gap-3 p-5">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="line-clamp-1 font-semibold text-emerald-950">
-                  {kb.name}
-                </h3>
-                <Badge
-                  variant="outline"
-                  className="shrink-0 border-emerald-200 text-emerald-600"
-                >
-                  {VISIBILITY_LABEL[kb.visibility] ?? kb.visibility}
-                </Badge>
-              </div>
+              <h3 className="line-clamp-1 font-semibold text-emerald-950">
+                {kb.name}
+              </h3>
               <p className="line-clamp-2 flex-1 text-sm text-emerald-700/70">
                 {kb.description || "暂无描述"}
               </p>
               <div className="flex items-center gap-2 pt-1">
-                <Button
-                  variant={kb.subscribed ? "outline" : "default"}
-                  size="sm"
-                  disabled={toggling === kb.id}
-                  onClick={() => toggleSubscribe(kb)}
-                  className={cn(
-                    kb.subscribed
-                      ? "border-emerald-200 text-emerald-700"
-                      : "bg-emerald-600 text-white hover:bg-emerald-500"
-                  )}
-                >
-                  {toggling === kb.id ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : kb.subscribed ? (
-                    <>
-                      <CheckIcon className="size-3.5" />
-                      已订阅
-                    </>
-                  ) : (
-                    <>
-                      <PlusIcon className="size-3.5" />
-                      订阅
-                    </>
-                  )}
-                </Button>
                 <Link
                   to={`/knowledge-bases/${kb.id}`}
                   className={cn(
@@ -178,7 +100,7 @@ export default function KnowledgeBasesPage() {
             <div>
               <h1 className="text-xl font-bold text-emerald-950">知识库</h1>
               <p className="text-sm text-emerald-600/60">
-                订阅知识库后，AI 教练可在对话中检索其内容
+                登录即可浏览全部知识库，AI 教练可在对话中检索其内容
               </p>
             </div>
           </header>
@@ -204,22 +126,7 @@ export default function KnowledgeBasesPage() {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            <Tabs defaultValue="all">
-              <TabsList className="bg-emerald-50">
-                <TabsTrigger value="all">
-                  全部（{allKbs.length}）
-                </TabsTrigger>
-                <TabsTrigger value="mine">
-                  我的订阅（{myKbs.length}）
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="all" className="mt-4">
-                {renderGrid(allKbs)}
-              </TabsContent>
-              <TabsContent value="mine" className="mt-4">
-                {renderGrid(myKbs)}
-              </TabsContent>
-            </Tabs>
+            renderGrid(allKbs)
           )}
         </div>
       </div>

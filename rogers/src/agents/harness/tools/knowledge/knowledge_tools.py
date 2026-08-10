@@ -12,8 +12,8 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
-from src.knowledge_base.service import KnowledgeBaseService
-from utils.exceptions import NotFoundException
+from src.knowledge_base.services.document_service import KBDocumentService
+from src.knowledge_base.services.search_service import KBSearchService
 
 
 class SearchKBInput(BaseModel):
@@ -21,7 +21,7 @@ class SearchKBInput(BaseModel):
     query: str = Field(description="搜索关键词，如'哑铃卧推'、'蛋白质摄入'、'减脂原理'")
     kb_id: Optional[str] = Field(
         default=None,
-        description="指定知识库 ID（须为用户已订阅的 KB）。不填则搜索用户已订阅的全部知识库",
+        description="指定知识库 ID。不填则搜索全部知识库",
     )
     limit: int = Field(default=5, ge=1, le=20, description="返回结果数量，默认5条")
 
@@ -53,11 +53,9 @@ async def search_knowledge_base(
 
     try:
         async with session_scope() as db:
-            results = await KnowledgeBaseService.search_across_subscriptions(
-                db, user_id, query, UUID(kb_id) if kb_id else None, limit
+            results = await KBSearchService.search_across_knowledge_bases(
+                db, query, UUID(kb_id) if kb_id else None, limit
             )
-    except NotFoundException as e:
-        return {"success": True, "total": 0, "results": [], "message": e.message}
     except Exception as e:
         return error_response(e)
 
@@ -108,8 +106,8 @@ async def read_kb_document(
 
     try:
         async with session_scope() as db:
-            doc = await KnowledgeBaseService.get_document_for_user(
-                db, UUID(document_id), user_id
+            doc = await KBDocumentService.get_document(
+                db, UUID(document_id)
             )
             return {
                 "success": True,
@@ -121,7 +119,6 @@ async def read_kb_document(
                     "content": doc.content,
                     "tags": doc.tags or [],
                     "entity_type": doc.entity_type,
-                    "file_type": doc.file_type,
                     "updated_at": doc.updated_at.isoformat() if doc.updated_at else None,
                 },
                 "message": f"已读取文档「{doc.title}」",

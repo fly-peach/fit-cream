@@ -16,9 +16,11 @@ API 路由汇总
 - exercises: 动作库查询
 - knowledge_bases: 知识库管理（CRUD + 搜索 + 图谱 + 成员 + 令牌 + lint）
 - memory: 语义记忆只读查询
+- admin: 管理后台（用户管理 / 全局统计 / 知识库统计列表）
 """
 from fastapi import APIRouter
 
+from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
 from app.routers.checkins import router as checkins_router
@@ -43,3 +45,4 @@ api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
 api_router.include_router(knowledge_bases_router)
 api_router.include_router(memory_router)
+api_router.include_router(admin_router, prefix="/admin")

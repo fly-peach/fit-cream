@@ -29,14 +29,10 @@ from src.fitme.models.user_settings import UserSettings
 
 from src.agents.models.conversation import Conversation
 
-from src.knowledge_base.models import (
-    KBApiToken,
-    KBChunk,
-    KBDocument,
-    KBReference,
-    KBSubscription,
-    KnowledgeBase,
-)
+from src.knowledge_base.models.chunk import KBChunk
+from src.knowledge_base.models.document import KBDocument
+from src.knowledge_base.models.knowledge_base import KnowledgeBase
+from src.knowledge_base.models.reference import KBReference
 
 # ---- Agent 记忆模型（独立 MemoryBase，不进 app Base.metadata；建表走 MemoryStore.init_db）----
 from src.agents.models.memory import (
@@ -58,7 +54,10 @@ from src.fitme.services.plan_service import PlanService
 from src.fitme.services.sms_service import SmsService
 from src.fitme.services.stats_service import StatsService
 from src.fitme.services.user_service import UserService
-from src.knowledge_base.service import KnowledgeBaseService
+from src.knowledge_base.services.document_service import KBDocumentService
+from src.knowledge_base.services.graph_service import KBGraphService
+from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseService
+from src.knowledge_base.services.search_service import KBSearchService
 
 __all__ = [
     # 业务模型
@@ -93,8 +92,6 @@ __all__ = [
     "KBDocument",
     "KBChunk",
     "KBReference",
-    "KBSubscription",
-    "KBApiToken",
     # Agent 记忆模型（独立 MemoryBase）
     "EpisodicMemory",
     "SemanticMemory",
@@ -113,5 +110,8 @@ __all__ = [
     "CustomFoodItemService",
     "SmsService",
     "KnowledgeBaseService",
+    "KBDocumentService",
+    "KBSearchService",
+    "KBGraphService",
     "ConversationService",
 ]

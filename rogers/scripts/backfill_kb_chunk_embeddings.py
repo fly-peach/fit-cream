@@ -21,7 +21,7 @@ from sqlalchemy import text, update  # noqa: E402
 
 from app.database import async_session_factory  # noqa: E402
 from src.knowledge_base.embeddings import embed_chunks  # noqa: E402
-from src.knowledge_base.models import KBChunk  # noqa: E402
+from src.knowledge_base.models.chunk import KBChunk  # noqa: E402
 
 CONCURRENCY = 8
 BATCH_SIZE = 50

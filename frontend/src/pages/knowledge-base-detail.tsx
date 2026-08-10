@@ -26,12 +26,6 @@ import {
   type KBGraphData,
 } from "@/lib/kb-api";
 
-const VISIBILITY_LABEL: Record<string, string> = {
-  private: "私有",
-  shared: "共享",
-  public: "公开",
-};
-
 export default function KnowledgeBaseDetailPage() {
   const { kbId = "" } = useParams();
   const [kb, setKb] = useState<KB | null>(null);
@@ -119,14 +113,6 @@ export default function KnowledgeBaseDetailPage() {
                 <h1 className="truncate text-xl font-bold text-emerald-950">
                   {kb?.name ?? "知识库"}
                 </h1>
-                {kb && (
-                  <Badge
-                    variant="outline"
-                    className="border-emerald-200 text-emerald-600"
-                  >
-                    {VISIBILITY_LABEL[kb.visibility] ?? kb.visibility}
-                  </Badge>
-                )}
               </div>
               <p className="line-clamp-1 text-sm text-emerald-600/60">
                 {kb?.description || "暂无描述"}
@@ -180,7 +166,7 @@ export default function KnowledgeBaseDetailPage() {
                           {d.title}
                         </p>
                         <p className="truncate text-xs text-emerald-600/60">
-                          {d.filename} · {d.file_type.toUpperCase()}
+                          {d.filename}{d.status === "pending" && " · 待索引"}
                         </p>
                       </div>
                       {d.stale_since && (
@@ -267,7 +253,7 @@ export default function KnowledgeBaseDetailPage() {
 
               {/* MCP 接入配置 */}
               <TabsContent value="mcp" className="mt-4">
-                <KbMcpPanel kbId={kbId} />
+                <KbMcpPanel />
               </TabsContent>
             </Tabs>
           )}

@@ -40,7 +40,7 @@ function useNavItems() {
     { to: "/profile", label: "我的", icon: UserIcon },
   ];
   if (role === "admin") {
-    items.push({ to: "/admin/knowledge-bases", label: "管理后台", icon: ShieldIcon });
+    items.push({ to: "/admin/overview", label: "管理后台", icon: ShieldIcon });
   }
   return items;
 }

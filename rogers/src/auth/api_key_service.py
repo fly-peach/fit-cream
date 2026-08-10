@@ -2,7 +2,7 @@
 用户 API Key 服务
 
 一人一把，明文仅创建时返回一次，存储 sha256 哈希。
-仿 KBApiToken 模式，用于 MCP 外部接入认证。
+用于 MCP 外部接入认证（/mcp/user，Authorization: Bearer <key>）。
 """
 import hashlib
 import secrets

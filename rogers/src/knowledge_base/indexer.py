@@ -14,9 +14,10 @@ from uuid import UUID
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.knowledge_base.chunker import chunk_elements, chunk_text
+from src.knowledge_base.chunker import chunk_text
 from src.knowledge_base.embeddings import embed_chunks, semantic_available
-from src.knowledge_base.models import KBChunk, KBDocument
+from src.knowledge_base.models.chunk import KBChunk
+from src.knowledge_base.models.document import KBDocument
 
 logger = logging.getLogger("fitcream")
 
@@ -30,18 +31,13 @@ async def index_document(
     db: AsyncSession,
     doc_id: UUID,
     content: str,
-    elements: list | None = None,
 ) -> int:
     """分块 + 写入 kb_chunks（单事务原子操作）。
 
-    优先使用 elements（unstructured 结构化元素，含页码/类型）做元素感知分块；
-    无 elements 时回退到 chunk_text 按纯文本分块。
+    按纯文本/Markdown 标题段落边界分块（wiki 文档无结构化元素）。
     返回: chunk 数量
     """
-    if elements:
-        chunks = chunk_elements(elements)
-    else:
-        chunks = chunk_text(content)
+    chunks = chunk_text(content)
     if not chunks:
         return 0
 
@@ -70,12 +66,12 @@ async def index_document(
 
 
 async def reindex_document(
-    db: AsyncSession, doc_id: UUID, content: str, elements: list | None = None
+    db: AsyncSession, doc_id: UUID, content: str
 ) -> int:
     """增量重建：先 DELETE 旧 chunks -> 再 index_document（同事务）"""
     await db.execute(delete(KBChunk).where(KBChunk.document_id == doc_id))
     await db.flush()
-    return await index_document(db, doc_id, content, elements)
+    return await index_document(db, doc_id, content)
 
 
 async def reindex_knowledge_base(db: AsyncSession, kb_id: UUID) -> dict:

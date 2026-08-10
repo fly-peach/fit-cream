@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from src.knowledge_base.parsers import extract_tags, parse_frontmatter
+from src.knowledge_base.frontmatter import extract_tags, parse_frontmatter
 
 _FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:\s*(.+)$", re.MULTILINE)
 _FOOTNOTE_USE_RE = re.compile(r"\[\^([^\]]+)\](?!:)")

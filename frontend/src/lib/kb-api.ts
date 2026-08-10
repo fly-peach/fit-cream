@@ -15,8 +15,6 @@ export interface KBListItem {
   description: string;
   slug: string;
   owner_id: string;
-  visibility: string;
-  subscribed: boolean;
   created_at: string;
 }
 
@@ -26,9 +24,6 @@ export interface KB {
   description: string;
   slug: string;
   owner_id: string;
-  visibility: string;
-  public_slug?: string | null;
-  share_token?: string | null;
   schema_config: Record<string, unknown>;
   created_at: string;
   updated_at: string;
@@ -40,14 +35,11 @@ export interface KBDocument {
   title: string;
   filename: string;
   path: string;
-  source_kind: string;
-  file_type: string;
   content_hash?: string | null;
   status: string;
   document_number?: number | null;
   sort_order: number;
   archived: boolean;
-  page_count?: number | null;
   last_indexed_at?: string | null;
   stale_since?: string | null;
   tags: string[];
@@ -87,8 +79,6 @@ export interface KBGraphNode {
   id: string;
   title: string;
   path: string;
-  file_type: string;
-  source_kind: string;
   tags: string[];
   stale_since?: string | null;
   uncited?: boolean;
@@ -139,32 +129,6 @@ export interface KBIndexStatus {
   last_chunk_indexed_at?: string | null;
 }
 
-export interface KBSubscription {
-  id: string;
-  kb_id: string;
-  user_id: string;
-  user_name?: string | null;
-  user_phone?: string | null;
-  subscribed_at: string;
-}
-
-export interface KBToken {
-  id: string;
-  kb_id: string;
-  token_prefix: string;
-  name: string;
-  scope: string;
-  last_used_at?: string | null;
-  expires_at?: string | null;
-  revoked_at?: string | null;
-  created_at: string;
-}
-
-export interface KBTokenCreated {
-  token: string;
-  token_out: KBToken;
-}
-
 export interface KBCreateInput {
   name: string;
   description?: string;
@@ -177,17 +141,10 @@ export interface KBUpdateInput {
   schema_config?: Record<string, unknown>;
 }
 
-export interface KBVisibilityInput {
-  visibility: "private" | "shared" | "public";
-  public_slug?: string | null;
-}
-
 export interface KBDocumentCreateInput {
   title: string;
   filename: string;
   path?: string;
-  source_kind?: "raw" | "wiki";
-  file_type?: string;
   content?: string;
   tags?: string[];
   entity_type?: string | null;
@@ -209,12 +166,6 @@ export interface KBDocumentMetaUpdateInput {
   sort_order?: number;
 }
 
-export interface KBTokenCreateInput {
-  name: string;
-  scope?: "read" | "write";
-  expires_at?: string | null;
-}
-
 function withQuery(path: string, params: Record<string, unknown>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -227,14 +178,12 @@ function withQuery(path: string, params: Record<string, unknown>): string {
 // ============ 客户端 ============
 
 export const kbApi = {
-  // ---------- 用户：读 + 订阅 ----------
+  // ---------- 用户：读 ----------
   list: () => api.get<KBListItem[]>("/knowledge-bases"),
-  mySubscriptions: () =>
-    api.get<KBListItem[]>("/knowledge-bases/subscriptions"),
   get: (id: string) => api.get<KB>(`/knowledge-bases/${id}`),
   listDocuments: (
     id: string,
-    params?: { source_kind?: "raw" | "wiki"; entity_type?: string; include_archived?: boolean }
+    params?: { entity_type?: string; include_archived?: boolean }
   ) => api.get<KBDocument[]>(withQuery(`/knowledge-bases/${id}/documents`, params ?? {})),
   getDocument: (kbId: string, docId: string) =>
     api.get<KBDocument>(`/knowledge-bases/${kbId}/documents/${docId}`),
@@ -252,19 +201,13 @@ export const kbApi = {
     api.get<KBIndexStatus>(`/knowledge-bases/${kbId}/index-status`),
   getReferences: (kbId: string, docId: string) =>
     api.get<KBDocumentReferences>(`/knowledge-bases/${kbId}/documents/${docId}/references`),
-  subscribe: (id: string) => api.post<KBSubscription>(`/knowledge-bases/${id}/subscribe`),
-  unsubscribe: (id: string) => api.delete(`/knowledge-bases/${id}/subscribe`),
 
   // ---------- 管理员：写 ----------
   create: (data: KBCreateInput) => api.post<KB>("/knowledge-bases", data),
   update: (id: string, data: KBUpdateInput) => api.put<KB>(`/knowledge-bases/${id}`, data),
   remove: (id: string) => api.delete<null>(`/knowledge-bases/${id}`),
-  setVisibility: (id: string, data: KBVisibilityInput) =>
-    api.post<KB>(`/knowledge-bases/${id}/share`, data),
   createDocument: (kbId: string, data: KBDocumentCreateInput) =>
     api.post<KBDocument>(`/knowledge-bases/${kbId}/documents`, data),
-  uploadDocument: (kbId: string, formData: FormData) =>
-    api.upload<KBDocument>(`/knowledge-bases/${kbId}/documents/upload`, formData),
   updateDocContent: (kbId: string, docId: string, data: KBDocumentContentUpdateInput) =>
     api.put<KBDocument>(`/knowledge-bases/${kbId}/documents/${docId}/content`, data),
   updateDocMeta: (kbId: string, docId: string, data: KBDocumentMetaUpdateInput) =>
@@ -279,13 +222,8 @@ export const kbApi = {
     api.post<Record<string, unknown>>(`/knowledge-bases/${kbId}/rebuild-graph`),
   lint: (kbId: string) =>
     api.get<Record<string, unknown>>(`/knowledge-bases/${kbId}/lint`),
-  listSubscribers: (kbId: string) =>
-    api.get<KBSubscription[]>(`/knowledge-bases/${kbId}/subscribers`),
-  removeSubscriber: (kbId: string, userId: string) =>
-    api.delete<null>(`/knowledge-bases/${kbId}/subscribers/${userId}`),
-  createToken: (kbId: string, data: KBTokenCreateInput) =>
-    api.post<KBTokenCreated>(`/knowledge-bases/${kbId}/tokens`, data),
-  listTokens: (kbId: string) => api.get<KBToken[]>(`/knowledge-bases/${kbId}/tokens`),
-  revokeToken: (kbId: string, tokenId: string) =>
-    api.delete<null>(`/knowledge-bases/${kbId}/tokens/${tokenId}`),
+  rebuildLint: (kbId: string) =>
+    api.post<{ index: KBIndexStatus; rebuilt: Record<string, unknown>; lint: Record<string, unknown> }>(
+      `/knowledge-bases/${kbId}/rebuild-lint`
+    ),
 };

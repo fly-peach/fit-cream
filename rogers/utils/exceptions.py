@@ -84,24 +84,11 @@ class BadRequestException(BusinessException):
 def register_exception_handlers(app: FastAPI) -> None:
     """注册全局异常处理器"""
 
-    from src.knowledge_base.parsers import UnsupportedFormatError
-
     @app.exception_handler(BusinessException)
     async def business_exception_handler(request: Request, exc: BusinessException):
         return JSONResponse(
             status_code=200,
             content={"code": exc.code, "message": exc.message, "data": None},
-        )
-
-    @app.exception_handler(UnsupportedFormatError)
-    async def unsupported_format_handler(request: Request, exc: UnsupportedFormatError):
-        return JSONResponse(
-            status_code=200,
-            content={
-                "code": ErrorCode.UNSUPPORTED_FORMAT,
-                "message": str(exc),
-                "data": None,
-            },
         )
 
     @app.exception_handler(RequestValidationError)

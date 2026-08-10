@@ -17,7 +17,8 @@ from uuid import UUID
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.knowledge_base.models import KBDocument, KBReference
+from src.knowledge_base.models.document import KBDocument
+from src.knowledge_base.models.reference import KBReference
 from src.knowledge_base.references import build_lookup_maps, extract_references
 
 logger = logging.getLogger("fitcream")
@@ -27,7 +28,7 @@ def _doc_path(doc: KBDocument) -> str:
     return f"{doc.path}{doc.filename}"
 
 
-# 语义着色分组：按 tags 关键词归 5 大类，无法归类回退 source_kind
+# 语义着色分组：按 tags 关键词归 5 大类，无法归类回退"其他"
 _GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("训练动作", ("动作", "训练", "exercise", "workout", "力量", "有氧", "hiit")),
     ("饮食营养", ("饮食", "营养", "蛋白", "碳水", "热量", "diet", "nutrition", "食谱")),
@@ -60,7 +61,6 @@ async def _load_docs(db: AsyncSession, kb_id: UUID) -> tuple[list[KBDocument], d
             "filename": d.filename,
             "title": d.title,
             "path": d.path,
-            "file_type": d.file_type,
         }
         for d in all_docs
     ]
@@ -85,7 +85,7 @@ async def reindex_document_references(
     )
     await db.flush()
 
-    if not (doc.path.startswith("/wiki/") and doc.file_type == "md" and (doc.content or "")):
+    if not (doc.path.startswith("/wiki/") and (doc.content or "")):
         return {"citations": 0, "links": 0, "errors": 0}
 
     wiki_dir = doc.path.replace("/wiki/", "", 1) if doc.path.startswith("/wiki/") else ""
@@ -119,7 +119,7 @@ async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
     """全量重建知识图谱（原子操作）。
 
     流程: 获取所有文档 -> 构建 3 层查找映射 -> 只扫描 wiki 页面
-          (path LIKE '/wiki/%' AND file_type='md') -> 解析引用
+          (path 以 /wiki/ 开头) -> 解析引用
           -> 原子 DELETE 旧边 + INSERT 新边（单事务，失败 rollback）
     返回: {"citations": N, "links": N, "errors": N}
     """
@@ -133,7 +133,7 @@ async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
     errors = 0
 
     for page in all_docs:
-        if not (page.path.startswith("/wiki/") and page.file_type == "md"):
+        if not page.path.startswith("/wiki/"):
             continue
         res = await reindex_document_references(
             db, page, kb_id, filename_map, base_map, wiki_map
@@ -202,8 +202,6 @@ async def get_graph(
             "id": str(d.id),
             "title": d.title or d.filename,
             "path": _doc_path(d),
-            "file_type": d.file_type,
-            "source_kind": "wiki" if d.path.startswith("/wiki/") else "raw",
             "tags": d.tags or [],
             "stale_since": d.stale_since.isoformat() if d.stale_since else None,
             "uncited": str(d.id) not in cited_ids,
@@ -334,7 +332,7 @@ async def find_uncited_sources(db: AsyncSession, kb_id: UUID) -> list[dict]:
         )
     )
     docs = list(result.scalars().all())
-    return [{"path": d.path, "filename": d.filename, "file_type": d.file_type} for d in docs]
+    return [{"path": d.path, "filename": d.filename} for d in docs]
 
 
 async def find_stale_pages(db: AsyncSession, kb_id: UUID) -> list[dict]:
