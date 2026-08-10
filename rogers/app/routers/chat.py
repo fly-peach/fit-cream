@@ -287,6 +287,7 @@ async def _run_agent_sse(
     tool_calls = []          # 完整工具调用记录 [{id, name, input, output, status}]
     steps: list[dict] = []   # ReAct 步骤序列
     pending_thought: Optional[dict] = None
+    pending_reply: Optional[dict] = None
     _current_tool: Optional[dict] = None
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     run_usage: dict[str, dict[str, int]] = {}
@@ -330,6 +331,10 @@ async def _run_agent_sse(
                     yield _sse_event("thinking", {"content": reasoning})
                     yield _sse_event("step", {"type": "thought", "delta": reasoning})
                 if chunk.content:
+                    if pending_reply is None:
+                        pending_reply = {"type": "reply", "content": ""}
+                        steps.append(pending_reply)
+                    pending_reply["content"] += chunk.content
                     full_content += chunk.content
                     output_chars += len(chunk.content)
                     yield _sse_event("token", {"content": chunk.content})
@@ -368,6 +373,7 @@ async def _run_agent_sse(
                     usage_total["estimated"] = True
                 usage_total["llm_calls"] += 1
                 pending_thought = None
+                pending_reply = None
 
             elif kind == "on_tool_start":
                 tool_name = event["name"]

@@ -233,7 +233,7 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
 ):
     """列出文档（owner 或已订阅者可读）"""
-    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id)
+    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id, user.role)
     docs = await KBDocumentService.list_documents(
         db, kb_id, entity_type, include_archived
     )
@@ -252,7 +252,7 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
 ):
     """获取文档元数据（owner 或已订阅者可读）"""
-    doc = await KBDocumentService.get_document_for_user(db, doc_id, user.id)
+    doc = await KBDocumentService.get_document_for_user(db, doc_id, user.id, user.role)
     return ResponseModel(data=KBDocumentOut.model_validate(doc))
 
 
@@ -268,7 +268,7 @@ async def read_document(
     db: AsyncSession = Depends(get_db),
 ):
     """读取文档完整内容（owner 或已订阅者可读）"""
-    doc = await KBDocumentService.get_document_for_user(db, doc_id, user.id)
+    doc = await KBDocumentService.get_document_for_user(db, doc_id, user.id, user.role)
     return ResponseModel(data=KBDocumentContent.model_validate(doc))
 
 
@@ -345,7 +345,7 @@ async def search_documents(
     db: AsyncSession = Depends(get_db),
 ):
     """全文搜索（owner 或已订阅者可读）"""
-    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id)
+    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id, user.role)
     results = await KBSearchService.search_documents(db, kb_id, query, limit)
     return ResponseModel(data=[KBSearchResult(**r) for r in results])
 
@@ -362,7 +362,7 @@ async def get_graph(
     db: AsyncSession = Depends(get_db),
 ):
     """知识图谱数据（owner 或已订阅者可读）；mode=overview 时大数据降采样"""
-    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id)
+    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id, user.role)
     graph = await KBGraphService.get_graph(db, kb_id, mode=mode)
     return ResponseModel(data=KBGraphData(**graph))
 
@@ -378,7 +378,7 @@ async def get_index_status(
     db: AsyncSession = Depends(get_db),
 ):
     """索引状态（文档/分块/向量回填进度）（owner 或已订阅者可读）"""
-    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id)
+    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id, user.role)
     status = await KBGraphService.get_index_status(db, kb_id)
     return ResponseModel(data=KBIndexStatus(**status))
 
@@ -395,7 +395,7 @@ async def get_document_references(
     db: AsyncSession = Depends(get_db),
 ):
     """文档引用关系（出边 + 入边）（owner 或已订阅者可读）"""
-    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id)
+    await KnowledgeBaseService.ensure_kb_access(db, kb_id, user.id, user.role)
     refs = await KBGraphService.get_document_references(db, doc_id)
     return ResponseModel(data=KBDocumentReferences(**refs))
 

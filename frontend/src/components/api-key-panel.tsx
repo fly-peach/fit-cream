@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ApiError, apiKeyApi, type UserApiKeyCreated, type UserApiKeyOut } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth-store";
 
 function CopyButton({ text, className }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
@@ -46,7 +47,10 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
 }
 
 export function ApiKeyPanel() {
-  const [open, setOpen] = useState(true);
+  const role = useAuthStore((s) => s.user?.role);
+  const isAdmin = role === "admin";
+
+  const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState(
     typeof window !== "undefined" ? window.location.origin : ""
   );
@@ -102,7 +106,7 @@ export function ApiKeyPanel() {
   };
 
   const trimmedBase = baseUrl.replace(/\/+$/, "");
-  const mcpUrl = `${trimmedBase}/mcp/user`;
+  const mcpUrl = `${trimmedBase}/mcp/${isAdmin ? "admin" : "user"}`;
   const keyForConfig = created?.key ?? "<YOUR_API_KEY>";
   const mcpConfig = JSON.stringify(
     {
@@ -205,6 +209,7 @@ export function ApiKeyPanel() {
           <div className="space-y-3">
             <p className="text-xs text-emerald-700/70">
               生成 API Key 后可通过 MCP 客户端（Claude Desktop、Cursor 等）接入你的健身数据与知识库。一人一把，重新生成会替换旧 Key。
+              {isAdmin && "管理员账号将接入管理端点，可访问全部知识库并执行管理操作。"}
             </p>
             <div className="flex items-center gap-2">
               <Input
@@ -249,6 +254,7 @@ export function ApiKeyPanel() {
           </div>
           <p className="mt-1.5 text-[11px] text-emerald-600/60">
             端点 <code className="rounded bg-emerald-50 px-1">{mcpUrl}</code> · 认证：Authorization: Bearer &lt;API Key&gt;
+            {isAdmin ? "（管理端点，可访问全部知识库）" : "（用户端点，仅可访问已订阅的知识库）"}
           </p>
         </div>
             </div>

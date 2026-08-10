@@ -51,11 +51,11 @@ props：`{children, sidebarExtra?}` — sidebarExtra 用于聊天页的线程历
 
 元数据编辑（可编辑键值对行列表）和只读预览（徽章显示），用于 PlansPage 的自定义扩展字段。
 
-### KbMcpPanel
+### ApiKeyPanel
 
-`components/kb-mcp-panel.tsx`
+`components/api-key-panel.tsx`
 
-MCP 集成面板。展示 `/mcp/admin` 管理端点信息、管理员 API Token 创建/列表/撤销。用户 MCP 接入（`/mcp/user`）请使用个人中心的 API Key 面板。
+MCP 集成面板（个人中心）。默认折叠，按角色显示对应端点：普通用户指向 `/mcp/user`（用户端点，仅可访问已订阅知识库），管理员指向 `/mcp/admin`（管理端点，可访问全部知识库并执行管理操作）。创建/列表/撤销用户 API Key，生成可直接复制的 MCP 客户端配置。
 
 ---
 

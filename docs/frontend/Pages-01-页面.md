@@ -141,9 +141,7 @@ AI 健身教练对话页。支持 SSE 流式对话、推理链（Chain-of-Though
 | 路径 | `/knowledge-bases/:kbId` |
 | 守卫 | ProtectedRoute |
 
-知识库详情页。多 Tab：文档阅读（列表 → 链接到 DocumentViewerPage）、全文搜索、知识图谱（节点/边列表，懒加载）、MCP 集成面板。
-
-**子组件：** KbMcpPanel
+知识库详情页。多 Tab：文档阅读（列表 → 链接到 DocumentViewerPage）、全文搜索、知识图谱（节点/边列表，懒加载）。MCP 接入配置已统一收敛到个人中心。
 
 **API 调用：** `GET /api/knowledge-bases/{id}`、`GET /api/knowledge-bases/{id}/documents`、`GET /api/knowledge-bases/{id}/search?query=&limit=`、`GET /api/knowledge-bases/{id}/graph`
 

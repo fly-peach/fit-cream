@@ -6,7 +6,6 @@ import {
   Loader2,
   SearchIcon,
   Share2Icon,
-  PlugIcon,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { buttonVariants } from "@/components/ui/button";
@@ -14,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { KbMcpPanel } from "@/components/kb-mcp-panel";
 import { KBGraph } from "@/components/kb-graph";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
@@ -138,10 +136,6 @@ export default function KnowledgeBaseDetailPage() {
                 <TabsTrigger value="graph" onClick={loadGraph}>
                   图谱
                 </TabsTrigger>
-                <TabsTrigger value="mcp">
-                  <PlugIcon className="mr-1 size-3.5" />
-                  MCP
-                </TabsTrigger>
               </TabsList>
 
               {/* 文档列表（只读） */}
@@ -249,11 +243,6 @@ export default function KnowledgeBaseDetailPage() {
                     )}
                   </div>
                 ) : null}
-              </TabsContent>
-
-              {/* MCP 接入配置 */}
-              <TabsContent value="mcp" className="mt-4">
-                <KbMcpPanel />
               </TabsContent>
             </Tabs>
           )}

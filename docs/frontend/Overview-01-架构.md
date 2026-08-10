@@ -66,7 +66,7 @@ frontend/src/
 │   ├── admin-route.tsx       # 管理员路由守卫
 │   ├── thread-history-item.tsx # 线程列表项（含内联改名）
 │   ├── metadata-editor.tsx   # 元数据编辑/预览组件
-│   ├── kb-mcp-panel.tsx      # MCP 集成面板
+│   ├── api-key-panel.tsx     # MCP 集成面板（个人中心，按角色显示 user/admin 端点）
 │   ├── memory-panel.tsx      # 聊天页「我的记忆」面板（语义记忆分组卡片）
 │   ├── plan-queue-panel.tsx  # 聊天页计划设计待办队列进度面板
 │   └── day-design-card.tsx   # 聊天页单日训练方案卡（确认/调整）

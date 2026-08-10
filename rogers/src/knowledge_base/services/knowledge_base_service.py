@@ -67,8 +67,12 @@ class KnowledgeBaseService:
         return kb
 
     @staticmethod
-    async def ensure_kb_access(db: AsyncSession, kb_id: UUID, user_id: UUID) -> None:
-        """读权限校验：KB 所有者或已订阅者放行，未授权统一抛 NotFoundException。"""
+    async def ensure_kb_access(
+        db: AsyncSession, kb_id: UUID, user_id: UUID, role: Optional[str] = None
+    ) -> None:
+        """读权限校验：admin 全局放行；KB 所有者或已订阅者放行；未授权统一抛 NotFoundException。"""
+        if role == "admin":
+            return
         kb = await KnowledgeBaseService.get_kb(db, kb_id)
         if kb.owner_id == user_id:
             return
