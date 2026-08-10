@@ -2,11 +2,13 @@
 记忆工具 (Memory Tools)
 
 提供给 Agent 使用的记忆相关工具：
-- recall_memory: 检索相关记忆（情景/语义/程序性）
-- save_preference: 保存用户偏好
-- save_user_fact: 保存用户事实
+- recall_memory: 检索相关记忆（情景/语义/程序性，返回带 id）
+- save_preference: 保存用户偏好（predicate=偏好类别，同类别新值自动覆盖旧值）
+- save_user_fact: 保存用户事实（可指定 predicate 区分）
 - list_user_profile: 列出用户画像信息
 - save_event: 记录重要事件
+- update_memory: 按 id 更新一条记忆（用户推翻/修订旧记忆时使用）
+- delete_memory: 按 id 删除一条记忆
 
 用法：
     from src.agents.harness.tools.memory.memory_tools import create_memory_tools
@@ -84,14 +86,20 @@ def _overlaps_db(text: str, db_facts: list[tuple[str, str]]) -> bool:
 
 
 async def _already_in_memory(
-    store: MemoryStore, user_id: str, category: str, text: str
+    store: MemoryStore,
+    user_id: str,
+    category: str,
+    text: str,
+    predicate: Optional[str] = None,
 ) -> bool:
-    """判断同分类记忆中是否已存在内容相同/包含的记忆，避免近重复。"""
+    """判断同分类记忆中是否已存在相同 predicate 且内容相同/包含的记忆，避免近重复。"""
     try:
         rows = await store.retrieve_semantic(user_id, category=category, limit=50)
     except Exception:
         return False
     for mem in rows:
+        if predicate is not None and mem.predicate != predicate:
+            continue
         obj = mem.object or ""
         if text in obj or (obj and obj in text):
             return True
@@ -137,7 +145,7 @@ async def recall_memory(
             for mem in episodic:
                 time_str = mem.timestamp.strftime("%Y-%m-%d %H:%M") if mem.timestamp else "未知时间"
                 summary = mem.summary or mem.content[:150]
-                results.append(f"[经历 {time_str}] {summary}")
+                results.append(f"[经历 {time_str} | id:{mem.id}] {summary}")
         except Exception as e:
             results.append(f"[检索情景记忆失败: {e}]")
     
@@ -150,7 +158,7 @@ async def recall_memory(
                 top_k=top_k,
             )
             for mem in semantic:
-                results.append(f"[信息] {mem.subject} {mem.predicate} {mem.object}")
+                results.append(f"[信息 id:{mem.id}] {mem.subject} {mem.predicate} {mem.object}")
         except Exception as e:
             results.append(f"[检索语义记忆失败: {e}]")
     
@@ -164,7 +172,7 @@ async def recall_memory(
             )
             for mem in procedural:
                 steps_str = ", ".join([s.get("action", "") for s in mem.steps[:3]])
-                results.append(f"[技能] {mem.name}: {steps_str}")
+                results.append(f"[技能 id:{mem.id}] {mem.name}: {steps_str}")
         except Exception as e:
             results.append(f"[检索程序性记忆失败: {e}]")
     
@@ -196,8 +204,7 @@ async def save_preference(
         保存结果确认
     """
     store = get_memory_store()
-    value_text = f"{preference}: {value}"
-    if await _already_in_memory(store, user_id, "preference", value_text):
+    if await _already_in_memory(store, user_id, "preference", value, predicate=preference):
         return f"该偏好已记录：{preference} = {value}"
 
     # 目标/身高/体重/年龄/性别等已在数据库落库的，不在记忆中重复保存
@@ -209,8 +216,8 @@ async def save_preference(
         await store.store_semantic(
             user_id=user_id,
             subject="用户",
-            predicate="偏好",
-            object=value_text,
+            predicate=preference,
+            object=value,
             category="preference",
         )
         return f"已保存偏好：{preference} = {value}"
@@ -224,6 +231,7 @@ async def save_user_fact(
     subject: str,
     fact: str,
     category: str = "fact",
+    predicate: str = "是",
 ) -> str:
     """
     保存用户相关事实。
@@ -242,12 +250,15 @@ async def save_user_fact(
             - "status": 状态信息
             - "rule": 规则/约束
             - "preference": 偏好
+        predicate: 关系谓词，用于区分不同类事实（默认"是"）。
+            同类话题应使用相同的 predicate，以便同 (subject, predicate) 自动更新旧值。
+            （保存偏好时推荐改用 save_preference，predicate 即偏好类别）
         
     Returns:
         保存结果确认
     """
     store = get_memory_store()
-    if await _already_in_memory(store, user_id, category, fact):
+    if await _already_in_memory(store, user_id, category, fact, predicate=predicate):
         return f"该信息已记录：{subject} - {fact}"
 
     # 目标/身高/体重/年龄/性别等已在数据库落库的，不在记忆中重复保存
@@ -260,7 +271,7 @@ async def save_user_fact(
         await store.store_semantic(
             user_id=user_id,
             subject=subject,
-            predicate="是",
+            predicate=predicate,
             object=fact,
             category=category,
         )
@@ -342,6 +353,94 @@ async def save_event(
         return f"记录事件失败：{e}"
 
 
+@tool
+async def update_memory(
+    user_id: str,
+    memory_id: str,
+    new_value: str,
+    memory_type: str = "semantic",
+) -> str:
+    """
+    更新一条已存在的记忆（按记忆 id）。
+
+    当用户推翻或修订之前记录的偏好/事实时使用，例如此前记录"喜欢冰淇淋"，
+    今天更正为"更喜欢炸鸡"。用 recall_memory 找到待修订记忆的 id 后传入。
+
+    Args:
+        user_id: 用户ID
+        memory_id: 要更新的记忆 id（recall_memory 返回的 id:xxx）
+        new_value: 新的记忆内容
+        memory_type: 记忆类型，可选值：
+            - "semantic": 语义记忆/偏好/事实（默认）
+            - "episodic": 情景/经历记忆
+
+    Returns:
+        更新结果确认
+    """
+    store = get_memory_store()
+    try:
+        mid = UUID(memory_id)
+    except (ValueError, TypeError):
+        return f"无效的记忆ID：{memory_id}"
+
+    try:
+        if memory_type == "semantic":
+            ok = await store.update_semantic(user_id, mid, object=new_value)
+        elif memory_type == "episodic":
+            ok = await store.update_episodic(user_id, mid, content=new_value)
+        else:
+            return f"不支持的记忆类型：{memory_type}"
+    except Exception as e:
+        return f"更新记忆失败：{e}"
+
+    if ok:
+        return f"已更新记忆 {memory_id} 为：{new_value}"
+    return f"未找到该记忆或无权修改：{memory_id}"
+
+
+@tool
+async def delete_memory(
+    user_id: str,
+    memory_id: str,
+    memory_type: str = "semantic",
+) -> str:
+    """
+    删除一条记忆（按记忆 id）。
+
+    当某条记忆已作废、错误或与用户最新说法冲突且不再需要时使用。
+    用 recall_memory 找到待删除记忆的 id 后传入。
+
+    Args:
+        user_id: 用户ID
+        memory_id: 要删除的记忆 id（recall_memory 返回的 id:xxx）
+        memory_type: 记忆类型，可选值：
+            - "semantic": 语义记忆/偏好/事实（默认）
+            - "episodic": 情景/经历记忆
+
+    Returns:
+        删除结果确认
+    """
+    store = get_memory_store()
+    try:
+        mid = UUID(memory_id)
+    except (ValueError, TypeError):
+        return f"无效的记忆ID：{memory_id}"
+
+    try:
+        if memory_type == "semantic":
+            ok = await store.delete_semantic(user_id, mid)
+        elif memory_type == "episodic":
+            ok = await store.delete_episodic(user_id, mid)
+        else:
+            return f"不支持的记忆类型：{memory_type}"
+    except Exception as e:
+        return f"删除记忆失败：{e}"
+
+    if ok:
+        return f"已删除记忆 {memory_id}"
+    return f"未找到该记忆或无权删除：{memory_id}"
+
+
 def create_memory_tools() -> list:
     """
     创建所有记忆工具
@@ -355,4 +454,6 @@ def create_memory_tools() -> list:
         save_user_fact,
         list_user_profile,
         save_event,
+        update_memory,
+        delete_memory,
     ]

@@ -46,7 +46,7 @@ def _get_setting(key: str, default: str = "") -> str:
         return os.getenv(key, default)
 
 
-DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.5-flash")
+DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.7-flash")
 
 # 视觉模型备选（当主模型不支持图片识别时，可切换到 Qwen-VL 系列）
 DEFAULT_VISION_MODEL = _get_setting("DASHSCOPE_VISION_MODEL", "qwen3-vl-flash")

@@ -7,7 +7,7 @@
 ### 基础配置
 
 - **API 端点**：`https://dashscope.aliyuncs.com/compatible-mode/v1`
-- **默认模型**：`qwen3.5-flash`（由 `DASHSCOPE_MODEL` 环境变量控制）
+- **默认模型**：`qwen3.7-flash`（由 `DASHSCOPE_MODEL` 环境变量控制）
 - **视觉模型备选**：`qwen3-vl-flash`（由 `DASHSCOPE_VISION_MODEL` 环境变量控制）
 - **API 密钥**：由 `DASHSCOPE_API_KEY` 环境变量提供
 - **温度参数**：默认 1.2（由 `DASHSCOPE_TEMPERATURE` 环境变量控制）

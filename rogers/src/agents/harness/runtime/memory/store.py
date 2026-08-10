@@ -323,6 +323,77 @@ class MemoryStore:
         
         return memory.id
     
+    async def update_episodic(
+        self,
+        user_id: str,
+        memory_id: uuid.UUID,
+        content: Optional[str] = None,
+        summary: Optional[str] = None,
+        importance_score: Optional[float] = None,
+    ) -> bool:
+        """
+        更新一条情景记忆（按 id）。
+
+        若更新 content 且未提供 summary，则顺带更新 summary；embedding 由
+        调用方决定是否重算（此处保留原向量，避免额外嵌入调用）。
+
+        Args:
+            user_id: 用户 ID
+            memory_id: 记忆 ID
+            content: 新内容
+            summary: 新摘要
+            importance_score: 新重要性
+
+        Returns:
+            是否更新成功
+        """
+        async with self.async_session() as session:
+            row = await session.get(EpisodicMemory, memory_id)
+            if row is None or str(row.user_id) != str(user_id):
+                return False
+            if content is not None:
+                row.content = content
+                row.embedding = await self.embed_model.aget_text_embedding(content)
+            if summary is not None:
+                row.summary = summary
+            elif content is not None and row.summary:
+                row.summary = content[:200]
+            if importance_score is not None:
+                row.importance_score = importance_score
+            row.updated_at = datetime.utcnow()
+            await session.commit()
+            return True
+
+    async def delete_episodic(
+        self,
+        user_id: str,
+        memory_id: uuid.UUID,
+    ) -> bool:
+        """
+        删除一条情景记忆（按 id，硬删）。
+
+        同时清空由它派生的语义记忆的 source_episodic_id 引用。
+
+        Args:
+            user_id: 用户 ID
+            memory_id: 记忆 ID
+
+        Returns:
+            是否删除成功
+        """
+        async with self.async_session() as session:
+            row = await session.get(EpisodicMemory, memory_id)
+            if row is None or str(row.user_id) != str(user_id):
+                return False
+            await session.execute(
+                update(SemanticMemory)
+                .where(SemanticMemory.source_episodic_id == memory_id)
+                .values(source_episodic_id=None)
+            )
+            await session.delete(row)
+            await session.commit()
+            return True
+    
     async def retrieve_episodic(
         self,
         user_id: str,
@@ -508,6 +579,78 @@ class MemoryStore:
             )
 
         return memory_id
+
+    async def update_semantic(
+        self,
+        user_id: str,
+        memory_id: uuid.UUID,
+        object: Optional[str] = None,
+        category: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> bool:
+        """
+        更新一条语义记忆（按 id）。
+
+        仅更新 object / category / confidence，predicate 保持不变，
+        避免破坏 (subject, predicate) 版本化分组的版本链。
+
+        Args:
+            user_id: 用户 ID
+            memory_id: 记忆 ID
+            object: 新对象值
+            category: 新分类
+            confidence: 新置信度
+
+        Returns:
+            是否更新成功（记忆不存在或不属于该用户返回 False）
+        """
+        async with self.async_session() as session:
+            row = await session.get(SemanticMemory, memory_id)
+            if (
+                row is None
+                or str(row.user_id) != str(user_id)
+                or row.status != "active"
+            ):
+                return False
+            if object is not None:
+                row.object = object
+            if category is not None:
+                row.category = category
+            if confidence is not None:
+                row.confidence = confidence
+            row.updated_at = datetime.utcnow()
+            await session.commit()
+            return True
+
+    async def delete_semantic(
+        self,
+        user_id: str,
+        memory_id: uuid.UUID,
+    ) -> bool:
+        """
+        删除一条语义记忆（按 id，硬删）。
+
+        同时清空其他记忆指向该 id 的 superseded_by 引用，避免悬挂外键。
+
+        Args:
+            user_id: 用户 ID
+            memory_id: 记忆 ID
+
+        Returns:
+            是否删除成功
+        """
+        async with self.async_session() as session:
+            row = await session.get(SemanticMemory, memory_id)
+            if row is None or str(row.user_id) != str(user_id):
+                return False
+            await session.execute(
+                update(SemanticMemory)
+                .where(SemanticMemory.superseded_by == memory_id)
+                .values(superseded_by=None)
+            )
+            await session.delete(row)
+            await session.commit()
+            return True
 
     async def retrieve_semantic(
         self,

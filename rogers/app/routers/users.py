@@ -33,9 +33,15 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/me", response_model=ResponseModel[UserOut], operation_id="get_me")
 async def get_me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """获取当前用户信息（包含设置）"""
+    """获取当前用户信息（含最新身高体重与健身目标）"""
     user = await UserService.get_by_id(db, current_user.id)
-    return ResponseModel(data=UserOut.model_validate(user))
+    profile = await UserService.get_profile_summary(db, current_user.id)
+    return ResponseModel(data=UserOut.model_validate({
+        **UserOut.model_validate(user).model_dump(exclude_none=False),
+        "height_cm": profile["height_cm"],
+        "weight_kg": profile["weight_kg"],
+        "goal": profile["goal"],
+    }))
 
 
 @router.put("/me", response_model=ResponseModel[UserOut], operation_id="update_me")
@@ -44,9 +50,25 @@ async def update_me(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新当前用户基本资料"""
-    user = await UserService.update_profile(db, current_user.id, data)
-    return ResponseModel(data=UserOut.model_validate(user))
+    """更新当前用户基本资料（身高/体重/目标走 HealthMetric/UserSettings，与 agent 同一写路径）"""
+    await UserService.update_profile_consolidated(
+        db,
+        current_user.id,
+        name=data.name,
+        age=data.age,
+        gender=data.gender,
+        height_cm=data.height_cm,
+        weight_kg=data.weight_kg,
+        goal=data.goal,
+    )
+    user = await UserService.get_by_id(db, current_user.id)
+    profile = await UserService.get_profile_summary(db, current_user.id)
+    return ResponseModel(data=UserOut.model_validate({
+        **UserOut.model_validate(user).model_dump(exclude_none=False),
+        "height_cm": profile["height_cm"],
+        "weight_kg": profile["weight_kg"],
+        "goal": profile["goal"],
+    }))
 
 
 @router.get("/settings", response_model=ResponseModel[UserSettingsOut], operation_id="get_settings")

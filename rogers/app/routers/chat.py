@@ -70,7 +70,7 @@ async def _resolve_agent(
     - plan_design 请求直接路由到计划设计 graph；否则按 ThreadMeta.agent_mode 路由
       （缺失 -> 默认 graph）。
     - 图片例外：deepseek（计划设计模型）不支持视觉，plan_design 线程收到图片时
-      改走默认 qwen 图（qwen3.5-flash，已验证可处理多模态）。
+      改走默认 qwen 图（qwen3.7-flash，已验证可处理多模态）。
     - ``is_non_vision=True`` 表示本轮路由到 deepseek（不支持视觉），调用方应把历史中的
       image_url 替换为占位文本，避免非视觉模型收到无法处理的图片块。
     """

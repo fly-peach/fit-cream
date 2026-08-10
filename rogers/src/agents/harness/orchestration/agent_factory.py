@@ -74,7 +74,7 @@ def create_fitcream_agent(
     中间件在编译时注入，无需运行时传递 callbacks。
 
     Args:
-        model: LLM 模型实例。默认使用 ChatDashScope (qwen3.5-flash)
+        model: LLM 模型实例。默认使用 ChatDashScope (qwen3.7-flash)
         tools: 工具列表。默认使用 FitCream 全部工具
         system_prompt: 系统提示词。默认使用 SYSTEM_PROMPT
         checkpointer: 对话持久化 checkpointer（AsyncPostgresSaver 等）
@@ -102,7 +102,7 @@ def create_fitcream_agent(
         ):
             ...
     """
-    # 1. 模型（默认使用 ChatDashScope + qwen3.5-flash，开启思考模式）
+    # 1. 模型（默认使用 ChatDashScope + qwen3.7-flash，开启思考模式）
     if model is None:
         model = get_default_model(
             streaming=True,
@@ -185,7 +185,7 @@ def create_fitcream_agent_with_context(
 # ============================================================
 
 # 触发会话压缩的 token 阈值：检查同一 thread 累积消息的 token 数
-# （checkpointer 跨 run 累积，非单次 run）。qwen3.5-flash 上下文窗口 ~128K，
+# （checkpointer 跨 run 累积，非单次 run）。qwen3.7-flash 上下文窗口 ~128K，
 # 在 100K 时压缩以防溢出。注意：这是"防上下文溢出"的会话压缩，与
 # MemoryUpdateMiddleware（100K 触发的记忆提取/整合）是独立子系统。
 SUMMARIZE_TRIGGER_TOKENS = 100_000

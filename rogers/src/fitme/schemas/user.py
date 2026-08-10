@@ -110,6 +110,10 @@ class UserOut(BaseModel):
     role: str = "user"
     age: Optional[int] = None
     gender: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    bmi: Optional[float] = None
+    goal: Optional[str] = None
     created_at: datetime
     settings: Optional[UserSettingsOut] = None
 
@@ -120,6 +124,11 @@ class UserUpdate(BaseModel):
     name: Optional[str] = Field(default=None, max_length=100)
     age: Optional[int] = Field(default=None, gt=0, le=150)
     gender: Optional[str] = Field(default=None, pattern="^(male|female|other)$")
+    height_cm: Optional[float] = Field(default=None, gt=0, le=300)
+    weight_kg: Optional[float] = Field(default=None, gt=0, le=500)
+    goal: Optional[str] = Field(
+        default=None, pattern="^(lose_fat|gain_muscle|maintain|improve_health)$"
+    )
 
 
 class UserApiKeyOut(BaseModel):

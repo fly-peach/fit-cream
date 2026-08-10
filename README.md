@@ -417,7 +417,7 @@ cd frontend && pnpm typecheck
 |------|------|--------|
 | `DATABASE_URL` | PostgreSQL 异步连接串 | — |
 | `DASHSCOPE_API_KEY` | 通义千问 API Key | — |
-| `DASHSCOPE_MODEL` | Agent 对话模型 | `qwen3.5-flash` |
+| `DASHSCOPE_MODEL` | Agent 对话模型 | `qwen3.7-flash` |
 | `DASHSCOPE_VISION_MODEL` | 视觉理解模型 | `qwen3-vl-flash` |
 | `DASHSCOPE_TEMPERATURE` | 生成温度 | `1.2` |
 | `DASHSCOPE_ENABLE_THINKING` | 启用思考模式 | `true` |
