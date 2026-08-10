@@ -65,6 +65,18 @@ class KBDocumentService:
         return doc
 
     @staticmethod
+    async def get_document_for_user(
+        db: AsyncSession, doc_id: UUID, user_id: UUID
+    ) -> KBDocument:
+        """获取文档并校验访问权限（KB 所有者或已订阅者）。
+
+        未授权时不暴露文档存在性（统一抛 NotFoundException）。
+        """
+        doc = await KBDocumentService.get_document(db, doc_id)
+        await KnowledgeBaseService.ensure_kb_access(db, doc.kb_id, user_id)
+        return doc
+
+    @staticmethod
     async def list_documents(
         db: AsyncSession,
         kb_id: UUID,

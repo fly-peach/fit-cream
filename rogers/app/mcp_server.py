@@ -96,6 +96,7 @@ FITME_OPERATIONS = [
 
 KB_USER_OPERATIONS = [
     "list_knowledge_bases",
+    "list_my_subscriptions",
     "get_knowledge_base",
     "list_documents",
     "get_document",
@@ -103,6 +104,8 @@ KB_USER_OPERATIONS = [
     "search_documents",
     "get_graph",
     "get_document_references",
+    "subscribe_kb",
+    "unsubscribe_kb",
 ]
 
 KB_ADMIN_EXTRA_OPERATIONS = [
@@ -117,6 +120,8 @@ KB_ADMIN_EXTRA_OPERATIONS = [
     "rebuild_graph",
     "lint_knowledge_base",
     "rebuild_lint",
+    "list_subscribers",
+    "remove_subscriber",
 ]
 
 KB_ADMIN_OPERATIONS = KB_USER_OPERATIONS + KB_ADMIN_EXTRA_OPERATIONS

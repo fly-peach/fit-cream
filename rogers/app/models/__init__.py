@@ -33,6 +33,7 @@ from src.knowledge_base.models.chunk import KBChunk
 from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.models.knowledge_base import KnowledgeBase
 from src.knowledge_base.models.reference import KBReference
+from src.knowledge_base.models.subscription import KBSubscription
 
 # ---- Agent 记忆模型（独立 MemoryBase，不进 app Base.metadata；建表走 MemoryStore.init_db）----
 from src.agents.models.memory import (
@@ -92,6 +93,7 @@ __all__ = [
     "KBDocument",
     "KBChunk",
     "KBReference",
+    "KBSubscription",
     # Agent 记忆模型（独立 MemoryBase）
     "EpisodicMemory",
     "SemanticMemory",

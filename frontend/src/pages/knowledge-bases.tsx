@@ -2,28 +2,36 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BookOpenIcon,
+  CheckIcon,
   Loader2,
+  PlusIcon,
   SearchIcon,
   ArrowRightIcon,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
 import { kbApi, type KBListItem } from "@/lib/kb-api";
 
+type Tab = "all" | "mine";
+
 export default function KnowledgeBasesPage() {
   const [allKbs, setAllKbs] = useState<KBListItem[]>([]);
+  const [myKbs, setMyKbs] = useState<KBListItem[]>([]);
+  const [tab, setTab] = useState<Tab>("all");
   const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [keyword, setKeyword] = useState("");
 
   const loadAll = useCallback(async () => {
     try {
-      const list = await kbApi.list();
+      const [list, mine] = await Promise.all([kbApi.list(), kbApi.mySubscriptions()]);
       setAllKbs(list);
+      setMyKbs(mine);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "加载知识库失败");
@@ -35,6 +43,23 @@ export default function KnowledgeBasesPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  const toggleSubscribe = async (kb: KBListItem) => {
+    setBusyId(kb.id);
+    setError("");
+    try {
+      if (kb.subscribed) {
+        await kbApi.unsubscribe(kb.id);
+      } else {
+        await kbApi.subscribe(kb.id);
+      }
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "操作失败");
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const filterKbs = (list: KBListItem[]) => {
     const kw = keyword.trim().toLowerCase();
@@ -52,7 +77,9 @@ export default function KnowledgeBasesPage() {
       return (
         <div className="flex flex-col items-center gap-2 py-16 text-center text-emerald-600/50">
           <BookOpenIcon className="size-8" />
-          <p className="text-sm">暂无知识库</p>
+          <p className="text-sm">
+            {tab === "mine" ? "还没有订阅任何知识库" : "暂无知识库"}
+          </p>
         </div>
       );
     }
@@ -64,9 +91,16 @@ export default function KnowledgeBasesPage() {
             className="flex flex-col border-emerald-100 bg-white/80 transition-shadow hover:shadow-md"
           >
             <CardContent className="flex flex-1 flex-col gap-3 p-5">
-              <h3 className="line-clamp-1 font-semibold text-emerald-950">
-                {kb.name}
-              </h3>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="line-clamp-1 font-semibold text-emerald-950">
+                  {kb.name}
+                </h3>
+                {kb.subscribed && (
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                    已订阅
+                  </span>
+                )}
+              </div>
               <p className="line-clamp-2 flex-1 text-sm text-emerald-700/70">
                 {kb.description || "暂无描述"}
               </p>
@@ -81,6 +115,26 @@ export default function KnowledgeBasesPage() {
                   查看
                   <ArrowRightIcon className="size-3.5" />
                 </Link>
+                <Button
+                  variant={kb.subscribed ? "outline" : "default"}
+                  size="sm"
+                  disabled={busyId === kb.id}
+                  onClick={() => toggleSubscribe(kb)}
+                  className={cn(
+                    kb.subscribed
+                      ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      : "bg-emerald-600 text-white hover:bg-emerald-500"
+                  )}
+                >
+                  {busyId === kb.id ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : kb.subscribed ? (
+                    <CheckIcon className="size-3.5" />
+                  ) : (
+                    <PlusIcon className="size-3.5" />
+                  )}
+                  {kb.subscribed ? "已订阅" : "订阅"}
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -88,6 +142,8 @@ export default function KnowledgeBasesPage() {
       </div>
     );
   };
+
+  const currentList = tab === "mine" ? myKbs : allKbs;
 
   return (
     <AppLayout>
@@ -100,10 +156,37 @@ export default function KnowledgeBasesPage() {
             <div>
               <h1 className="text-xl font-bold text-emerald-950">知识库</h1>
               <p className="text-sm text-emerald-600/60">
-                登录即可浏览全部知识库，AI 教练可在对话中检索其内容
+                订阅知识库后即可浏览其文档，AI 教练也会在对话中检索已订阅的知识库
               </p>
             </div>
           </header>
+
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-xl bg-emerald-50 p-1">
+              <button
+                onClick={() => setTab("all")}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  tab === "all"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-emerald-600/60 hover:text-emerald-700"
+                )}
+              >
+                全部
+              </button>
+              <button
+                onClick={() => setTab("mine")}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  tab === "mine"
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-emerald-600/60 hover:text-emerald-700"
+                )}
+              >
+                我的订阅（{myKbs.length}）
+              </button>
+            </div>
+          </div>
 
           <div className="relative">
             <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-emerald-400" />
@@ -126,7 +209,7 @@ export default function KnowledgeBasesPage() {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            renderGrid(allKbs)
+            renderGrid(currentList)
           )}
         </div>
       </div>

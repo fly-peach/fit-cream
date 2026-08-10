@@ -41,3 +41,6 @@ class KnowledgeBase(Base):
     documents: Mapped[List["KBDocument"]] = relationship(  # noqa: F821
         back_populates="kb", cascade="all, delete-orphan"
     )
+    subscriptions: Mapped[List["KBSubscription"]] = relationship(  # noqa: F821
+        back_populates="kb", cascade="all, delete-orphan"
+    )

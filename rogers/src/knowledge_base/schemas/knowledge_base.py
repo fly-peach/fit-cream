@@ -36,12 +36,13 @@ class KBOut(BaseModel):
 
 
 class KBListOut(BaseModel):
-    """知识库列表摘要（不含 schema_config）"""
+    """知识库列表摘要（不含 schema_config），含当前用户订阅态"""
     id: UUID
     name: str
     description: str
     slug: str
     owner_id: UUID
+    subscribed: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

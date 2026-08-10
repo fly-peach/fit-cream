@@ -15,7 +15,17 @@ export interface KBListItem {
   description: string;
   slug: string;
   owner_id: string;
+  subscribed: boolean;
   created_at: string;
+}
+
+export interface KBSubscription {
+  id: string;
+  kb_id: string;
+  user_id: string;
+  user_name?: string | null;
+  user_phone?: string | null;
+  subscribed_at: string;
 }
 
 export interface KB {
@@ -178,9 +188,13 @@ function withQuery(path: string, params: Record<string, unknown>): string {
 // ============ 客户端 ============
 
 export const kbApi = {
-  // ---------- 用户：读 ----------
+  // ---------- 用户：读 + 订阅 ----------
   list: () => api.get<KBListItem[]>("/knowledge-bases"),
+  mySubscriptions: () =>
+    api.get<KBListItem[]>("/knowledge-bases/subscriptions"),
   get: (id: string) => api.get<KB>(`/knowledge-bases/${id}`),
+  subscribe: (id: string) => api.post<KBSubscription>(`/knowledge-bases/${id}/subscribe`),
+  unsubscribe: (id: string) => api.delete(`/knowledge-bases/${id}/subscribe`),
   listDocuments: (
     id: string,
     params?: { entity_type?: string; include_archived?: boolean }
@@ -206,6 +220,10 @@ export const kbApi = {
   create: (data: KBCreateInput) => api.post<KB>("/knowledge-bases", data),
   update: (id: string, data: KBUpdateInput) => api.put<KB>(`/knowledge-bases/${id}`, data),
   remove: (id: string) => api.delete<null>(`/knowledge-bases/${id}`),
+  listSubscribers: (kbId: string) =>
+    api.get<KBSubscription[]>(`/knowledge-bases/${kbId}/subscribers`),
+  removeSubscriber: (kbId: string, userId: string) =>
+    api.delete<null>(`/knowledge-bases/${kbId}/subscribers/${userId}`),
   createDocument: (kbId: string, data: KBDocumentCreateInput) =>
     api.post<KBDocument>(`/knowledge-bases/${kbId}/documents`, data),
   updateDocContent: (kbId: string, docId: string, data: KBDocumentContentUpdateInput) =>

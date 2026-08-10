@@ -113,6 +113,8 @@ async def test_search_still_returns_list_when_semantic_disabled(admin_client, us
     await _create_doc(
         admin_client, kb_id, "硬拉指南", "deadlift.md", "硬拉锻炼后链肌群。"
     )
+    # 订阅后用户可搜索
+    unwrap(await user_client.post(f"/api/knowledge-bases/{kb_id}/subscribe"))
     # 索引前不可搜，重建后可搜
     empty = unwrap(
         await user_client.get(

@@ -22,6 +22,7 @@ import { useAuthStore } from "@/stores/auth-store";
 
 const KB_USER_OPERATIONS: string[] = [
   "list_knowledge_bases",
+  "list_my_subscriptions",
   "get_knowledge_base",
   "list_documents",
   "get_document",
@@ -29,6 +30,8 @@ const KB_USER_OPERATIONS: string[] = [
   "search_documents",
   "get_graph",
   "get_document_references",
+  "subscribe_kb",
+  "unsubscribe_kb",
 ];
 
 const ADMIN_EXTRA_OPERATIONS: string[] = [
@@ -43,6 +46,8 @@ const ADMIN_EXTRA_OPERATIONS: string[] = [
   "rebuild_graph",
   "lint_knowledge_base",
   "rebuild_lint",
+  "list_subscribers",
+  "remove_subscriber",
 ];
 
 function CopyButton({

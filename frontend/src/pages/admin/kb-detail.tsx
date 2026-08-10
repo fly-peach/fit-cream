@@ -7,6 +7,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   TrashIcon,
+  UsersIcon,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ import {
   type KB,
   type KBDocument,
   type KBDocumentContent,
+  type KBSubscription,
 } from "@/lib/kb-api";
 
 export default function AdminKbDetailPage() {
@@ -58,6 +60,10 @@ export default function AdminKbDetailPage() {
   const [reindexResult, setReindexResult] = useState<string>("");
   const [indexBusy, setIndexBusy] = useState(false);
   const [lintReport, setLintReport] = useState<Record<string, unknown> | null>(null);
+
+  // 订阅者
+  const [subs, setSubs] = useState<KBSubscription[]>([]);
+  const [subsLoading, setSubsLoading] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -164,6 +170,28 @@ export default function AdminKbDetailPage() {
     }
   };
 
+  // ---------- 订阅者 ----------
+  const loadSubs = async () => {
+    setSubsLoading(true);
+    try {
+      setSubs(await kbApi.listSubscribers(kbId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "加载订阅者失败");
+    } finally {
+      setSubsLoading(false);
+    }
+  };
+
+  const removeSub = async (userId: string) => {
+    if (!confirm("移除该订阅者？")) return;
+    try {
+      await kbApi.removeSubscriber(kbId, userId);
+      setSubs((prev) => prev.filter((s) => s.user_id !== userId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "移除失败");
+    }
+  };
+
   return (
     <>
       <div className="h-full overflow-y-auto">
@@ -201,6 +229,7 @@ export default function AdminKbDetailPage() {
               <TabsList className="bg-emerald-50">
                 <TabsTrigger value="docs">文档（{docs.length}）</TabsTrigger>
                 <TabsTrigger value="index">索引与检查</TabsTrigger>
+                <TabsTrigger value="subs" onClick={loadSubs}>订阅者</TabsTrigger>
               </TabsList>
 
               {/* 文档管理 */}
@@ -300,6 +329,45 @@ export default function AdminKbDetailPage() {
                       )}
                     </CardContent>
                   </Card>
+                )}
+              </TabsContent>
+
+              {/* 订阅者 */}
+              <TabsContent value="subs" className="mt-4 space-y-2">
+                {subsLoading ? (
+                  <div className="flex justify-center py-10 text-emerald-500">
+                    <Loader2 className="size-5 animate-spin" />
+                  </div>
+                ) : subs.length === 0 ? (
+                  <div className="flex flex-col items-center gap-2 py-10 text-center text-emerald-600/50">
+                    <UsersIcon className="size-8" />
+                    <p className="text-sm">暂无订阅者</p>
+                  </div>
+                ) : (
+                  subs.map((s) => (
+                    <Card key={s.id} className="border-emerald-100 bg-white/80">
+                      <CardContent className="flex items-center gap-3 p-4">
+                        <div className="flex size-9 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
+                          {(s.user_name || s.user_phone || "?").slice(0, 1)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-emerald-950">
+                            {s.user_name || "未命名"}
+                          </p>
+                          <p className="truncate text-xs text-emerald-600/60">{s.user_phone}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="hover:bg-red-50 hover:text-red-600"
+                          onClick={() => removeSub(s.user_id)}
+                          title="移除订阅者"
+                        >
+                          <TrashIcon className="size-4" />
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))
                 )}
               </TabsContent>
             </Tabs>

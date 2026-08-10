@@ -1,4 +1,4 @@
-"""知识库路由 /api/knowledge-bases/* 测试（两级权限：admin 写 / 用户只读）"""
+"""知识库路由 /api/knowledge-bases/* 测试（两级权限：admin 写 / 用户订阅后读）"""
 from tests.util import biz_code, unwrap
 
 
@@ -53,7 +53,11 @@ async def test_document_crud(user_client, admin_client):
     )
     doc_id = doc["id"]
 
-    # 普通用户可读任意 KB 文档（登录即可）
+    # 未订阅用户不可读（不暴露存在性 -> 404）
+    assert biz_code(await user_client.get(f"/api/knowledge-bases/{kbid}/documents")) == 40400
+
+    # 订阅后用户可读文档元数据与内容
+    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
     lst = unwrap(await user_client.get(f"/api/knowledge-bases/{kbid}/documents"))
     assert any(d["id"] == doc_id for d in lst)
 
@@ -107,7 +111,8 @@ async def test_search_documents(user_client, admin_client):
     )
     # 写文档后需重建才能被检索
     unwrap(await admin_client.post(f"/api/knowledge-bases/{kbid}/rebuild-lint"))
-    # 普通用户可直接搜索任意 KB
+    # 订阅后用户可搜索该 KB
+    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
     results = unwrap(
         await user_client.get(
             f"/api/knowledge-bases/{kbid}/search", params={"query": "硬拉"}
@@ -115,6 +120,32 @@ async def test_search_documents(user_client, admin_client):
     )
     assert isinstance(results, list)
     assert len(results) >= 1
+
+
+async def test_subscription_flow(user_client, admin_client, user):
+    kb = await _create_kb(admin_client)
+    kbid = kb["id"]
+
+    # 订阅（幂等）
+    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
+    unwrap(await user_client.post(f"/api/knowledge-bases/{kbid}/subscribe"))
+
+    # 列表标记 subscribed
+    lst = unwrap(await user_client.get("/api/knowledge-bases"))
+    assert any(k["id"] == kbid and k["subscribed"] for k in lst)
+
+    # 我的订阅
+    subs = unwrap(await user_client.get("/api/knowledge-bases/subscriptions"))
+    assert any(k["id"] == kbid for k in subs)
+
+    # admin 查看订阅者
+    subscribers = unwrap(await admin_client.get(f"/api/knowledge-bases/{kbid}/subscribers"))
+    assert any(s["user_id"] == str(user.id) for s in subscribers)
+
+    # 取消订阅
+    unwrap(await user_client.delete(f"/api/knowledge-bases/{kbid}/subscribe"))
+    subs_after = unwrap(await user_client.get("/api/knowledge-bases/subscriptions"))
+    assert not any(k["id"] == kbid for k in subs_after)
 
 
 async def test_admin_maintenance_endpoints(admin_client):

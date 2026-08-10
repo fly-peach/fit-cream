@@ -1,5 +1,5 @@
 """
-知识库主体 Service（KB CRUD + 碰撞安全 slug）
+知识库主体 Service（KB CRUD + 碰撞安全 slug + 订阅管理 + 读权限校验）
 """
 from __future__ import annotations
 
@@ -9,8 +9,10 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.knowledge_base.models.knowledge_base import KnowledgeBase
+from src.knowledge_base.models.subscription import KBSubscription
 from utils.exceptions import NotFoundException
 
 
@@ -65,6 +67,16 @@ class KnowledgeBaseService:
         return kb
 
     @staticmethod
+    async def ensure_kb_access(db: AsyncSession, kb_id: UUID, user_id: UUID) -> None:
+        """读权限校验：KB 所有者或已订阅者放行，未授权统一抛 NotFoundException。"""
+        kb = await KnowledgeBaseService.get_kb(db, kb_id)
+        if kb.owner_id == user_id:
+            return
+        subscribed = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+        if kb.id not in subscribed:
+            raise NotFoundException("知识库不存在")
+
+    @staticmethod
     async def update_kb(
         db: AsyncSession, kb_id: UUID, name: Optional[str] = None,
         description: Optional[str] = None, schema_config: Optional[dict] = None,
@@ -84,3 +96,82 @@ class KnowledgeBaseService:
         kb = await KnowledgeBaseService.get_kb(db, kb_id)
         await db.delete(kb)
         await db.flush()
+
+    # ============================================================
+    # 订阅管理（完整权限门槛型）
+    # ============================================================
+
+    @staticmethod
+    async def subscribe(
+        db: AsyncSession, kb_id: UUID, user_id: UUID
+    ) -> KBSubscription:
+        """用户自助订阅知识库（幂等：已订阅则返回现有记录）"""
+        await KnowledgeBaseService.get_kb(db, kb_id)
+        result = await db.execute(
+            select(KBSubscription).where(
+                KBSubscription.kb_id == kb_id, KBSubscription.user_id == user_id
+            )
+        )
+        sub = result.scalar_one_or_none()
+        if sub:
+            return sub
+        sub = KBSubscription(kb_id=kb_id, user_id=user_id)
+        db.add(sub)
+        await db.flush()
+        return sub
+
+    @staticmethod
+    async def unsubscribe(db: AsyncSession, kb_id: UUID, user_id: UUID) -> None:
+        """取消订阅（幂等：未订阅也不报错）"""
+        result = await db.execute(
+            select(KBSubscription).where(
+                KBSubscription.kb_id == kb_id, KBSubscription.user_id == user_id
+            )
+        )
+        sub = result.scalar_one_or_none()
+        if sub:
+            await db.delete(sub)
+            await db.flush()
+
+    @staticmethod
+    async def get_subscribed_kb_ids(db: AsyncSession, user_id: UUID) -> set[UUID]:
+        """返回用户已订阅的 KB ID 集合（供 list 标记 subscribed 态 + 读权限校验 + Agent 搜索范围）"""
+        result = await db.execute(
+            select(KBSubscription.kb_id).where(KBSubscription.user_id == user_id)
+        )
+        return {row[0] for row in result.all()}
+
+    @staticmethod
+    async def list_my_subscriptions(
+        db: AsyncSession, user_id: UUID
+    ) -> List[KnowledgeBase]:
+        """返回用户已订阅的知识库列表"""
+        subscribed_ids = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+        if not subscribed_ids:
+            return []
+        result = await db.execute(
+            select(KnowledgeBase)
+            .where(KnowledgeBase.id.in_(subscribed_ids))
+            .order_by(KnowledgeBase.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_subscribers(
+        db: AsyncSession, kb_id: UUID
+    ) -> List[KBSubscription]:
+        """列出某 KB 的全部订阅者（admin，含用户信息）"""
+        result = await db.execute(
+            select(KBSubscription)
+            .options(selectinload(KBSubscription.user))
+            .where(KBSubscription.kb_id == kb_id)
+            .order_by(KBSubscription.subscribed_at.desc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def remove_subscriber(
+        db: AsyncSession, kb_id: UUID, user_id: UUID
+    ) -> None:
+        """admin 踢出某订阅者（幂等）"""
+        await KnowledgeBaseService.unsubscribe(db, kb_id, user_id)
