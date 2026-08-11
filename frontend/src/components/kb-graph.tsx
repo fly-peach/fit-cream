@@ -119,8 +119,9 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
         type: "default",
         markerEnd: { type: MarkerType.ArrowClosed },
         style: {
-          stroke: e.type === "cites" ? "#94a3b8" : "#cbd5e1",
-          strokeDasharray: e.type === "links_to" ? "4 3" : undefined,
+          stroke: e.type === "cites" ? "#64748b" : "#94a3b8",
+          strokeWidth: 2,
+          strokeDasharray: e.type === "links_to" ? "5 3" : undefined,
         },
       })),
     [graph.edges]
