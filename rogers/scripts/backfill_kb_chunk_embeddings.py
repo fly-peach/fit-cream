@@ -73,7 +73,7 @@ async def backfill(kb_id: str | None, force: bool, ensure_column: bool = False) 
     async with async_session_factory() as session:
         stmt = (
             "SELECT c.id, c.content FROM kb_chunks c"
-            " JOIN kb_documents d ON d.id = c.document_id"
+            " JOIN wiki_documents d ON d.id = c.document_id"
             " WHERE d.archived = FALSE"
         )
         params: dict = {}
