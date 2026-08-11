@@ -10,8 +10,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class UserSettingsOut(BaseModel):
-    """用户设置输出"""
+class UserGoalsOut(BaseModel):
+    """用户目标输出（健身目标 + 营养目标 + 通知偏好）"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -28,8 +28,8 @@ class UserSettingsOut(BaseModel):
     updated_at: datetime
 
 
-class UserSettingsUpdate(BaseModel):
-    """用户设置更新（部分更新）"""
+class UserGoalsUpdate(BaseModel):
+    """用户目标更新（部分更新）"""
 
     goal: Optional[str] = Field(
         default=None, pattern="^(lose_fat|gain_muscle|maintain|improve_health)$"
@@ -108,6 +108,7 @@ class UserOut(BaseModel):
     email: Optional[str] = None
     name: Optional[str] = None
     role: str = "user"
+    birth_date: Optional[date] = None
     age: Optional[int] = None
     gender: Optional[str] = None
     height_cm: Optional[float] = None
@@ -115,14 +116,14 @@ class UserOut(BaseModel):
     bmi: Optional[float] = None
     goal: Optional[str] = None
     created_at: datetime
-    settings: Optional[UserSettingsOut] = None
+    goals: Optional[UserGoalsOut] = None
 
 
 class UserUpdate(BaseModel):
     """用户资料更新（部分更新，仅传需要修改的字段）"""
 
     name: Optional[str] = Field(default=None, max_length=100)
-    age: Optional[int] = Field(default=None, gt=0, le=150)
+    birth_date: Optional[date] = None
     gender: Optional[str] = Field(default=None, pattern="^(male|female|other)$")
     height_cm: Optional[float] = Field(default=None, gt=0, le=300)
     weight_kg: Optional[float] = Field(default=None, gt=0, le=500)

@@ -17,6 +17,7 @@ from pgvector.sqlalchemy import Vector
 
 from app.config import settings
 from app.database import Base
+from utils.uuid7 import uuid7
 
 
 # dataset body_part -> 我们稳定的 7 值 muscle_group（粗分类，零改动 agent/plan 消费方）
@@ -114,7 +115,7 @@ class Exercise(Base):
 class UserExerciseFavorite(Base):
     __tablename__ = "user_exercise_favorites"
 
-    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid7)
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )

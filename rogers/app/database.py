@@ -153,6 +153,88 @@ def _relax_not_null_columns(sync_conn, logger_=None) -> list[str]:
     return relaxed
 
 
+def _ensure_custom_food_fk_sets_null(sync_conn, logger_=None) -> list[str]:
+    """确保 diet_meals.custom_food_item_id 外键为 ON DELETE SET NULL（防删除自定义食物级联清空饮食历史）。
+
+    现状 FK 为默认 NO ACTION（无 ondelete），配合 ORM 端 delete-orphan 会连删历史餐；
+    模型已移除 delete-orphan 并声明 ondelete=SET NULL，此处把存量约束重建为 SET NULL（幂等）。
+    """
+    if "diet_meals" not in set(inspect(sync_conn).get_table_names()):
+        return []
+    rows = sync_conn.execute(text(
+        "SELECT conname FROM pg_constraint"
+        " WHERE conrelid = 'diet_meals'::regclass AND contype = 'f'"
+        "   AND pg_get_constraintdef(oid) ILIKE '%custom_food_items%'"
+    )).fetchall()
+    changed: list[str] = []
+    for (conname,) in rows:
+        defn = sync_conn.execute(
+            text("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = :n"),
+            {"n": conname},
+        ).scalar()
+        if defn and "ON DELETE SET NULL" in defn:
+            continue
+        try:
+            with sync_conn.begin_nested():
+                sync_conn.execute(text(
+                    f'ALTER TABLE "diet_meals" DROP CONSTRAINT "{conname}"'
+                ))
+                sync_conn.execute(text(
+                    'ALTER TABLE "diet_meals" ADD CONSTRAINT "fk_diet_meals_custom_food_item"'
+                    ' FOREIGN KEY ("custom_food_item_id") REFERENCES "custom_food_items" ("id")'
+                    ' ON DELETE SET NULL'
+                ))
+            changed.append(conname)
+        except Exception as e:
+            if logger_:
+                logger_.warning(f"重建自定义食物外键失败 {conname}（功能降级）: {e}")
+            else:
+                raise
+    return changed
+
+
+def _ensure_enum_check_constraints(sync_conn, logger_=None) -> list[str]:
+    """为枚举字符串列补 CHECK 约束（幂等，单条失败仅告警不中断）。
+
+    存量若存在非法枚举值会导致本条 ADD CONSTRAINT 失败（SAVEPOINT 回滚），
+    需先清数据；不影响其余约束与启动。
+    """
+    checks = [
+        ("users", "gender", "('male','female','other')"),
+        ("users", "role", "('user','admin')"),
+        ("plans", "status", "('active','archived','completed')"),
+        ("plans", "difficulty", "('beginner','intermediate','advanced')"),
+        ("plans", "goal", "('lose_fat','gain_muscle','maintain','improve_health')"),
+        ("diet_plans", "status", "('active','archived')"),
+        ("diet_plans", "goal", "('lose_fat','gain_muscle','maintain','improve_health')"),
+        ("user_goals", "goal", "('lose_fat','gain_muscle','maintain','improve_health')"),
+        ("diet_meals", "meal_type", "('breakfast','lunch','dinner','snack')"),
+        ("diet_plan_meals", "meal_type", "('breakfast','lunch','dinner','snack')"),
+        ("plan_day_exercises", "exercise_type", "('strength','cardio')"),
+        ("health_metrics", "bmi_status", "('偏瘦','正常','偏胖','肥胖')"),
+    ]
+    existing_tables = set(inspect(sync_conn).get_table_names())
+    added: list[str] = []
+    for table, col, values in checks:
+        if table not in existing_tables:
+            continue
+        conname = f"ck_{table}_{col}"
+        sql = (
+            f'ALTER TABLE "{table}" ADD CONSTRAINT "{conname}"'
+            f" CHECK (\"{col}\" IS NULL OR \"{col}\" IN {values})"
+        )
+        try:
+            with sync_conn.begin_nested():
+                sync_conn.execute(text(sql))
+            added.append(f"{table}.{col}")
+        except Exception as e:
+            if logger_:
+                logger_.warning(f"枚举 CHECK 约束失败 {table}.{col}（约束降级）: {e}")
+            else:
+                raise
+    return added
+
+
 # 初始化数据库（开发环境自动建表）
 async def init_db() -> None:
     if not settings.DEBUG:
@@ -197,6 +279,13 @@ async def init_db() -> None:
         if relaxed_columns:
             logger.info(f"数据库放宽 NOT NULL 完成: {', '.join(relaxed_columns)}")
 
+        # 重建 diet_meals.custom_food_item_id 外键为 ON DELETE SET NULL（幂等）
+        fk_changed = await conn.run_sync(
+            lambda sc: _ensure_custom_food_fk_sets_null(sc, logger)
+        )
+        if fk_changed:
+            logger.info(f"数据库自定义食物外键重建为 SET NULL: {', '.join(fk_changed)}")
+
         # pg_trgm 扩展 + GIN trigram 索引：加速 exercises 的中文/英文 ilike 关键词搜索
         # CREATE EXTENSION 在托管 PG 上可能需 superuser 权限，失败时兜底降级为全表扫。
         # SAVEPOINT 隔离：否则语句失败中止事务，最终 commit 变 rollback，
@@ -223,3 +312,35 @@ async def init_db() -> None:
             logger.info("pg_trgm 扩展与 GIN 索引就绪")
         except Exception as e:
             logger.warning(f"pg_trgm 索引创建失败（搜索将退化为全表扫）: {e}")
+
+        # 用户数据模型优化新增索引（幂等；对已有表 create_all 不建索引，需显式 DDL）。
+        # 部分唯一索引依赖「同一用户仅一个 active 计划」的数据前提，若存量存在多 active
+        # 会创建失败（SAVEPOINT 隔离，仅告警不影响启动）；须先跑归档脚本再重启。
+        try:
+            async with conn.begin_nested():
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_health_metric_user_date"
+                    " ON health_metrics (user_id, measure_date)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS idx_diet_meal_user_date"
+                    " ON diet_meals (user_id, meal_date)"
+                ))
+                await conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_plan_active"
+                    " ON plans (user_id) WHERE status = 'active'"
+                ))
+                await conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_diet_plan_active"
+                    " ON diet_plans (user_id) WHERE status = 'active'"
+                ))
+            logger.info("用户数据模型优化索引就绪")
+        except Exception as e:
+            logger.warning(f"用户数据模型优化索引创建失败（约束降级）: {e}")
+
+        # 枚举字符串 CHECK 约束（幂等；存量非法值会使单条失败，仅告警）
+        enum_checks = await conn.run_sync(
+            lambda sc: _ensure_enum_check_constraints(sc, logger)
+        )
+        if enum_checks:
+            logger.info(f"数据库枚举 CHECK 约束就绪: {', '.join(enum_checks)}")

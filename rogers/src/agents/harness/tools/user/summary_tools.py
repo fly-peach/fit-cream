@@ -92,7 +92,7 @@ async def get_user_summary_tool(config: RunnableConfig) -> dict:
                 pass
 
             # 6. 缺失字段检测
-            required_fields = ["height_cm", "weight_kg", "age", "gender", "goal"]
+            required_fields = ["height_cm", "weight_kg", "birth_date", "gender", "goal"]
             missing_fields = [
                 f for f in required_fields if profile.get(f) is None
             ]

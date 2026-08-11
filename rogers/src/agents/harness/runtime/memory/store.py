@@ -90,10 +90,10 @@ class MemoryStore:
         # 每用户记忆容量上限（0 表示不限制）
         self.episodic_max = int(_get_setting("MEMORY_EPISODIC_MAX", "200"))
         self.procedural_max = int(_get_setting("MEMORY_PROCEDURAL_MAX", "50"))
-        # 语义记忆每分类（preference/fact/rule）上限，超出按 低置信度→最旧 裁剪
+        # 语义记忆每分类上限，超出按 低置信度→最旧 裁剪
         self.semantic_cap_each = int(_get_setting("MEMORY_SEMANTIC_MAX", "15"))
-        # 受上限约束的语义分类（status 为瞬时状态不裁剪）
-        self.semantic_capped_categories = ("preference", "fact", "rule")
+        # 受上限约束的语义分类（全部分类统一裁剪）
+        self.semantic_capped_categories = ("preference", "fact", "rule", "status")
         
         # 创建异步引擎（使用与主应用相同的连接池配置）
         pool_size = int(_get_setting("DB_POOL_SIZE", "10"))

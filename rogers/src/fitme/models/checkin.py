@@ -7,7 +7,7 @@
 from datetime import date as date_type
 from datetime import datetime
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import (
     Date,
@@ -24,6 +24,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from utils.uuid7 import uuid7
 
 
 class Checkin(Base):
@@ -33,7 +34,7 @@ class Checkin(Base):
     )
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -65,7 +66,7 @@ class CheckinExercise(Base):
     __tablename__ = "checkin_exercises"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     checkin_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),

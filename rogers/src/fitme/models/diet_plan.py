@@ -8,20 +8,21 @@
 """
 from datetime import datetime
 from typing import List, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from utils.uuid7 import uuid7
 
 
 class DietPlan(Base):
     __tablename__ = "diet_plans"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -54,7 +55,7 @@ class DietPlanDay(Base):
     __tablename__ = "diet_plan_days"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     diet_plan_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),
@@ -76,7 +77,7 @@ class DietPlanMeal(Base):
     __tablename__ = "diet_plan_meals"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     diet_plan_day_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True),

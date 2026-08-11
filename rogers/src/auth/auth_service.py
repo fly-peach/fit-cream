@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from src.fitme.models.user import User
 from src.fitme.models.user_settings import UserSettings
+from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.auth_models import (
     LoginAttempt,
     RefreshTokenBlacklist,
@@ -346,6 +347,7 @@ class AuthService:
         await db.refresh(user)
 
         db.add(UserSettings(user_id=user.id))
+        db.add(UserGoals(user_id=user.id))
         await db.flush()
 
         await AuthService._log_audit(db, user.id, audit_action, ip, user_agent)

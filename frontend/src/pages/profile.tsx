@@ -21,6 +21,7 @@ interface UserProfile {
   name: string | null;
   height_cm: number | null;
   weight_kg: number | null;
+  birth_date: string | null;
   age: number | null;
   gender: string | null;
   goal: string | null;
@@ -46,7 +47,7 @@ export default function ProfilePage() {
     name: "",
     height_cm: "",
     weight_kg: "",
-    age: "",
+    birth_date: "",
     gender: "",
     goal: "",
   });
@@ -64,7 +65,7 @@ export default function ProfilePage() {
           name: data.name ?? "",
           height_cm: data.height_cm?.toString() ?? "",
           weight_kg: data.weight_kg?.toString() ?? "",
-          age: data.age?.toString() ?? "",
+          birth_date: data.birth_date ?? "",
           gender: data.gender ?? "",
           goal: data.goal ?? "",
         });
@@ -85,7 +86,7 @@ export default function ProfilePage() {
       };
       if (form.height_cm) payload.height_cm = Number(form.height_cm);
       if (form.weight_kg) payload.weight_kg = Number(form.weight_kg);
-      if (form.age) payload.age = Number(form.age);
+      if (form.birth_date) payload.birth_date = form.birth_date;
 
       const updated = await api.put<UserProfile>("/users/me", payload);
       setProfile(updated);
@@ -168,12 +169,11 @@ export default function ProfilePage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">年龄</label>
+                      <label className="text-sm font-medium text-emerald-800">出生日期</label>
                       <Input
-                        type="number"
-                        value={form.age}
-                        onChange={(e) => setForm({ ...form, age: e.target.value })}
-                        placeholder="请输入年龄"
+                        type="date"
+                        value={form.birth_date}
+                        onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
                         className="border-emerald-200 focus-visible:ring-emerald-400"
                       />
                     </div>

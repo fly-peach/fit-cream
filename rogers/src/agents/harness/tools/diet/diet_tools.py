@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.schemas.diet import DietMealCreate, DietMealUpdate
-from src.fitme.schemas.user import UserSettingsUpdate
+from src.fitme.schemas.user import UserGoalsUpdate
 from src.fitme.services.diet_meal_service import DietMealService
 from src.fitme.services.user_service import UserService
 
@@ -298,16 +298,16 @@ async def set_nutrition_goals_tool(
 
     try:
         async with session_scope() as db:
-            settings = await UserService.update_user_settings(
-                db, user_id, UserSettingsUpdate(**update_data)
+            goals = await UserService.update_user_goals(
+                db, user_id, UserGoalsUpdate(**update_data)
             )
             return {
                 "success": True,
                 "goals": {
-                    "calorie_goal": settings.calorie_goal,
-                    "protein_goal_g": settings.protein_goal_g,
-                    "carbs_goal_g": settings.carbs_goal_g,
-                    "fat_goal_g": settings.fat_goal_g,
+                    "calorie_goal": goals.calorie_goal,
+                    "protein_goal_g": goals.protein_goal_g,
+                    "carbs_goal_g": goals.carbs_goal_g,
+                    "fat_goal_g": goals.fat_goal_g,
                 },
                 "message": "营养目标已更新",
             }

@@ -5,12 +5,12 @@
 存储用户账号信息。
 身体数据和设置已迁移到 HealthMetric 和 UserSettings。
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID as PyUUID
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, func
+from sqlalchemy import Boolean, Date, DateTime, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -27,6 +27,7 @@ class User(Base):
     name: Mapped[Optional[str]] = mapped_column(String(100))
 
     age: Mapped[Optional[int]] = mapped_column(Integer)
+    birth_date: Mapped[Optional[date]] = mapped_column(Date)
     gender: Mapped[Optional[str]] = mapped_column(String(10))
 
     role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
@@ -45,6 +46,7 @@ class User(Base):
     checkins: Mapped[List["Checkin"]] = relationship(back_populates="user", lazy="selectin")
     knowledge_bases: Mapped[List["KnowledgeBase"]] = relationship(back_populates="owner")
     settings: Mapped["UserSettings"] = relationship(back_populates="user", uselist=False, lazy="selectin")
+    goals: Mapped["UserGoals"] = relationship(back_populates="user", uselist=False, lazy="selectin")
     health_metrics: Mapped[List["HealthMetric"]] = relationship(back_populates="user", lazy="selectin")
     diet_meals: Mapped[List["DietMeal"]] = relationship(back_populates="user", lazy="selectin")
     daily_diet_summaries: Mapped[List["DailyDietSummary"]] = relationship(back_populates="user", lazy="selectin")

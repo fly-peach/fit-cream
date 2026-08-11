@@ -25,6 +25,7 @@ from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
 from src.fitme.models.user import User
+from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.user_settings import UserSettings
 
 from src.agents.models.conversation import Conversation
@@ -63,6 +64,7 @@ from src.knowledge_base.services.search_service import KBSearchService
 __all__ = [
     # 业务模型
     "User",
+    "UserGoals",
     "UserSettings",
     "HealthMetric",
     "Plan",

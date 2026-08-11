@@ -271,8 +271,8 @@ class StatsService:
             else None
         )
 
-        # 健身目标已迁移至 UserSettings（selectin 已加载）
-        goal = user.settings.goal if user.settings else None
+        # 健身目标已迁移至 UserGoals（selectin 已加载）
+        goal = user.goals.goal if user.goals else None
 
         return {
             "current_weight_kg": current_weight,

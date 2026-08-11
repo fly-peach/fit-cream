@@ -4,20 +4,21 @@
 记录用户的身体数据变化历史（体重、体脂、BMI等）。
 """
 from datetime import date, datetime
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from utils.uuid7 import uuid7
 
 
 class HealthMetric(Base):
     __tablename__ = "health_metrics"
 
     id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), primary_key=True, default=uuid4
+        PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
     user_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
@@ -50,5 +51,5 @@ class HealthMetric(Base):
     user: Mapped["User"] = relationship(back_populates="health_metrics")  # type: ignore[name-defined]
 
     __table_args__ = (
-        {"sqlite_autoincrement": True}
+        Index("idx_health_metric_user_date", "user_id", "measure_date"),
     )

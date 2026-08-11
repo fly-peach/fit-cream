@@ -12,6 +12,7 @@ from httpx import Response
 
 from src.fitme.models.exercise import Exercise
 from src.fitme.models.user import User
+from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.user_settings import UserSettings
 from utils.security import create_access_token, hash_password
 
@@ -36,6 +37,7 @@ async def create_user(
     db.add(user)
     await db.flush()
     db.add(UserSettings(user_id=user.id))
+    db.add(UserGoals(user_id=user.id))
     await db.commit()
     await db.refresh(user)
     return user

@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.diet_meal import CustomFoodItem, DailyDietSummary, DietMeal
-from src.fitme.models.user_settings import UserSettings
+from src.fitme.models.user_goals import UserGoals
 from utils.exceptions import ForbiddenException, NotFoundException
 
 
@@ -95,11 +95,15 @@ class DietMealService:
         db: AsyncSession, meal_id: UUID, user_id: UUID, data: dict
     ) -> DietMeal:
         meal = await DietMealService.get_by_id(db, meal_id, user_id)
+        old_date = meal.meal_date
         for field, value in data.items():
             setattr(meal, field, value)
         await db.flush()
         await db.refresh(meal)
-        await DietMealService._recalc_summary(db, user_id, meal.meal_date)
+        # 日期可被修改：旧、新两个日期都需重算汇总，避免旧日期残留过期值
+        await DietMealService._recalc_summary(db, user_id, old_date)
+        if meal.meal_date != old_date:
+            await DietMealService._recalc_summary(db, user_id, meal.meal_date)
         return meal
 
     @staticmethod
@@ -133,7 +137,7 @@ class DietMealService:
         summary = await DietMealService.get_summary(db, user_id, summary_date)
 
         settings_result = await db.execute(
-            select(UserSettings).where(UserSettings.user_id == user_id)
+            select(UserGoals).where(UserGoals.user_id == user_id)
         )
         settings = settings_result.scalar_one_or_none()
 
@@ -193,7 +197,7 @@ class DietMealService:
         total_fat = sum(m.fat_g or 0 for m in meals)
 
         settings_result = await db.execute(
-            select(UserSettings).where(UserSettings.user_id == user_id)
+            select(UserGoals).where(UserGoals.user_id == user_id)
         )
         settings = settings_result.scalar_one_or_none()
 

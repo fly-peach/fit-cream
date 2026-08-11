@@ -21,9 +21,9 @@ from src.fitme.schemas.user import (
     UserApiKeyCreate,
     UserApiKeyCreated,
     UserApiKeyOut,
+    UserGoalsOut,
+    UserGoalsUpdate,
     UserOut,
-    UserSettingsOut,
-    UserSettingsUpdate,
     UserUpdate,
 )
 from src.fitme.services.user_service import UserService
@@ -41,6 +41,7 @@ async def get_me(current_user: User = Depends(get_current_user), db: AsyncSessio
         "height_cm": profile["height_cm"],
         "weight_kg": profile["weight_kg"],
         "goal": profile["goal"],
+        "age": profile["age"],
     }))
 
 
@@ -55,7 +56,7 @@ async def update_me(
         db,
         current_user.id,
         name=data.name,
-        age=data.age,
+        birth_date=data.birth_date,
         gender=data.gender,
         height_cm=data.height_cm,
         weight_kg=data.weight_kg,
@@ -68,28 +69,29 @@ async def update_me(
         "height_cm": profile["height_cm"],
         "weight_kg": profile["weight_kg"],
         "goal": profile["goal"],
+        "age": profile["age"],
     }))
 
 
-@router.get("/settings", response_model=ResponseModel[UserSettingsOut], operation_id="get_settings")
+@router.get("/settings", response_model=ResponseModel[UserGoalsOut], operation_id="get_settings")
 async def get_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取当前用户设置"""
-    settings = await UserService.get_user_settings(db, current_user.id)
-    return ResponseModel(data=UserSettingsOut.model_validate(settings))
+    """获取当前用户目标（健身目标 + 营养目标 + 通知偏好）"""
+    goals = await UserService.get_user_goals(db, current_user.id)
+    return ResponseModel(data=UserGoalsOut.model_validate(goals))
 
 
-@router.put("/settings", response_model=ResponseModel[UserSettingsOut], operation_id="update_settings")
+@router.put("/settings", response_model=ResponseModel[UserGoalsOut], operation_id="update_settings")
 async def update_settings(
-    data: UserSettingsUpdate,
+    data: UserGoalsUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新当前用户设置"""
-    settings = await UserService.update_user_settings(db, current_user.id, data)
-    return ResponseModel(data=UserSettingsOut.model_validate(settings))
+    """更新当前用户目标（部分更新）"""
+    goals = await UserService.update_user_goals(db, current_user.id, data)
+    return ResponseModel(data=UserGoalsOut.model_validate(goals))
 
 
 @router.get("/health-metrics", response_model=ResponseModel[PaginatedResponse[HealthMetricOut]], operation_id="list_health_metrics")

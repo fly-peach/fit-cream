@@ -134,14 +134,14 @@ class AdminService:
         ).scalar_one()
 
         settings: Optional[AdminUserSettings] = None
-        if user.settings is not None:
+        if user.goals is not None:
             settings = AdminUserSettings(
-                goal=user.settings.goal,
-                weekly_training_goal=user.settings.weekly_training_goal,
-                calorie_goal=user.settings.calorie_goal,
+                goal=user.goals.goal,
+                weekly_training_goal=user.goals.weekly_training_goal,
+                calorie_goal=user.goals.calorie_goal,
                 target_weight_kg=(
-                    float(user.settings.target_weight_kg)
-                    if user.settings.target_weight_kg is not None
+                    float(user.goals.target_weight_kg)
+                    if user.goals.target_weight_kg is not None
                     else None
                 ),
             )

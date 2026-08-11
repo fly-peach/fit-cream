@@ -8,6 +8,7 @@
 直接调用 UserService（同进程融合，不走 HTTP）。
 """
 
+from datetime import date
 from typing import Optional
 
 from langchain_core.runnables import RunnableConfig
@@ -46,7 +47,7 @@ class UpdateUserProfileInput(BaseModel):
     name: Optional[str] = Field(default=None, description="昵称")
     height_cm: Optional[float] = Field(default=None, description="身高（厘米）")
     weight_kg: Optional[float] = Field(default=None, description="体重（公斤）")
-    age: Optional[int] = Field(default=None, description="年龄")
+    birth_date: Optional[date] = Field(default=None, description="出生日期（YYYY-MM-DD）")
     gender: Optional[str] = Field(
         default=None, description="性别：male(男)、female(女)、other(其他)"
     )
@@ -64,7 +65,7 @@ async def update_user_profile_tool(
     name: Optional[str] = None,
     height_cm: Optional[float] = None,
     weight_kg: Optional[float] = None,
-    age: Optional[int] = None,
+    birth_date: Optional[date] = None,
     gender: Optional[str] = None,
     goal: Optional[str] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
@@ -74,7 +75,7 @@ async def update_user_profile_tool(
 
     使用场景：
     - 用户说"我身高175，体重70公斤"→ height_cm=175, weight_kg=70
-    - 用户说"我今年25岁，男"→ age=25, gender="male"
+    - 用户说"我出生日期是2000年1月1日，男"→ birth_date="2000-01-01", gender="male"
     - 用户说"我的目标是减脂"→ goal="lose_fat"
     - 用户说"帮我改一下体重为68"→ weight_kg=68
 
@@ -93,7 +94,7 @@ async def update_user_profile_tool(
                 db,
                 user_id,
                 name=name,
-                age=age,
+                birth_date=birth_date,
                 gender=gender,
                 height_cm=height_cm,
                 weight_kg=weight_kg,

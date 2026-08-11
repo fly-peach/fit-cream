@@ -20,11 +20,23 @@
 from typing import Optional
 from uuid import UUID
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from app.database import async_session_factory
 from src.agents.harness.runtime.memory.store import MemoryStore, get_memory_store
+from src.agents.harness.tools._common import extract_user_id
 from src.fitme.services.user_service import UserService
+
+
+def _resolve_user_id(config: Optional[RunnableConfig]) -> Optional[str]:
+    """从认证 RunnableConfig 解析当前用户 ID（字符串形式，供 MemoryStore 使用）。
+
+    与 fitme/knowledge 工具一致：身份取自 config.configurable.user_id（由 HTTP 层
+    注入），而非 LLM 自行传入，杜绝跨用户读写他人记忆。
+    """
+    uid = extract_user_id(config)
+    return str(uid) if uid else None
 
 # 数据库 users/health_metrics/user_settings 中已落库的字段，不应在记忆里重复记录
 _GOAL_LABELS = {
@@ -108,10 +120,10 @@ async def _already_in_memory(
 
 @tool
 async def recall_memory(
-    user_id: str,
     query: str,
     memory_type: str = "all",
     top_k: int = 5,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     回忆与查询相关的记忆。
@@ -119,7 +131,6 @@ async def recall_memory(
     当需要回忆用户过去说过的话、做过的事、表达过的偏好时使用此工具。
     
     Args:
-        user_id: 用户ID
         query: 要回忆的内容关键词或描述
         memory_type: 记忆类型，可选值：
             - "episodic": 只搜索经历/事件记忆
@@ -131,6 +142,9 @@ async def recall_memory(
     Returns:
         相关记忆内容，如果没有找到则返回提示信息
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     results = []
     
@@ -184,9 +198,9 @@ async def recall_memory(
 
 @tool
 async def save_preference(
-    user_id: str,
     preference: str,
     value: str,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     保存用户偏好。
@@ -196,13 +210,15 @@ async def save_preference(
     - "我不吃辣" -> preference="饮食禁忌", value="不吃辣"
     
     Args:
-        user_id: 用户ID
         preference: 偏好类别（如"运动时间"、"饮食偏好"、"健身目标"）
         value: 具体偏好值
         
     Returns:
         保存结果确认
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     if await _already_in_memory(store, user_id, "preference", value, predicate=preference):
         return f"该偏好已记录：{preference} = {value}"
@@ -227,11 +243,11 @@ async def save_preference(
 
 @tool
 async def save_user_fact(
-    user_id: str,
     subject: str,
     fact: str,
     category: str = "fact",
     predicate: str = "是",
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     保存用户相关事实。
@@ -242,7 +258,6 @@ async def save_user_fact(
     - 运动习惯："每周跑步3次"
     
     Args:
-        user_id: 用户ID
         subject: 事实主体（通常是"用户"或具体部位如"膝盖"）
         fact: 事实内容
         category: 分类，可选值：
@@ -257,6 +272,9 @@ async def save_user_fact(
     Returns:
         保存结果确认
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     if await _already_in_memory(store, user_id, category, fact, predicate=predicate):
         return f"该信息已记录：{subject} - {fact}"
@@ -282,8 +300,8 @@ async def save_user_fact(
 
 @tool
 async def list_user_profile(
-    user_id: str,
     category: Optional[str] = None,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     列出用户画像信息。
@@ -291,7 +309,6 @@ async def list_user_profile(
     查看已存储的用户偏好、事实、规则等信息。
     
     Args:
-        user_id: 用户ID
         category: 可选的分类过滤：
             - "preference": 只看偏好
             - "fact": 只看事实
@@ -301,6 +318,9 @@ async def list_user_profile(
     Returns:
         用户画像信息列表
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     try:
         memories = await store.retrieve_semantic(
@@ -323,9 +343,9 @@ async def list_user_profile(
 
 @tool
 async def save_event(
-    user_id: str,
     event: str,
     importance: float = 0.5,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     保存重要事件。
@@ -333,13 +353,15 @@ async def save_event(
     当用户分享重要经历或事件时使用此工具。
     
     Args:
-        user_id: 用户ID
         event: 事件描述
         importance: 重要性评分 (0-1)，默认0.5
         
     Returns:
         保存结果确认
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     try:
         await store.store_episodic(
@@ -355,10 +377,10 @@ async def save_event(
 
 @tool
 async def update_memory(
-    user_id: str,
     memory_id: str,
     new_value: str,
     memory_type: str = "semantic",
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     更新一条已存在的记忆（按记忆 id）。
@@ -367,7 +389,6 @@ async def update_memory(
     今天更正为"更喜欢炸鸡"。用 recall_memory 找到待修订记忆的 id 后传入。
 
     Args:
-        user_id: 用户ID
         memory_id: 要更新的记忆 id（recall_memory 返回的 id:xxx）
         new_value: 新的记忆内容
         memory_type: 记忆类型，可选值：
@@ -377,6 +398,9 @@ async def update_memory(
     Returns:
         更新结果确认
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     try:
         mid = UUID(memory_id)
@@ -400,9 +424,9 @@ async def update_memory(
 
 @tool
 async def delete_memory(
-    user_id: str,
     memory_id: str,
     memory_type: str = "semantic",
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> str:
     """
     删除一条记忆（按记忆 id）。
@@ -411,7 +435,6 @@ async def delete_memory(
     用 recall_memory 找到待删除记忆的 id 后传入。
 
     Args:
-        user_id: 用户ID
         memory_id: 要删除的记忆 id（recall_memory 返回的 id:xxx）
         memory_type: 记忆类型，可选值：
             - "semantic": 语义记忆/偏好/事实（默认）
@@ -420,6 +443,9 @@ async def delete_memory(
     Returns:
         删除结果确认
     """
+    user_id = _resolve_user_id(config)
+    if not user_id:
+        return "无法获取当前用户身份，操作未执行。"
     store = get_memory_store()
     try:
         mid = UUID(memory_id)
