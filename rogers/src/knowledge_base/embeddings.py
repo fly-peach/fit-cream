@@ -147,17 +147,22 @@ async def rerank(query: str, results: list[dict], top_n: int = RERANK_TOP_N) -> 
     if postprocessor is None:
         return results
 
-    from llama_index.core.schema import Document, QueryBundle
+    from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
     try:
         query_bundle = QueryBundle(query_str=query)
-        nodes = [Document(text=r["content"], metadata={"index": i}) for i, r in enumerate(results)]
+        nodes = [
+            NodeWithScore(node=TextNode(text=r["content"], metadata={"index": i}), score=0.0)
+            for i, r in enumerate(results)
+        ]
         reranked = postprocessor.postprocess_nodes(nodes, query_bundle)
 
         # 依据 metadata.index 映射回原结果；任一缺失则视为不可用，回退原顺序
         ordered: list[dict] = []
         for n in reranked:
-            idx = n.metadata.get("index", None) if isinstance(n.metadata, dict) else None
+            node = getattr(n, "node", n)
+            metadata = getattr(node, "metadata", {}) or {}
+            idx = metadata.get("index", None)
             if not isinstance(idx, int) or not (0 <= idx < len(results)):
                 return results
             ordered.append(results[idx])

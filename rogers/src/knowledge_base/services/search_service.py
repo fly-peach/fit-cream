@@ -40,7 +40,7 @@ class KBSearchService:
         """
         tsquery = func.websearch_to_tsquery("simple", query)
         result = await db.execute(
-            select(KBChunk, func.ts_rank(KBChunk.search_vector, tsquery).label("rank"))
+            select(KBChunk, KBDocument, func.ts_rank(KBChunk.search_vector, tsquery).label("rank"))
             .join(KBDocument, KBChunk.document_id == KBDocument.id)
             .where(KBDocument.kb_id == kb_id)
             .where(KBDocument.archived == False)  # noqa: E712
