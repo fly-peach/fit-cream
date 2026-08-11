@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge_base.chunker import chunk_text
@@ -41,26 +41,29 @@ async def index_document(
     if not chunks:
         return 0
 
-    # 语义向量列存在时才打点（否则跳过，避免在无 pgvector 环境触发网络调用）
-    if await semantic_available(db):
+    # kb_chunks.embedding 是条件创建的向量列（pgvector 不可用时不存在）。
+    # 语义可用时才打向量；否则 INSERT 省略 embedding 列，避免引用不存在列导致 UndefinedColumnError。
+    semantic = await semantic_available(db)
+    if semantic:
         embeddings = await embed_chunks([c.content for c in chunks])
-    else:
-        embeddings = [None] * len(chunks)
 
-    for i, c in enumerate(chunks):
-        chunk = KBChunk(
-            document_id=doc_id,
-            chunk_index=c.index,
-            content=c.content,
-            source_content=c.content,
-            token_count=c.token_count,
-            start_char=c.start_char,
-            header_breadcrumb=c.header_breadcrumb,
-            embedding=embeddings[i],
-        )
-        db.add(chunk)
+    rows = [
+        {
+            "document_id": doc_id,
+            "chunk_index": c.index,
+            "content": c.content,
+            "source_content": c.content,
+            "token_count": c.token_count,
+            "start_char": c.start_char,
+            "header_breadcrumb": c.header_breadcrumb,
+        }
+        for c in chunks
+    ]
+    if semantic:
+        for i, row in enumerate(rows):
+            row["embedding"] = embeddings[i]
 
-    await db.flush()
+    await db.execute(insert(KBChunk), rows)
     logger.info("索引文档 %s: %d chunks", str(doc_id)[:8], len(chunks))
     return len(chunks)
 
