@@ -119,6 +119,7 @@ async def get_exercises_tool(
             for ex in exercises:
                 item = {
                     "id": str(ex.id),
+                    "url": f"/exercises/{ex.id}",
                     "name": ex.name,
                     "name_en": ex.name_en,
                     "muscle_group": ex.muscle_group,

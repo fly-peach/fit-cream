@@ -82,6 +82,9 @@ async def search_knowledge_base(
             "message": f"知识库中未找到与「{query}」相关的内容",
         }
 
+    for r in results:
+        r["url"] = f"/knowledge-bases/{r['kb_id']}/documents/{r['document_id']}"
+
     return {
         "success": True,
         "total": len(results),
@@ -192,6 +195,7 @@ async def read_kb_document(
                 "document": {
                     "id": str(doc.id),
                     "kb_id": str(doc.kb_id),
+                    "url": f"/knowledge-bases/{doc.kb_id}/documents/{doc.id}",
                     "title": doc.title,
                     "filename": doc.filename,
                     "path": doc.path,

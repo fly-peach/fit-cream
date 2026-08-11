@@ -10,6 +10,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   CodeIcon,
+  ExternalLinkIcon,
   Loader2Icon,
   WrenchIcon,
   XCircleIcon,
@@ -121,6 +122,8 @@ const enumValueMap: Record<string, Record<string, string>> = {
 
 /** 这些字段不进卡片正文：success/error 走状态徽标与错误条，message 走摘要行 */
 const SKIP_KEYS = new Set(["success", "error_code", "message", "error"]);
+/** 站内详情页链接字段：从普通字段中剔除，单独渲染为可点击链接 */
+const LINK_KEYS = new Set(["url"]);
 const isIdKey = (k: string) => k === "id" || k.endsWith("_id");
 
 function labelFor(key: string): string {
@@ -220,6 +223,36 @@ function TextBlock({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** 站内详情页链接（按钮样式，用于单对象区域顶部，如 read_kb_document 的 document） */
+function DetailLink({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200/60 transition-colors hover:bg-emerald-100 hover:text-emerald-800"
+    >
+      <ExternalLinkIcon className="size-3.5" />
+      查看详情
+    </a>
+  );
+}
+
+/** 紧凑链接（用于数组项标题行右侧，如 exercise / kb search 列表项） */
+function DetailLinkInline({ url }: { url: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-emerald-600 transition-colors hover:text-emerald-800 hover:underline"
+    >
+      详情
+      <ExternalLinkIcon className="size-3" />
+    </a>
+  );
+}
+
 function ReadableFields({
   data,
   depth = 0,
@@ -227,11 +260,12 @@ function ReadableFields({
   data: Record<string, unknown>;
   depth?: number;
 }) {
+  const url = typeof data.url === "string" ? data.url : null;
   const entries = Object.entries(data).filter(
     ([k, v]) =>
-      !SKIP_KEYS.has(k) && !isIdKey(k) && v !== null && v !== undefined && v !== ""
+      !SKIP_KEYS.has(k) && !LINK_KEYS.has(k) && !isIdKey(k) && v !== null && v !== undefined && v !== ""
   );
-  if (!entries.length) return null;
+  if (!entries.length && !url) return null;
 
   const shortScalars = entries.filter(
     ([, v]) => typeof v !== "object" && String(v).length <= 40
@@ -246,6 +280,7 @@ function ReadableFields({
 
   return (
     <div className="space-y-2.5">
+      {url && <DetailLink url={url} />}
       {shortScalars.length > 0 && (
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {shortScalars.map(([k, v]) => (
@@ -343,17 +378,22 @@ function ArrayItemCard({ item, depth }: { item: unknown; depth: number }) {
   if (depth > 2) {
     return <TextBlock label="" value={JSON.stringify(obj, null, 2)} />;
   }
-  const titleKey = ["name", "title", "food_name", "exercise_name", "date", "query"].find(
+  const titleKey = ["name", "title", "document_title", "food_name", "exercise_name", "date", "query"].find(
     (k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== ""
   );
+  const url = typeof obj.url === "string" ? obj.url : null;
   const rest = { ...obj };
   if (titleKey) delete rest[titleKey];
+  if (url) delete rest["url"];
   return (
     <div className="rounded-lg bg-white/80 px-2.5 py-2 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
-      {titleKey && (
-        <p className="mb-1 text-xs font-semibold text-emerald-950">
-          {formatScalar(obj[titleKey], titleKey)}
-        </p>
+      {(titleKey || url) && (
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-emerald-950">
+            {titleKey ? formatScalar(obj[titleKey], titleKey) : ""}
+          </p>
+          {url && <DetailLinkInline url={url} />}
+        </div>
       )}
       <ReadableFields data={rest} depth={depth} />
     </div>

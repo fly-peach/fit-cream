@@ -54,6 +54,7 @@ class KBSearchService:
             return {
                 "chunk_id": str(chunk.id),
                 "document_id": str(chunk.document_id),
+                "kb_id": str(doc.kb_id),
                 "document_title": doc.title,
                 "filename": doc.filename,
                 "path": doc.path,
