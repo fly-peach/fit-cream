@@ -432,18 +432,22 @@ function StreamSteps({
         if (step.type === "thought") {
           if (!step.content) return null;
           return (
-            <details
+            <div
               key={i}
-              className="group rounded-lg border border-border/50 bg-muted/30 px-3 py-1.5"
+              className="rounded-lg border border-emerald-200/60 bg-gradient-to-br from-emerald-50/40 to-teal-50/30"
             >
-              <summary className="flex cursor-pointer select-none items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <BrainIcon className="size-3.5" />
-                <span>思考</span>
-              </summary>
-              <div className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/90">
-                {step.content}
+              <div className="flex items-center gap-2.5 px-3 py-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
+                  <BrainIcon className="size-3.5" />
+                </span>
+                <span className="text-sm font-semibold text-emerald-950">思考</span>
               </div>
-            </details>
+              <div className="border-t border-emerald-200/40 px-3 py-2">
+                <div className="whitespace-pre-wrap text-xs leading-relaxed text-emerald-900/80">
+                  {step.content}
+                </div>
+              </div>
+            </div>
           );
         }
         if (step.type === "reply") {
