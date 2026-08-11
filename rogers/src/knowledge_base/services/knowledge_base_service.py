@@ -146,6 +146,21 @@ class KnowledgeBaseService:
         return {row[0] for row in result.all()}
 
     @staticmethod
+    async def get_owned_kb_ids(db: AsyncSession, user_id: UUID) -> set[UUID]:
+        """返回用户作为 owner 的 KB ID 集合"""
+        result = await db.execute(
+            select(KnowledgeBase.id).where(KnowledgeBase.owner_id == user_id)
+        )
+        return {row[0] for row in result.all()}
+
+    @staticmethod
+    async def get_accessible_kb_ids(db: AsyncSession, user_id: UUID) -> set[UUID]:
+        """返回用户可读的全部 KB ID（已订阅 ∪ 自有），与 ensure_kb_access 权限口径一致"""
+        return (
+            await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+        ) | (await KnowledgeBaseService.get_owned_kb_ids(db, user_id))
+
+    @staticmethod
     async def list_my_subscriptions(
         db: AsyncSession, user_id: UUID
     ) -> List[KnowledgeBase]:
@@ -156,6 +171,21 @@ class KnowledgeBaseService:
         result = await db.execute(
             select(KnowledgeBase)
             .where(KnowledgeBase.id.in_(subscribed_ids))
+            .order_by(KnowledgeBase.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_my_accessible_kbs(
+        db: AsyncSession, user_id: UUID
+    ) -> List[KnowledgeBase]:
+        """返回用户可访问的知识库列表（已订阅 ∪ 自有），Agent 列表工具使用"""
+        accessible_ids = await KnowledgeBaseService.get_accessible_kb_ids(db, user_id)
+        if not accessible_ids:
+            return []
+        result = await db.execute(
+            select(KnowledgeBase)
+            .where(KnowledgeBase.id.in_(accessible_ids))
             .order_by(KnowledgeBase.created_at.desc())
         )
         return list(result.scalars().all())

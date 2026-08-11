@@ -12,7 +12,9 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from src.knowledge_base.embeddings import semantic_available
 from src.knowledge_base.services.document_service import KBDocumentService
+from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseService
 from src.knowledge_base.services.search_service import KBSearchService
 
 
@@ -21,7 +23,7 @@ class SearchKBInput(BaseModel):
     query: str = Field(description="搜索关键词，如'哑铃卧推'、'蛋白质摄入'、'减脂原理'")
     kb_id: Optional[str] = Field(
         default=None,
-        description="指定知识库 ID（须为用户已订阅的 KB）。不填则搜索用户已订阅的全部知识库",
+        description="指定知识库 ID（须为用户已订阅或自有的 KB）。不填则搜索用户已订阅及自有的全部知识库",
     )
     limit: int = Field(default=5, ge=1, le=20, description="返回结果数量，默认5条")
 
@@ -56,10 +58,23 @@ async def search_knowledge_base(
             results = await KBSearchService.search_across_subscriptions(
                 db, user_id, query, UUID(kb_id) if kb_id else None, limit
             )
+            semantic = await semantic_available(db)
     except Exception as e:
         return error_response(e)
 
     if not results:
+        if not semantic:
+            return {
+                "success": True,
+                "total": 0,
+                "results": [],
+                "degraded": True,
+                "degraded_reason": "semantic_unavailable",
+                "message": (
+                    f"知识库中未找到与「{query}」相关的内容，且当前检索能力受限"
+                    "（语义检索不可用，仅关键词匹配）。"
+                ),
+            }
         return {
             "success": True,
             "total": 0,
@@ -75,12 +90,69 @@ async def search_knowledge_base(
     }
 
 
+class ListMyKBInput(BaseModel):
+    """列出我的知识库（无输入参数）"""
+
+
+@tool(args_schema=ListMyKBInput)
+async def list_my_knowledge_bases(
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
+) -> dict:
+    """
+    列出当前用户可访问的知识库（已订阅 + 自己创建的）。
+
+    使用场景：
+    - 用户问"我订阅了哪些知识库"、"看看我的知识库"、"有哪些知识库"时使用
+    - 用户想了解自己在知识库上的订阅情况
+
+    返回知识库列表（含名称、ID、描述、是否已订阅、是否本人创建）。
+
+    Returns:
+        包含知识库列表的字典
+    """
+    user_id = extract_user_id(config)
+    if not user_id:
+        return {"success": False, "error": "缺少用户身份信息"}
+
+    try:
+        async with session_scope() as db:
+            kbs = await KnowledgeBaseService.list_my_accessible_kbs(db, user_id)
+            subscribed_ids = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
+    except Exception as e:
+        return error_response(e)
+
+    items = [
+        {
+            "id": str(kb.id),
+            "name": kb.name,
+            "description": kb.description or "",
+            "slug": kb.slug,
+            "subscribed": kb.id in subscribed_ids,
+            "is_owner": kb.owner_id == user_id,
+        }
+        for kb in kbs
+    ]
+    if not items:
+        return {
+            "success": True,
+            "total": 0,
+            "knowledge_bases": [],
+            "message": "您当前没有可访问的知识库。可在知识库页面订阅，或请管理员创建",
+        }
+    return {
+        "success": True,
+        "total": len(items),
+        "knowledge_bases": items,
+        "message": f"您共有 {len(items)} 个可访问的知识库",
+    }
+
+
 class ReadKBDocumentInput(BaseModel):
     """读取知识库文档的输入参数"""
     document_id: str = Field(description="文档 ID（从 search_knowledge_base 结果中获取）")
     kb_id: Optional[str] = Field(
         default=None,
-        description="知识库 ID。如果文档 ID 已包含完整路径可不填",
+        description="知识库 ID（可选）。提供时校验文档归属，防止跨库读取",
     )
 
 
@@ -109,10 +181,17 @@ async def read_kb_document(
             doc = await KBDocumentService.get_document_for_user(
                 db, UUID(document_id), user_id
             )
+            if kb_id and str(doc.kb_id) != kb_id:
+                return {
+                    "success": False,
+                    "error": f"文档 {document_id} 不属于知识库 {kb_id}",
+                    "message": "文档不属于指定知识库，请核对后重试",
+                }
             return {
                 "success": True,
                 "document": {
                     "id": str(doc.id),
+                    "kb_id": str(doc.kb_id),
                     "title": doc.title,
                     "filename": doc.filename,
                     "path": doc.path,

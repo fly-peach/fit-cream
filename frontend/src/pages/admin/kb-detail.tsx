@@ -297,7 +297,7 @@ export default function AdminKbDetailPage() {
                   </div>
                 )}
                 <p className="text-xs text-emerald-600/50">
-                  重建会统一生成搜索索引（分块+向量）、重建文档引用图，并运行健康检查。写入文档后请点击此按钮生效。
+                  创建/编辑文档后自动生成搜索索引（分块+向量）；重建会补齐全部文档、重建引用图并运行健康检查。
                 </p>
                 {lintReport && (
                   <Card className="border-emerald-100 bg-white/80">
@@ -380,7 +380,7 @@ export default function AdminKbDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>新建文档</DialogTitle>
-            <DialogDescription>创建后需在「索引与检查」点击「重建并检查」生成索引</DialogDescription>
+            <DialogDescription>创建后自动生成搜索索引（分块+向量），引用图可在「索引与检查」统一重建</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">

@@ -7,6 +7,7 @@
     python scripts/backfill_kb_chunk_embeddings.py                        # 仅回填 embedding IS NULL 的行
     python scripts/backfill_kb_chunk_embeddings.py --kb <kb_id>           # 仅回填指定知识库
     python scripts/backfill_kb_chunk_embeddings.py --force                # 全量重算（包含已有向量）
+    python scripts/backfill_kb_chunk_embeddings.py --ensure-column        # 列缺失时自动补列后回填
 
 幂等：可重复执行；单条失败不影响整批，失败条数最终汇总。
 """
@@ -19,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text, update  # noqa: E402
 
+from app.config import settings  # noqa: E402
 from app.database import async_session_factory  # noqa: E402
 from src.knowledge_base.embeddings import embed_chunks  # noqa: E402
 from src.knowledge_base.models.chunk import KBChunk  # noqa: E402
@@ -27,30 +29,43 @@ CONCURRENCY = 8
 BATCH_SIZE = 50
 
 
-async def _require_vector_column() -> None:
-    """确认 kb_chunks.embedding 向量列存在，否则终止（不做降级）。
+async def _ensure_vector_column(create: bool = False) -> None:
+    """确认 kb_chunks.embedding 向量列存在；--ensure-column 时自动补列。
 
     pgvector 扩展不可用的环境不会创建该列，语义检索整体关闭，无需回填。
     """
-    async with async_session_factory() as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT 1 FROM information_schema.columns"
-                    " WHERE table_name = 'kb_chunks' AND column_name = 'embedding'"
-                    " AND udt_name = 'vector'"
-                )
+    def _column_exists(session) -> bool:
+        row = session.execute(
+            text(
+                "SELECT 1 FROM information_schema.columns"
+                " WHERE table_name = 'kb_chunks' AND column_name = 'embedding'"
+                " AND udt_name = 'vector'"
             )
         ).first()
-    if row is None:
-        raise SystemExit(
-            "kb_chunks.embedding 向量列不存在（pgvector 扩展不可用，语义检索已关闭）。"
-            "若已安装 pgvector，请先启动一次应用（init_db 自动补列）再回填。"
+        return row is not None
+
+    async with async_session_factory() as session:
+        if _column_exists(session):
+            return
+        if not create:
+            raise SystemExit(
+                "kb_chunks.embedding 向量列不存在（pgvector 扩展不可用，语义检索已关闭）。"
+                "若已安装 pgvector，请先启动一次应用（init_db 自动补列）"
+                "或使用 --ensure-column 自动补列后再回填。"
+            )
+        await session.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        await session.execute(
+            text(
+                "ALTER TABLE kb_chunks ADD COLUMN IF NOT EXISTS embedding"
+                f" vector({settings.EMBEDDING_DIMENSION})"
+            )
         )
+        await session.commit()
+        print("已补列 kb_chunks.embedding（自动）")
 
 
-async def backfill(kb_id: str | None, force: bool) -> None:
-    await _require_vector_column()
+async def backfill(kb_id: str | None, force: bool, ensure_column: bool = False) -> None:
+    await _ensure_vector_column(create=ensure_column)
 
     async with async_session_factory() as session:
         stmt = (
@@ -96,8 +111,13 @@ def main() -> None:
     parser.add_argument(
         "--force", action="store_true", help="全量重算（包含已有向量的行）"
     )
+    parser.add_argument(
+        "--ensure-column",
+        action="store_true",
+        help="列缺失时自动执行 CREATE EXTENSION vector + ALTER TABLE 补列",
+    )
     args = parser.parse_args()
-    asyncio.run(backfill(args.kb, args.force))
+    asyncio.run(backfill(args.kb, args.force, args.ensure_column))
 
 
 if __name__ == "__main__":

@@ -83,7 +83,7 @@ async def reindex_knowledge_base(db: AsyncSession, kb_id: UUID) -> dict:
         select(KBDocument).where(
             KBDocument.kb_id == kb_id,
             KBDocument.archived == False,  # noqa: E712
-            KBDocument.status.in_(["ready", "pending", "processing"]),
+            KBDocument.status.in_(["ready", "pending", "processing", "failed"]),
         )
     )
     docs = list(result.scalars().all())

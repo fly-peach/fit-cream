@@ -73,7 +73,6 @@ export default function KnowledgeBaseDetailPage() {
   };
 
   const loadGraph = async () => {
-    if (graph) return;
     setGraphLoading(true);
     try {
       setGraph(await kbApi.getGraph(kbId));
@@ -93,6 +92,13 @@ export default function KnowledgeBaseDetailPage() {
     } finally {
       setGraphLoading(false);
     }
+  };
+
+  const [tab, setTab] = useState("docs");
+
+  const handleTabChange = (value: string) => {
+    setTab(value);
+    if (value === "graph") void loadGraph();
   };
 
   return (
@@ -129,13 +135,11 @@ export default function KnowledgeBaseDetailPage() {
               <Loader2 className="size-6 animate-spin" />
             </div>
           ) : (
-            <Tabs defaultValue="docs">
+            <Tabs value={tab} onValueChange={handleTabChange}>
               <TabsList className="bg-emerald-50">
                 <TabsTrigger value="docs">文档（{docs.length}）</TabsTrigger>
                 <TabsTrigger value="search">搜索</TabsTrigger>
-                <TabsTrigger value="graph" onClick={loadGraph}>
-                  图谱
-                </TabsTrigger>
+                <TabsTrigger value="graph">图谱</TabsTrigger>
               </TabsList>
 
               {/* 文档列表（只读） */}

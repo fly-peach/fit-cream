@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 from sqlalchemy import text
@@ -23,6 +24,9 @@ from app.config import get_settings
 logger = logging.getLogger("fitcream")
 
 EMBED_CONCURRENCY = 8
+
+# semantic_available 探测结果的 TTL 缓存（秒）：部署后补列/回填无需重启进程即可生效
+SEMANTIC_CACHE_TTL = 300.0
 
 
 def _get_setting(key: str, default: str) -> str:
@@ -44,8 +48,9 @@ KB_EMBEDDING_ENABLED = _get_setting("KB_EMBEDDING_ENABLED", "True").lower() in (
 )
 
 
-# kb_chunks.embedding 向量列是否可用（进程级缓存，只探测一次）
+# kb_chunks.embedding 向量列是否可用（进程级缓存，TTL 后重新探测）
 _embedding_col_available: Optional[bool] = None
+_embedding_col_probed_at: Optional[float] = None
 
 
 async def semantic_available(db: AsyncSession) -> bool:
@@ -53,11 +58,17 @@ async def semantic_available(db: AsyncSession) -> bool:
 
     KB_EMBEDDING_ENABLED=false 时整体关闭；pgvector 扩展不可用时 init_db 不会创建该列，
     语义检索整体关闭（不做降级）：本方法返回 False，调用方自行回退纯全文检索。
+    探测结果按 TTL 缓存，避免每个请求重复查询 information_schema。
     """
-    global _embedding_col_available
+    global _embedding_col_available, _embedding_col_probed_at
     if not KB_EMBEDDING_ENABLED:
         return False
-    if _embedding_col_available is None:
+    now = time.monotonic()
+    if (
+        _embedding_col_available is None
+        or _embedding_col_probed_at is None
+        or now - _embedding_col_probed_at > SEMANTIC_CACHE_TTL
+    ):
         result = await db.execute(
             text(
                 "SELECT 1 FROM information_schema.columns"
@@ -66,6 +77,7 @@ async def semantic_available(db: AsyncSession) -> bool:
             )
         )
         _embedding_col_available = result.scalar() is not None
+        _embedding_col_probed_at = now
     return _embedding_col_available
 
 
@@ -99,17 +111,25 @@ async def embed_chunks(contents: list[str]) -> list[Optional[list[float]]]:
     return results
 
 
+# rerank 后处理器（进程级缓存，避免每次搜索重建）
+_reranker = None
+
+
 def _load_reranker():
-    """懒加载 rerank 后处理器；未启用/缺失依赖时返回 None。"""
+    """懒加载 rerank 后处理器；未启用/缺失依赖时返回 None（进程内只加载一次）。"""
+    global _reranker
+    if _reranker is not None:
+        return _reranker
     if not RERANK_ENABLED:
         return None
     try:
         from llama_index.postprocessor.dashscope_rerank import DashScopeRerank
 
-        return DashScopeRerank(
+        _reranker = DashScopeRerank(
             model=RERANK_MODEL,
             top_n=RERANK_TOP_N,
         )
+        return _reranker
     except Exception as e:
         logger.warning("rerank 后处理器加载失败（回退 RRF）: %s", e)
         return None

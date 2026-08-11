@@ -1,6 +1,13 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+} from "d3-force";
+import {
   Background,
   Controls,
   MarkerType,
@@ -16,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   kbApi,
   type KBGraphData,
+  type KBGraphEdge,
   type KBDocumentReferences,
 } from "@/lib/kb-api";
 
@@ -77,9 +85,14 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
 
   const canDownsample = (total ?? graph.nodes.length) >= OVERVIEW_THRESHOLD;
 
+  const positions = useMemo(
+    () => computeForceLayout(graph.nodes.map((n) => n.id), graph.edges),
+    [graph.nodes, graph.edges]
+  );
+
   const nodes: Node[] = useMemo(
     () =>
-      graph.nodes.map((n, i) => {
+      graph.nodes.map((n) => {
         const color = GROUP_COLORS[n.semantic_group ?? "其他"] ?? "#64748b";
         return {
           id: n.id,
@@ -91,10 +104,10 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
             uncited: Boolean(n.uncited),
             color,
           },
-          position: circularPosition(i, graph.nodes.length),
+          position: positions.get(n.id) ?? { x: 0, y: 0 },
         };
       }),
-    [graph.nodes]
+    [graph.nodes, positions]
   );
 
   const edges: Edge[] = useMemo(
@@ -244,12 +257,33 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
   );
 }
 
-function circularPosition(index: number, count: number): { x: number; y: number } {
-  if (count <= 1) return { x: 0, y: 0 };
-  const radius = Math.max(120, count * 9);
-  const angle = (2 * Math.PI * index) / count;
-  return {
-    x: radius * Math.cos(angle),
-    y: radius * Math.sin(angle),
-  };
+function computeForceLayout(
+  nodeIds: string[],
+  edges: KBGraphEdge[]
+): Map<string, { x: number; y: number }> {
+  // 力导向预布局：同步迭代模拟，节点按引用关系聚拢成簇，替代环形排布
+  const nodes = nodeIds.map((id) => ({ id, x: 0, y: 0 }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const links = edges.map((e) => ({ source: e.source, target: e.target })) as any[];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sim = forceSimulation(nodes as any[])
+    .force(
+      "link",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      forceLink<any, any>(links)
+        .id((d) => d.id)
+        .distance(130)
+        .strength(0.35)
+    )
+    .force("charge", forceManyBody().strength(-380))
+    .force("collide", forceCollide(75))
+    .force("center", forceCenter(0, 0))
+    .stop();
+
+  for (let i = 0; i < 300; i += 1) sim.tick();
+
+  const positions = new Map<string, { x: number; y: number }>();
+  for (const n of nodes) positions.set(n.id, { x: n.x, y: n.y });
+  return positions;
 }

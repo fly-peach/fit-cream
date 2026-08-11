@@ -1,17 +1,21 @@
 """
 文档 Service（文档 CRUD）
 
-写文档不自动索引（chunks/embedding/引用图统一由重建步骤构建）。
+创建/更新文档后自动分块索引（chunks/embedding），更新后对引用方传播过期标记；
+引用图重建由 admin 的"重建并检查"统一执行。
 """
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.knowledge_base.indexer import compute_content_hash
+from src.knowledge_base.graph import propagate_staleness
+from src.knowledge_base.indexer import compute_content_hash, index_document, reindex_document
 from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.schemas.document import (
     KBDocumentContentUpdate,
@@ -21,13 +25,15 @@ from src.knowledge_base.schemas.document import (
 from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseService
 from utils.exceptions import BadRequestException, NotFoundException
 
+logger = logging.getLogger("fitcream")
+
 
 class KBDocumentService:
     @staticmethod
     async def create_document(
         db: AsyncSession, kb_id: UUID, data: KBDocumentCreate, user_id: UUID
     ) -> KBDocument:
-        """创建 wiki 文档（只写行，status=pending，待重建时索引）"""
+        """创建 wiki 文档并自动分块索引（索引失败置 status=failed，不阻断创建）"""
         await KnowledgeBaseService.get_kb(db, kb_id)
 
         # per-KB 递增序号
@@ -53,6 +59,16 @@ class KBDocumentService:
             created_by=user_id,
         )
         db.add(doc)
+        await db.flush()
+
+        try:
+            await index_document(db, doc.id, doc.content or "")
+            doc.status = "ready"
+            doc.last_indexed_at = datetime.now(timezone.utc)
+        except Exception as e:
+            doc.status = "failed"
+            doc.error_message = str(e)
+            logger.warning("创建文档后自动索引失败 %s: %s", str(doc.id)[:8], e)
         await db.flush()
         return doc
 
@@ -96,7 +112,7 @@ class KBDocumentService:
     async def update_document_content(
         db: AsyncSession, doc_id: UUID, data: KBDocumentContentUpdate, user_id: UUID
     ) -> KBDocument:
-        """更新文档内容（乐观锁；只写行，置 status=pending，待重建时重索引）"""
+        """更新文档内容（乐观锁；自动重新分块索引 + 过期传播，失败置 status=failed）"""
         doc = await KBDocumentService.get_document(db, doc_id)
 
         if doc.version != data.version:
@@ -114,6 +130,18 @@ class KBDocumentService:
             doc.tags = data.tags
         if data.title is not None:
             doc.title = data.title
+        await db.flush()
+
+        try:
+            await reindex_document(db, doc.id, doc.content or "")
+            doc.status = "ready"
+            doc.last_indexed_at = datetime.now(timezone.utc)
+            doc.stale_since = None
+            await propagate_staleness(db, doc.id)
+        except Exception as e:
+            doc.status = "failed"
+            doc.error_message = str(e)
+            logger.warning("更新文档后自动索引失败 %s: %s", str(doc.id)[:8], e)
         await db.flush()
         return doc
 

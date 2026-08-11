@@ -9,7 +9,7 @@ FitCream Agent Tools
 - training/  训练类（checkin / get_streak / get_exercises / query_stats）
 - diet/      饮食类（record_meal / query_diet_summary / manage_meal / set_nutrition_goals）
 - user/      用户类（get_user_profile / update_user_profile / get_user_summary）
-- knowledge/ 知识库（search_knowledge_base / read_kb_document）
+- knowledge/ 知识库（search_knowledge_base / read_kb_document / list_my_knowledge_bases）
 - memory/    记忆工具（create_memory_tools：recall_memory / save_preference / save_user_fact / list_user_profile / save_event）
 - skill/     技能加载（skill_load_tool）
 """
@@ -50,7 +50,11 @@ from src.agents.harness.tools.user import (
     update_user_profile_tool,
     get_user_summary_tool,
 )
-from src.agents.harness.tools.knowledge import search_knowledge_base, read_kb_document
+from src.agents.harness.tools.knowledge import (
+    list_my_knowledge_bases,
+    read_kb_document,
+    search_knowledge_base,
+)
 from src.agents.harness.tools.skill import skill_load_tool
 
 __all__ = [
@@ -74,6 +78,7 @@ __all__ = [
     "update_user_profile_tool",
     "search_knowledge_base",
     "read_kb_document",
+    "list_my_knowledge_bases",
     "record_meal_tool",
     "query_diet_summary_tool",
     "manage_meal_tool",

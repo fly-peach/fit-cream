@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
@@ -28,19 +29,30 @@ def _doc_path(doc: KBDocument) -> str:
     return f"{doc.path}{doc.filename}"
 
 
-# 语义着色分组：按 tags 关键词归 5 大类，无法归类回退"其他"
+# 语义着色分组：按 tags/标题/实体类型关键词归 5 大类，无法归类回退"其他"
 _GROUP_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("训练动作", ("动作", "训练", "exercise", "workout", "力量", "有氧", "hiit")),
-    ("饮食营养", ("饮食", "营养", "蛋白", "碳水", "热量", "diet", "nutrition", "食谱")),
-    ("康复拉伸", ("康复", "拉伸", "放松", "按摩", "rehab", "stretch", "损伤")),
-    ("装备选购", ("装备", "器械", "器材", "选购", "gear", "equipment", "购买")),
-    ("计划", ("计划", "program", "plan", "方案", "周期")),
+    ("训练动作", ("动作", "训练", "exercise", "workout", "力量", "有氧", "hiit", "深蹲", "卧推", "硬拉", "划船")),
+    ("饮食营养", ("饮食", "营养", "蛋白", "碳水", "热量", "diet", "nutrition", "食谱", "补剂", "维生素")),
+    ("康复拉伸", ("康复", "拉伸", "放松", "按摩", "rehab", "stretch", "损伤", "疼痛", "恢复")),
+    ("装备选购", ("装备", "器械", "器材", "选购", "gear", "equipment", "购买", "哑铃", "杠铃")),
+    ("计划", ("计划", "program", "plan", "方案", "周期", "安排")),
 ]
 
+# 实体类型 -> 语义分组（显式 entity_type 优先）
+_ENTITY_TYPE_GROUP = {
+    "exercise": "训练动作",
+    "nutrition": "饮食营养",
+    "plan_template": "计划",
+}
 
-def _semantic_group(tags: list[str]) -> str:
-    """按 tags 归语义分组（训练动作/饮食营养/康复拉伸/装备选购/计划）。"""
-    tag_text = " | ".join(tags or []).lower()
+
+def _semantic_group(tags: list[str], title: str = "", entity_type: Optional[str] = None) -> str:
+    """按 entity_type / tags / 标题归语义分组（训练动作/饮食营养/康复拉伸/装备选购/计划）。"""
+    if entity_type:
+        mapped = _ENTITY_TYPE_GROUP.get(str(entity_type).strip().lower())
+        if mapped:
+            return mapped
+    tag_text = " | ".join((tags or []) + ([title] if title else [])).lower()
     for group, keywords in _GROUP_RULES:
         if any(kw in tag_text for kw in keywords):
             return group
@@ -190,12 +202,9 @@ async def get_graph(
         degree[str(r.source_document_id)] = degree.get(str(r.source_document_id), 0) + 1
         degree[str(r.target_document_id)] = degree.get(str(r.target_document_id), 0) + 1
 
-    # 被 cites 引用集合（用于 uncited 标记）
-    cited_ids = {
-        str(r.target_document_id)
-        for r in refs
-        if r.reference_type == "cites"
-    }
+    # 被任何类型入边（cites + links_to）引用的集合（用于 uncited 标记：
+    # "未引用" = 无任何入边）
+    cited_ids = {str(r.target_document_id) for r in refs}
 
     nodes = [
         {
@@ -206,7 +215,9 @@ async def get_graph(
             "stale_since": d.stale_since.isoformat() if d.stale_since else None,
             "uncited": str(d.id) not in cited_ids,
             "degree": degree.get(str(d.id), 0),
-            "semantic_group": _semantic_group(d.tags or []),
+            "semantic_group": _semantic_group(
+                d.tags or [], d.title or "", d.entity_type
+            ),
         }
         for d in docs
     ]

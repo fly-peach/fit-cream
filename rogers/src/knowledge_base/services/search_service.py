@@ -3,6 +3,7 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -15,11 +16,17 @@ from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseService
 from utils.exceptions import NotFoundException
 
+logger = logging.getLogger("fitcream")
+
 
 class KBSearchService:
     @staticmethod
     async def search_documents(
-        db: AsyncSession, kb_id: UUID, query: str, limit: int = 20
+        db: AsyncSession,
+        kb_id: UUID,
+        query: str,
+        limit: int = 20,
+        query_embedding: Optional[list] = None,
     ) -> list:
         """语义 + 关键词混合检索（双路召回 + RRF 融合，可选 rerank 精排）。
 
@@ -27,7 +34,9 @@ class KBSearchService:
         向量路：embedding 列可用时按余弦距离 top-K（K = max(limit*3, limit)）。
         融合：RRF（Reciprocal Rank Fusion, k=60）按 chunk_id 去重合并。
         精排：RRF 后 top-N 进 DashScope rerank（不可用/异常回退 RRF）。
-        降级：embedding 列缺失 / 服务失败 -> 纯全文（返回现状行为）。
+        降级：embedding 列缺失 / 服务失败 -> 纯全文（返回现状行为，并记录日志）。
+
+        query_embedding: 跨库搜索时预计算的 query 向量，避免每个 KB 重复调用 embedding。
         """
         tsquery = func.websearch_to_tsquery("simple", query)
         result = await db.execute(
@@ -58,15 +67,22 @@ class KBSearchService:
         fulltext = [_to_dict(chunk, doc, rank) for chunk, doc, rank in rows]
 
         if not await semantic_available(db):
+            logger.warning(
+                "语义检索不可用（embedding 列缺失或 KB_EMBEDDING_ENABLED=false），"
+                "KB %s 搜索降级为纯全文",
+                str(kb_id)[:8],
+            )
             return fulltext[:limit]
 
         # ---- 向量路：top-K 余弦最近邻 ----
         try:
-            from src.agents.harness.runtime.memory.embeddings import get_embedding_model
+            if query_embedding is None:
+                from src.agents.harness.runtime.memory.embeddings import get_embedding_model
 
-            embed_model = get_embedding_model()
-            query_embedding = await embed_model.aget_text_embedding(query)
-        except Exception:
+                embed_model = get_embedding_model()
+                query_embedding = await embed_model.aget_text_embedding(query)
+        except Exception as e:
+            logger.warning("向量路 query embedding 生成失败（回退纯全文）: %s", e)
             return fulltext[:limit]
 
         vector_k = max(limit * 3, limit)
@@ -117,6 +133,18 @@ class KBSearchService:
         return ordered[:limit]
 
     @staticmethod
+    async def _compute_query_embedding(query: str) -> Optional[list]:
+        """跨库搜索时只生成一次 query 向量（失败返回 None，调用方逐库兜底）。"""
+        try:
+            from src.agents.harness.runtime.memory.embeddings import get_embedding_model
+
+            model = get_embedding_model()
+            return await model.aget_text_embedding(query)
+        except Exception as e:
+            logger.warning("跨库搜索 query embedding 生成失败: %s", e)
+            return None
+
+    @staticmethod
     async def search_across_knowledge_bases(
         db: AsyncSession,
         query: str,
@@ -131,10 +159,16 @@ class KBSearchService:
             return await KBSearchService.search_documents(db, kb_id, query, limit)
 
         kbs = await KnowledgeBaseService.list_kbs(db)
+        if await semantic_available(db):
+            query_embedding = await KBSearchService._compute_query_embedding(query)
+        else:
+            query_embedding = None
         all_results: list = []
         for kb in kbs:
             all_results.extend(
-                await KBSearchService.search_documents(db, kb.id, query, limit)
+                await KBSearchService.search_documents(
+                    db, kb.id, query, limit, query_embedding
+                )
             )
         all_results.sort(key=lambda x: x.get("rank", 0), reverse=True)
         return all_results[:limit]
@@ -147,22 +181,28 @@ class KBSearchService:
         kb_id: Optional[UUID] = None,
         limit: int = 5,
     ) -> list:
-        """在用户已订阅范围内搜索（订阅校验 + 多 KB 搜索 + rank 排序合并）。
+        """在用户可访问范围内搜索（订阅 + 自有 KB，权限校验 + 多 KB 搜索 + rank 排序合并）。
 
-        指定 kb_id 但未订阅时抛 NotFoundException（tool 层转为友好提示）。
-        未指定 kb_id 时搜索全部已订阅 KB，按相关度合并取 top limit。
+        指定 kb_id 但既未订阅也非 owner 时抛 NotFoundException（tool 层转为友好提示）。
+        未指定 kb_id 时搜索全部已订阅 + 自有的 KB，按相关度合并取 top limit。
         """
         if kb_id:
-            subscribed_ids = await KnowledgeBaseService.get_subscribed_kb_ids(db, user_id)
-            if kb_id not in subscribed_ids:
+            accessible_ids = await KnowledgeBaseService.get_accessible_kb_ids(db, user_id)
+            if kb_id not in accessible_ids:
                 raise NotFoundException(f"未订阅知识库 {kb_id}，请先订阅后再搜索")
             return await KBSearchService.search_documents(db, kb_id, query, limit)
 
-        kbs = await KnowledgeBaseService.list_my_subscriptions(db, user_id)
+        kbs = await KnowledgeBaseService.list_my_accessible_kbs(db, user_id)
+        if await semantic_available(db):
+            query_embedding = await KBSearchService._compute_query_embedding(query)
+        else:
+            query_embedding = None
         all_results: list = []
         for kb in kbs:
             all_results.extend(
-                await KBSearchService.search_documents(db, kb.id, query, limit)
+                await KBSearchService.search_documents(
+                    db, kb.id, query, limit, query_embedding
+                )
             )
         all_results.sort(key=lambda x: x.get("rank", 0), reverse=True)
         return all_results[:limit]
