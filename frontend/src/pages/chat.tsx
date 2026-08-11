@@ -432,22 +432,10 @@ function StreamSteps({
         if (step.type === "thought") {
           if (!step.content) return null;
           return (
-            <div
-              key={i}
-              className="rounded-lg border border-emerald-200/60 bg-gradient-to-br from-emerald-50/40 to-teal-50/30"
-            >
-              <div className="flex items-center gap-2.5 px-3 py-2">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-                  <BrainIcon className="size-3.5" />
-                </span>
-                <span className="text-sm font-semibold text-emerald-950">思考</span>
-              </div>
-              <div className="border-t border-emerald-200/40 px-3 py-2">
-                <div className="whitespace-pre-wrap text-xs leading-relaxed text-emerald-900/80">
-                  {step.content}
-                </div>
-              </div>
-            </div>
+            <Reasoning key={i} isStreaming={isStreaming && i === steps.length - 1}>
+              <ReasoningTrigger />
+              <ReasoningContent>{step.content}</ReasoningContent>
+            </Reasoning>
           );
         }
         if (step.type === "reply") {
