@@ -16,6 +16,7 @@ from src.knowledge_base.graph import (
     get_graph,
     rebuild_graph,
 )
+from src.knowledge_base.embeddings import semantic_available
 from src.knowledge_base.indexer import reindex_knowledge_base
 from src.knowledge_base.lint import run_all_lint
 from src.knowledge_base.models.chunk import KBChunk
@@ -65,19 +66,33 @@ class KBGraphService:
         )
         total, indexed, pending, last_indexed = doc_result.one()
 
-        chunk_result = await db.execute(
-            select(
-                func.count(KBChunk.id),
-                func.count(KBChunk.id).filter(KBChunk.embedding.is_(None)),
-                func.max(KBChunk.created_at),
+        # kb_chunks.embedding 是条件创建的向量列（pgvector 不可用时不存在）。
+        # 语义不可用时跳过 embedding 统计，避免引用不存在列导致 UndefinedColumnError。
+        if await semantic_available(db):
+            chunk_result = await db.execute(
+                select(
+                    func.count(KBChunk.id),
+                    func.count(KBChunk.id).filter(KBChunk.embedding.is_(None)),
+                    func.max(KBChunk.created_at),
+                )
+                .join(KBDocument, KBChunk.document_id == KBDocument.id)
+                .where(
+                    KBDocument.kb_id == kb_id,
+                    KBDocument.archived == False,  # noqa: E712
+                )
             )
-            .join(KBDocument, KBChunk.document_id == KBDocument.id)
-            .where(
-                KBDocument.kb_id == kb_id,
-                KBDocument.archived == False,  # noqa: E712
+            chunks_total, chunks_no_embedding, last_chunk_indexed = chunk_result.one()
+        else:
+            chunk_result = await db.execute(
+                select(func.count(KBChunk.id), func.max(KBChunk.created_at))
+                .join(KBDocument, KBChunk.document_id == KBDocument.id)
+                .where(
+                    KBDocument.kb_id == kb_id,
+                    KBDocument.archived == False,  # noqa: E712
+                )
             )
-        )
-        chunks_total, chunks_no_embedding, last_chunk_indexed = chunk_result.one()
+            chunks_total, last_chunk_indexed = chunk_result.one()
+            chunks_no_embedding = None
 
         return {
             "kb_id": str(kb_id),

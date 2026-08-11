@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.knowledge_base.chunker import chunk_text
@@ -96,8 +96,20 @@ async def reindex_knowledge_base(db: AsyncSession, kb_id: UUID) -> dict:
         doc.content_hash = current_hash
         doc.last_indexed_at = datetime.now(timezone.utc)
         doc.status = "ready"
+        doc.stale_since = None
         processed += 1
         chunks_created += n
+
+    # 全量重建即确认本 KB 全部文档为当前状态，复位引用方过期标记
+    # （propagate_staleness 只打标不清除，重建后应一并复位，避免整库误标过期）
+    await db.execute(
+        update(KBDocument)
+        .where(
+            KBDocument.kb_id == kb_id,
+            KBDocument.archived == False,  # noqa: E712
+        )
+        .values(stale_since=None)
+    )
 
     await db.flush()
     logger.info(
