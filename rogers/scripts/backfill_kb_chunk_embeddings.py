@@ -34,18 +34,21 @@ async def _ensure_vector_column(create: bool = False) -> None:
 
     pgvector 扩展不可用的环境不会创建该列，语义检索整体关闭，无需回填。
     """
-    def _column_exists(session) -> bool:
-        row = session.execute(
-            text(
-                "SELECT 1 FROM information_schema.columns"
-                " WHERE table_name = 'kb_chunks' AND column_name = 'embedding'"
-                " AND udt_name = 'vector'"
+
+    async def _column_exists(session) -> bool:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns"
+                    " WHERE table_name = 'kb_chunks' AND column_name = 'embedding'"
+                    " AND udt_name = 'vector'"
+                )
             )
         ).first()
         return row is not None
 
     async with async_session_factory() as session:
-        if _column_exists(session):
+        if await _column_exists(session):
             return
         if not create:
             raise SystemExit(
