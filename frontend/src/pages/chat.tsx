@@ -486,7 +486,7 @@ function StreamSteps({
           ) {
             return null;
           }
-          return <ToolCallCard key={step.id || i} tc={toolCallFromStep(step)} embedded />;
+          return <ToolCallCard key={step.id || i} tc={toolCallFromStep(step)} />;
         }
         return null;
       })}
