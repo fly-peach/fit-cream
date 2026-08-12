@@ -50,7 +50,7 @@ async def get_user_summary_tool(config: RunnableConfig) -> dict:
             from src.fitme.services.stats_service import StatsService
             from src.fitme.services.user_service import UserService
 
-            # 1. 身体数据（必需 -- 失败则整体失败）
+            # 1. 身体数据（必需 -- 失败则整体失败；get_profile_summary 已把 birth_date 转为 ISO 字符串）
             profile = await UserService.get_profile_summary(db, user_id)
 
             # 2. 活跃计划（可选）
@@ -70,7 +70,17 @@ async def get_user_summary_tool(config: RunnableConfig) -> dict:
             # 3. 连续打卡（可选）
             streak: Optional[dict] = None
             try:
-                streak = await CheckinService.get_streak(db, user_id)
+                raw_streak = await CheckinService.get_streak(db, user_id)
+                if raw_streak:
+                    streak = {
+                        "current_streak": raw_streak.get("current_streak"),
+                        "longest_streak": raw_streak.get("longest_streak"),
+                        "last_checkin_date": (
+                            raw_streak.get("last_checkin_date").isoformat()
+                            if raw_streak.get("last_checkin_date")
+                            else None
+                        ),
+                    }
             except Exception:
                 pass
 

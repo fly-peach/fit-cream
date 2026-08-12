@@ -21,9 +21,7 @@ import { toolIconMap, toolNameMap } from "@/components/tool-meta";
 /** 图标底色（emerald 系内做细微变化，保持整体调性一致） */
 const iconTintMap: Record<string, string> = {
   checkin_tool: "from-emerald-500 to-teal-600",
-  create_checkin_tool: "from-emerald-500 to-teal-600",
   get_streak_tool: "from-orange-400 to-amber-500",
-  query_checkins_tool: "from-emerald-500 to-teal-600",
   query_stats_tool: "from-teal-500 to-cyan-600",
   create_diet_plan_tool: "from-lime-500 to-emerald-600",
   record_meal_tool: "from-lime-500 to-emerald-600",

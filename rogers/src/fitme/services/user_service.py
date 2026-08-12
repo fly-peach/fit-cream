@@ -256,7 +256,7 @@ class UserService:
             "name": user.name,
             "height_cm": height,
             "weight_kg": weight,
-            "birth_date": user.birth_date,
+            "birth_date": user.birth_date.isoformat() if user.birth_date else None,
             "age": compute_age(user.birth_date) or user.age,
             "gender": user.gender,
             "goal": user.goals.goal if user.goals else None,

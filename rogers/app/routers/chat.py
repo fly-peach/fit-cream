@@ -4,7 +4,7 @@ import base64
 import json
 import logging
 import time
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, Optional
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
@@ -54,6 +54,33 @@ def _truncate_tool_input(data, max_len: int = _MAX_SSE_FIELD_LENGTH):
     if isinstance(data, list):
         return [_truncate_tool_input(v, max_len) for v in data]
     return data
+
+
+def _json_default(obj):
+    """json.dumps default：把 date/datetime 等非 JSON 原生值转为 ISO 字符串。"""
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
+def _serialize_tool_output(raw_output) -> str:
+    """把 on_tool_end 的工具输出规范化为 JSON 字符串。
+
+    新版 LangGraph 的 on_tool_end 事件里 ``data.output`` 是 ``ToolMessage`` 对象
+    （而非工具返回的原始 dict），直接 ``str()`` 会产生 ``content="..."`` 前缀，
+    前端无法解析。这里统一做三件事：
+    1. 若是消息对象，提取其 ``content``（工具真实返回值）；
+    2. 用 ``_json_default`` 兜底 date/datetime 等非 JSON 原生值；
+    3. 实在无法序列化时回退 ``str()``，保证 SSE 字段始终是字符串。
+    """
+    if not isinstance(raw_output, str) and hasattr(raw_output, "content"):
+        raw_output = raw_output.content
+    if isinstance(raw_output, str):
+        return raw_output
+    try:
+        return json.dumps(raw_output, ensure_ascii=False, default=_json_default)
+    except (TypeError, ValueError):
+        return str(raw_output)
 
 
 def _get_agent():
@@ -412,13 +439,7 @@ async def _run_agent_sse(
 
             elif kind == "on_tool_end":
                 raw_output = event["data"].get("output", "")
-                if isinstance(raw_output, str):
-                    output_str = raw_output
-                else:
-                    try:
-                        output_str = json.dumps(raw_output, ensure_ascii=False)
-                    except (TypeError, ValueError):
-                        output_str = str(raw_output)
+                output_str = _serialize_tool_output(raw_output)
                 tool_id = None
                 if _current_tool is not None:
                     tool_id = _current_tool["id"]
