@@ -1350,7 +1350,7 @@ export default function ChatPage() {
                   </p>
                 </div>
                 <div className="mt-2 flex flex-wrap justify-center gap-2">
-                  {["帮我制定减脂计划", "今天练什么好？", "饮食建议", "查看我的训练数据"].map(
+                  {["看看我订阅的知识库", "今天练什么好？", "查看我的最近饮食情况", "查看我最近的训练数据"].map(
                     (hint) => (
                       <button
                         key={hint}
