@@ -75,6 +75,7 @@ export interface KBDocumentContent {
 export interface KBSearchResult {
   chunk_id: string;
   document_id: string;
+  kb_id: string;
   document_title: string;
   filename: string;
   path: string;

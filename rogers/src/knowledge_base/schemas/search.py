@@ -10,6 +10,7 @@ from pydantic import BaseModel
 class KBSearchResult(BaseModel):
     chunk_id: UUID
     document_id: UUID
+    kb_id: UUID
     document_title: str
     filename: str
     path: str

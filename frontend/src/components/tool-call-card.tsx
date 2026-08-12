@@ -197,6 +197,20 @@ function parseOutput(output: unknown): {
 type Metric = { label: string; value: string; ok?: boolean };
 type StatsResult = { text?: string; metrics: Metric[]; detailLink?: string };
 
+/** 共享：用户档案（get_profile_summary schema）→ 指标 */
+function buildProfileMetrics(profile?: Record<string, unknown> | null): Metric[] {
+  const metrics: Metric[] = [];
+  if (!profile) return metrics;
+  if (profile.name) metrics.push({ label: "昵称", value: String(profile.name) });
+  if (profile.gender != null) metrics.push({ label: "性别", value: formatScalar(profile.gender, "gender") });
+  if (profile.age != null) metrics.push({ label: "年龄", value: `${profile.age}岁` });
+  if (profile.height_cm != null) metrics.push({ label: "身高", value: `${profile.height_cm}cm` });
+  if (profile.weight_kg != null) metrics.push({ label: "体重", value: `${profile.weight_kg}kg` });
+  if (profile.bmi != null) metrics.push({ label: "BMI", value: String(profile.bmi) });
+  if (profile.goal != null) metrics.push({ label: "目标", value: formatScalar(profile.goal, "goal") });
+  return metrics;
+}
+
 const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => StatsResult> = {
   query_stats_tool: (obj) => {
     const analysis = obj?.analysis as string | undefined;
@@ -209,6 +223,20 @@ const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => S
       if (stats.longest_streak != null) metrics.push({ label: "最长连续", value: `${stats.longest_streak}天` });
     }
     return { text: analysis, metrics };
+  },
+  checkin_tool: (obj) => {
+    const metrics: Metric[] = [];
+    if (obj?.exercises_count != null) metrics.push({ label: "动作数", value: `${obj.exercises_count}个` });
+    if (obj?.duration_min != null) metrics.push({ label: "时长", value: `${obj.duration_min}分钟` });
+    if (obj?.current_streak != null) metrics.push({ label: "连续打卡", value: `${obj.current_streak}天` });
+    return { metrics };
+  },
+  get_streak_tool: (obj) => {
+    const metrics: Metric[] = [];
+    if (obj?.current_streak != null) metrics.push({ label: "当前连续", value: `${obj.current_streak}天` });
+    if (obj?.longest_streak != null) metrics.push({ label: "最长连续", value: `${obj.longest_streak}天` });
+    if (obj?.last_checkin_date) metrics.push({ label: "上次打卡", value: String(obj.last_checkin_date) });
+    return { metrics };
   },
   query_diet_summary_tool: (obj) => {
     const intake = obj?.intake as Record<string, unknown> | undefined;
@@ -240,18 +268,38 @@ const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => S
         ok: !!goalMet?.fat,
       });
     }
-    return { text: "今日饮食汇总", metrics };
+    return { metrics };
+  },
+  record_meal_tool: (obj) => {
+    const meal = obj?.meal as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (meal) {
+      if (meal.meal_type != null) metrics.push({ label: "餐次", value: formatScalar(meal.meal_type, "meal_type") });
+      if (meal.calories != null) metrics.push({ label: "热量", value: `${meal.calories} kcal` });
+      if (meal.protein_g != null) metrics.push({ label: "蛋白", value: `${meal.protein_g}g` });
+      if (meal.carbs_g != null) metrics.push({ label: "碳水", value: `${meal.carbs_g}g` });
+      if (meal.fat_g != null) metrics.push({ label: "脂肪", value: `${meal.fat_g}g` });
+    }
+    return { metrics };
+  },
+  set_nutrition_goals_tool: (obj) => {
+    const goals = obj?.goals as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (goals) {
+      if (goals.calorie_goal != null) metrics.push({ label: "热量目标", value: `${goals.calorie_goal} kcal` });
+      if (goals.protein_goal_g != null) metrics.push({ label: "蛋白目标", value: `${goals.protein_goal_g}g` });
+      if (goals.carbs_goal_g != null) metrics.push({ label: "碳水目标", value: `${goals.carbs_goal_g}g` });
+      if (goals.fat_goal_g != null) metrics.push({ label: "脂肪目标", value: `${goals.fat_goal_g}g` });
+    }
+    return { metrics };
   },
   get_user_profile_tool: (obj) => {
-    const profile = obj?.profile as Record<string, unknown> | undefined;
-    const metrics: Metric[] = [];
-    if (profile) {
-      if (profile.height_cm != null) metrics.push({ label: "身高", value: `${profile.height_cm}cm` });
-      if (profile.weight_kg != null) metrics.push({ label: "体重", value: `${profile.weight_kg}kg` });
-      if (profile.goal != null) metrics.push({ label: "目标", value: formatScalar(profile.goal, "goal") });
-      if (profile.bmi != null) metrics.push({ label: "BMI", value: String(profile.bmi) });
-    }
-    return { text: "用户资料", metrics };
+    const metrics = buildProfileMetrics(obj?.profile as Record<string, unknown> | undefined);
+    return { text: metrics.length ? "" : "暂无用户资料", metrics };
+  },
+  update_user_profile_tool: (obj) => {
+    const metrics = buildProfileMetrics(obj?.profile as Record<string, unknown> | undefined);
+    return { text: metrics.length ? "" : "用户资料已更新", metrics };
   },
   get_user_summary_tool: (obj) => {
     const body = obj?.body as Record<string, unknown> | undefined;
@@ -260,18 +308,24 @@ const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => S
     const diet = obj?.diet as Record<string, unknown> | undefined;
     const metrics: Metric[] = [];
     if (body) {
+      if (body.gender != null) metrics.push({ label: "性别", value: formatScalar(body.gender, "gender") });
+      if (body.age != null) metrics.push({ label: "年龄", value: `${body.age}岁` });
       if (body.height_cm != null) metrics.push({ label: "身高", value: `${body.height_cm}cm` });
       if (body.weight_kg != null) metrics.push({ label: "体重", value: `${body.weight_kg}kg` });
+      if (body.bmi != null) metrics.push({ label: "BMI", value: String(body.bmi) });
       if (body.goal != null) metrics.push({ label: "目标", value: formatScalar(body.goal, "goal") });
     }
     if (plan?.name) metrics.push({ label: "计划", value: String(plan.name) });
-    if (streak?.current_streak != null) metrics.push({ label: "连续", value: `${streak.current_streak}天` });
+    if (plan?.difficulty != null) metrics.push({ label: "难度", value: formatScalar(plan.difficulty, "difficulty") });
+    if (streak?.current_streak != null) metrics.push({ label: "连续打卡", value: `${streak.current_streak}天` });
     if (obj?.weekly_checkins != null) metrics.push({ label: "本周打卡", value: `${obj.weekly_checkins}次` });
     if (diet?.intake) {
       const intake = diet.intake as Record<string, unknown>;
       if (intake.total_calories != null) metrics.push({ label: "今日摄入", value: `${intake.total_calories}kcal` });
     }
-    return { text: "用户画像", metrics };
+    const missing = (obj?.missing_fields as string[] | undefined) ?? [];
+    const text = missing.length ? `资料待完善：${missing.join("、")}` : "";
+    return { text, metrics };
   },
   get_plan_detail_tool: (obj) => {
     const plan = obj?.plan as Record<string, unknown> | undefined;
@@ -283,7 +337,7 @@ const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => S
       if (plan.weeks != null) metrics.push({ label: "周数", value: `${plan.weeks}周` });
       if (plan.status) metrics.push({ label: "状态", value: formatScalar(plan.status, "status") });
     }
-    return { text: "训练计划详情", metrics };
+    return { text: metrics.length ? "" : "暂无计划详情", metrics };
   },
   read_kb_document: (obj) => {
     const doc = obj?.document as Record<string, unknown> | undefined;
@@ -510,12 +564,25 @@ function OutputSummary({
   const kind = toolOutputKind[tc.name] ?? "op";
 
   if (kind === "op") {
-    const msg = (obj?.message as string) || text || "";
-    if (!msg) return null;
+    const msg = (obj?.message as string) || "";
+    const extractor = statsExtractors[tc.name];
+    const stats = extractor ? extractor(obj) : null;
+    const metrics = stats?.metrics ?? [];
+    const statsText = stats?.text ?? "";
+    const detailLink = stats?.detailLink;
+    const displayText = msg || statsText || text || "";
+    const hasContent = !!displayText || metrics.length > 0 || !!detailLink;
+    if (!hasContent) return null;
     return (
-      <div className="space-y-1">
-        <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
-        <p className="whitespace-pre-line text-xs leading-relaxed text-emerald-950/85">{msg}</p>
+      <div className="space-y-1.5">
+        {displayText && (
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
+            <p className="whitespace-pre-line text-xs leading-relaxed text-emerald-950/85">{displayText}</p>
+          </div>
+        )}
+        {metrics.length > 0 && <MetricRow metrics={metrics} />}
+        {detailLink && <DetailLink url={detailLink} />}
       </div>
     );
   }
@@ -592,7 +659,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
   const hasInput = !!tc.input && Object.keys(tc.input).length > 0;
   const showBody = hasInput || !running;
 
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
 
   const Icon = toolIconMap[tc.name] ?? WrenchIcon;
   const title = toolNameMap[tc.name] ?? tc.name;
