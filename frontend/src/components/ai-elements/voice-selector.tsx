@@ -198,7 +198,7 @@ export const VoiceSelectorGender = ({
   children,
   ...props
 }: VoiceSelectorGenderProps) => {
-  let icon: ReactNode | null = null;
+  let icon: ReactNode | null = <CircleSmallIcon className="size-4" />;
 
   switch (value) {
     case "male": {
@@ -224,9 +224,6 @@ export const VoiceSelectorGender = ({
     case "intersex": {
       icon = <VenusAndMarsIcon className="size-4" />;
       break;
-    }
-    default: {
-      icon = <CircleSmallIcon className="size-4" />;
     }
   }
 
@@ -400,9 +397,6 @@ export const VoiceSelectorAccent = ({
     case "greek": {
       emoji = "🇬🇷";
       break;
-    }
-    default: {
-      emoji = null;
     }
   }
 

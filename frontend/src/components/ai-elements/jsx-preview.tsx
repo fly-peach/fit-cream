@@ -144,7 +144,7 @@ export const JSXPreview = memo(
   }: JSXPreviewProps) => {
     const [prevJsx, setPrevJsx] = useState(jsx);
     const [error, setError] = useState<Error | null>(null);
-    const [_lastGoodJsx, setLastGoodJsx] = useState("");
+    const [, setLastGoodJsx] = useState("");
 
     // Clear error when jsx changes (derived state pattern)
     if (jsx !== prevJsx) {
@@ -245,8 +245,8 @@ export const JSXPreviewContent = memo(
     }, [processedJsx, setLastGoodJsx]);
 
     // During streaming, if the current JSX errored, re-render with last good version
-    const displayJsx =
-      isStreaming && hadError ? lastGoodJsxRef.current : processedJsx;
+    // eslint-disable-next-line react-hooks/refs -- 渲染期读取上次成功版本，属既有设计
+    const displayJsx = isStreaming && hadError ? lastGoodJsxRef.current : processedJsx;
 
     return (
       <div className={cn("jsx-preview-content", className)} {...props}>

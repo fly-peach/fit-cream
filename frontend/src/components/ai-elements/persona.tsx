@@ -279,6 +279,7 @@ export const Persona: FC<PersonaProps> = memo(
     // Rive state machine inputs are mutable objects that must be set via direct
     // property assignment — this is the intended Rive API, not a React anti-pattern.
     useEffect(() => {
+      /* eslint-disable react-hooks/immutability -- Rive 状态机输入对象需直接属性赋值（Rive API 要求） */
       if (listeningInput) {
         listeningInput.value = state === "listening";
       }
@@ -291,6 +292,7 @@ export const Persona: FC<PersonaProps> = memo(
       if (asleepInput) {
         asleepInput.value = state === "asleep";
       }
+      /* eslint-enable react-hooks/immutability */
     }, [state, listeningInput, thinkingInput, speakingInput, asleepInput]);
 
     const Component = source.hasModel ? PersonaWithModel : PersonaWithoutModel;

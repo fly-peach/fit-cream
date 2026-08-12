@@ -38,6 +38,7 @@ const ShimmerComponent = ({
   duration = 2,
   spread = 2,
 }: TextShimmerProps) => {
+  /* eslint-disable react-hooks/static-components -- 按需动态创建 motion 组件，属有意设计 */
   const MotionComponent = getMotionComponent(
     Component as keyof JSX.IntrinsicElements
   );
@@ -72,6 +73,7 @@ const ShimmerComponent = ({
       {children}
     </MotionComponent>
   );
+  /* eslint-enable react-hooks/static-components */
 };
 
 export const Shimmer = memo(ShimmerComponent);

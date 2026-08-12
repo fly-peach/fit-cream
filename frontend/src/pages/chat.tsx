@@ -110,7 +110,7 @@ import type { AgentStep, ChatMessage, ToolApproval, ToolCall } from "@/types/cha
 function cleanContent(text: string): string {
   if (!text) return "";
   return text
-    .replace(/[\[【]\s*调用\s*[^\]】]*[\]】]/g, "")
+    .replace(/[[【]\s*调用\s*[^\]】]*[\]】]/g, "")
     .replace(/\[?调用\s+\w+_tool\s*\([^)]*\)\]?/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();

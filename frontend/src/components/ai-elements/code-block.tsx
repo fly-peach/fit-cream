@@ -394,6 +394,7 @@ export const CodeBlockContent = ({
   const asyncKeyRef = useRef({ code, language });
 
   // Invalidate stale async tokens synchronously during render
+  /* eslint-disable react-hooks/refs -- 渲染期同步失效旧 token，属有意设计 */
   if (
     asyncKeyRef.current.code !== code ||
     asyncKeyRef.current.language !== language
@@ -401,6 +402,7 @@ export const CodeBlockContent = ({
     asyncKeyRef.current = { code, language };
     setAsyncTokens(null);
   }
+  /* eslint-enable react-hooks/refs */
 
   useEffect(() => {
     let cancelled = false;

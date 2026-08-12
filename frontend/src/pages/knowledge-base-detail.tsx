@@ -104,7 +104,7 @@ export default function KnowledgeBaseDetailPage() {
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-6 p-6">
+          <div className={cn("mx-auto space-y-6 p-6", tab === "graph" ? "max-w-6xl" : "max-w-5xl")}>
           <div className="flex items-center gap-3">
             <Link
               to="/knowledge-bases"
@@ -138,8 +138,8 @@ export default function KnowledgeBaseDetailPage() {
             <Tabs value={tab} onValueChange={handleTabChange}>
               <TabsList className="bg-emerald-50">
                 <TabsTrigger value="docs">文档（{docs.length}）</TabsTrigger>
-                <TabsTrigger value="search">搜索</TabsTrigger>
                 <TabsTrigger value="graph">图谱</TabsTrigger>
+                <TabsTrigger value="search">搜索</TabsTrigger>
               </TabsList>
 
               {/* 文档列表（只读） */}

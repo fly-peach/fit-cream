@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Collapsible,
   CollapsibleContent,
@@ -9,7 +9,6 @@ import type { ToolCall } from "@/types/chat";
 import {
   CheckCircle2Icon,
   ChevronDownIcon,
-  CodeIcon,
   ExternalLinkIcon,
   Loader2Icon,
   WrenchIcon,
@@ -43,7 +42,7 @@ const iconTintMap: Record<string, string> = {
   get_user_summary_tool: "from-emerald-400 to-teal-500",
 };
 
-/** 常见输出字段的中文标签 */
+/** 常见输出/入参字段的中文标签 */
 const keyLabelMap: Record<string, string> = {
   current_streak: "当前连续",
   longest_streak: "最长连续",
@@ -102,6 +101,14 @@ const keyLabelMap: Record<string, string> = {
   total_protein_g: "总蛋白(g)",
   total_carbs_g: "总碳水(g)",
   total_fat_g: "总脂肪(g)",
+  muscle_group: "肌群",
+  equipment: "器械",
+  semantic_query: "语义查询",
+  target: "目标肌群",
+  category: "类别",
+  limit: "数量",
+  top_k: "数量",
+  metric: "指标",
 };
 
 /** 枚举值 -> 中文 */
@@ -118,6 +125,24 @@ const enumValueMap: Record<string, Record<string, string>> = {
   period: { weekly: "本周", monthly: "本月", all: "全部", body: "体重" },
   status: { active: "进行中", paused: "已暂停", completed: "已完成", archived: "已归档" },
   actual_intensity: { low: "低", medium: "中", high: "高" },
+  muscle_group: {
+    chest: "胸部",
+    back: "背部",
+    legs: "腿部",
+    shoulders: "肩部",
+    arms: "手臂",
+    core: "核心",
+    full_body: "全身",
+  },
+  equipment: {
+    barbell: "杠铃",
+    dumbbell: "哑铃",
+    machine: "器械",
+    bodyweight: "自重",
+    cable: "绳索",
+    kettlebell: "壶铃",
+    band: "弹力带",
+  },
 };
 
 /** 这些字段不进卡片正文：success/error 走状态徽标与错误条，message 走摘要行 */
@@ -131,7 +156,7 @@ function labelFor(key: string): string {
 }
 
 function formatScalar(value: unknown, key?: string): string {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   if (typeof value === "boolean") return value ? "是" : "否";
   if (key && enumValueMap[key] && typeof value === "string") {
     return enumValueMap[key][value] ?? value;
@@ -167,23 +192,105 @@ function parseOutput(output: unknown): {
   return { obj: null, text: String(output) };
 }
 
-/** 估算内容体量，决定是否默认折叠 */
-function isLargeContent(
-  obj: Record<string, unknown> | null,
-  text: string | null
-): boolean {
-  if (text) return text.length > 160;
-  if (!obj) return false;
-  let score = 0;
-  for (const [k, v] of Object.entries(obj)) {
-    if (SKIP_KEYS.has(k) || isIdKey(k)) continue;
-    if (Array.isArray(v)) score += v.length * 2;
-    else if (v && typeof v === "object") score += 2;
-    else if (typeof v === "string" && v.length > 60) score += 2;
-    else score += 1;
-  }
-  return score >= 6;
-}
+// ===== 统计型查询提取器（从 output 结构化数据生成关键指标）=====
+
+type Metric = { label: string; value: string; ok?: boolean };
+type StatsResult = { text?: string; metrics: Metric[]; detailLink?: string };
+
+const statsExtractors: Record<string, (obj: Record<string, unknown> | null) => StatsResult> = {
+  query_stats_tool: (obj) => {
+    const analysis = obj?.analysis as string | undefined;
+    const stats = obj?.stats as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (stats) {
+      if (stats.total_workouts != null) metrics.push({ label: "训练次数", value: String(stats.total_workouts) });
+      if (stats.total_duration_min != null) metrics.push({ label: "总时长", value: `${stats.total_duration_min}分钟` });
+      if (stats.current_streak != null) metrics.push({ label: "连续", value: `${stats.current_streak}天` });
+      if (stats.longest_streak != null) metrics.push({ label: "最长连续", value: `${stats.longest_streak}天` });
+    }
+    return { text: analysis, metrics };
+  },
+  query_diet_summary_tool: (obj) => {
+    const intake = obj?.intake as Record<string, unknown> | undefined;
+    const goals = obj?.goals as Record<string, unknown> | undefined;
+    const goalMet = obj?.goal_met as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (intake && goals) {
+      const cal = Number(intake.total_calories ?? 0);
+      metrics.push({
+        label: "热量",
+        value: goals.calorie_goal != null ? `${cal}/${goals.calorie_goal} kcal` : `${cal} kcal`,
+      });
+      const p = Number(intake.total_protein_g ?? 0);
+      metrics.push({
+        label: "蛋白",
+        value: goals.protein_goal_g != null ? `${p}/${goals.protein_goal_g}g` : `${p}g`,
+        ok: !!goalMet?.protein,
+      });
+      const c = Number(intake.total_carbs_g ?? 0);
+      metrics.push({
+        label: "碳水",
+        value: goals.carbs_goal_g != null ? `${c}/${goals.carbs_goal_g}g` : `${c}g`,
+        ok: !!goalMet?.carbs,
+      });
+      const f = Number(intake.total_fat_g ?? 0);
+      metrics.push({
+        label: "脂肪",
+        value: goals.fat_goal_g != null ? `${f}/${goals.fat_goal_g}g` : `${f}g`,
+        ok: !!goalMet?.fat,
+      });
+    }
+    return { text: "今日饮食汇总", metrics };
+  },
+  get_user_profile_tool: (obj) => {
+    const profile = obj?.profile as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (profile) {
+      if (profile.height_cm != null) metrics.push({ label: "身高", value: `${profile.height_cm}cm` });
+      if (profile.weight_kg != null) metrics.push({ label: "体重", value: `${profile.weight_kg}kg` });
+      if (profile.goal != null) metrics.push({ label: "目标", value: formatScalar(profile.goal, "goal") });
+      if (profile.bmi != null) metrics.push({ label: "BMI", value: String(profile.bmi) });
+    }
+    return { text: "用户资料", metrics };
+  },
+  get_user_summary_tool: (obj) => {
+    const body = obj?.body as Record<string, unknown> | undefined;
+    const plan = obj?.plan as Record<string, unknown> | undefined;
+    const streak = obj?.streak as Record<string, unknown> | undefined;
+    const diet = obj?.diet as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (body) {
+      if (body.height_cm != null) metrics.push({ label: "身高", value: `${body.height_cm}cm` });
+      if (body.weight_kg != null) metrics.push({ label: "体重", value: `${body.weight_kg}kg` });
+      if (body.goal != null) metrics.push({ label: "目标", value: formatScalar(body.goal, "goal") });
+    }
+    if (plan?.name) metrics.push({ label: "计划", value: String(plan.name) });
+    if (streak?.current_streak != null) metrics.push({ label: "连续", value: `${streak.current_streak}天` });
+    if (obj?.weekly_checkins != null) metrics.push({ label: "本周打卡", value: `${obj.weekly_checkins}次` });
+    if (diet?.intake) {
+      const intake = diet.intake as Record<string, unknown>;
+      if (intake.total_calories != null) metrics.push({ label: "今日摄入", value: `${intake.total_calories}kcal` });
+    }
+    return { text: "用户画像", metrics };
+  },
+  get_plan_detail_tool: (obj) => {
+    const plan = obj?.plan as Record<string, unknown> | undefined;
+    const metrics: Metric[] = [];
+    if (plan) {
+      if (plan.name) metrics.push({ label: "计划", value: String(plan.name) });
+      if (plan.goal != null) metrics.push({ label: "目标", value: formatScalar(plan.goal, "goal") });
+      if (plan.difficulty != null) metrics.push({ label: "难度", value: formatScalar(plan.difficulty, "difficulty") });
+      if (plan.weeks != null) metrics.push({ label: "周数", value: `${plan.weeks}周` });
+      if (plan.status) metrics.push({ label: "状态", value: formatScalar(plan.status, "status") });
+    }
+    return { text: "训练计划详情", metrics };
+  },
+  read_kb_document: (obj) => {
+    const doc = obj?.document as Record<string, unknown> | undefined;
+    const url = doc?.url as string | undefined;
+    return { text: obj?.message as string | undefined, metrics: [], detailLink: url };
+  },
+};
 
 /** 卡片头部的一句话摘要 */
 function getSummary(
@@ -196,34 +303,22 @@ function getSummary(
   if (obj) {
     if (obj.success === false) return String(obj.error || "执行失败");
     if (typeof obj.message === "string" && obj.message) return obj.message;
+    if (typeof obj.analysis === "string" && obj.analysis) return obj.analysis;
+    if (typeof obj.recommendation === "string" && obj.recommendation) return obj.recommendation;
+    const extractor = statsExtractors[tc.name];
+    if (extractor) {
+      const r = extractor(obj);
+      if (r.metrics.length) return r.metrics.map((m) => `${m.label} ${m.value}`).join(" · ");
+      if (r.text) return r.text;
+    }
   }
   if (text) return text.length > 60 ? `${text.slice(0, 60)}…` : text;
   return "已完成";
 }
 
-function ScalarChip({ label, value, k }: { label: string; value: unknown; k?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 rounded-md bg-white/80 px-2 py-1 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]">
-      <span className="shrink-0 text-[11px] text-emerald-700/55">{label}</span>
-      <span className="truncate text-right text-xs font-medium text-emerald-950">
-        {formatScalar(value, k)}
-      </span>
-    </div>
-  );
-}
+// ===== 链接组件 =====
 
-function TextBlock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-1">
-      <p className="text-[11px] font-medium text-emerald-700/55">{label}</p>
-      <p className="max-h-36 overflow-y-auto whitespace-pre-wrap rounded-md bg-white/80 px-2.5 py-1.5 text-xs leading-relaxed text-emerald-950/85 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.08)]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-/** 站内详情页链接（按钮样式，用于单对象区域顶部，如 read_kb_document 的 document） */
+/** 站内详情页链接（按钮样式，用于单对象区域，如 read_kb_document） */
 function DetailLink({ url }: { url: string }) {
   return (
     <a
@@ -238,7 +333,7 @@ function DetailLink({ url }: { url: string }) {
   );
 }
 
-/** 紧凑链接（用于数组项标题行右侧，如 exercise / kb search 列表项） */
+/** 紧凑链接（用于列表项标题行右侧） */
 function DetailLinkInline({ url }: { url: string }) {
   return (
     <a
@@ -253,200 +348,240 @@ function DetailLinkInline({ url }: { url: string }) {
   );
 }
 
-function ReadableFields({
-  data,
-  depth = 0,
-}: {
-  data: Record<string, unknown>;
-  depth?: number;
-}) {
-  const url = typeof data.url === "string" ? data.url : null;
-  const entries = Object.entries(data).filter(
+// ===== 入参摘要 =====
+
+/** 把 tc.input 转成「标签 值」chip 行，跳过空值/ID/嵌套对象 */
+function InputSummary({ input }: { input: Record<string, unknown> }) {
+  const entries = Object.entries(input).filter(
     ([k, v]) =>
-      !SKIP_KEYS.has(k) && !LINK_KEYS.has(k) && !isIdKey(k) && v !== null && v !== undefined && v !== ""
+      !SKIP_KEYS.has(k) &&
+      !LINK_KEYS.has(k) &&
+      !isIdKey(k) &&
+      v !== null &&
+      v !== undefined &&
+      v !== "" &&
+      typeof v !== "object"
   );
-  if (!entries.length && !url) return null;
-
-  const shortScalars = entries.filter(
-    ([, v]) => typeof v !== "object" && String(v).length <= 40
-  );
-  const longTexts = entries.filter(
-    ([, v]) => typeof v === "string" && v.length > 40
-  );
-  const objects = entries.filter(
-    ([, v]) => v && typeof v === "object" && !Array.isArray(v)
-  );
-  const arrays = entries.filter(([, v]) => Array.isArray(v));
-
+  if (!entries.length) return null;
   return (
-    <div className="space-y-2.5">
-      {url && <DetailLink url={url} />}
-      {shortScalars.length > 0 && (
-        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {shortScalars.map(([k, v]) => (
-            <ScalarChip key={k} label={labelFor(k)} value={v} k={k} />
-          ))}
-        </div>
-      )}
-      {longTexts.map(([k, v]) => (
-        <TextBlock key={k} label={labelFor(k)} value={String(v)} />
-      ))}
-      {objects.map(([k, v]) => (
-        <ObjectSection
-          key={k}
-          label={labelFor(k)}
-          data={v as Record<string, unknown>}
-          depth={depth + 1}
-        />
-      ))}
-      {arrays.map(([k, v]) => (
-        <ArraySection key={k} label={labelFor(k)} items={v as unknown[]} depth={depth + 1} />
-      ))}
-    </div>
-  );
-}
-
-function ObjectSection({
-  label,
-  data,
-  depth,
-}: {
-  label: string;
-  data: Record<string, unknown>;
-  depth: number;
-}) {
-  if (depth > 2) {
-    return <TextBlock label={label} value={JSON.stringify(data, null, 2)} />;
-  }
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-emerald-700/55">{label}</p>
-      <div className="rounded-lg bg-emerald-50/60 px-2 py-1.5">
-        <ReadableFields data={data} depth={depth} />
-      </div>
-    </div>
-  );
-}
-
-function ArraySection({
-  label,
-  items,
-  depth,
-}: {
-  label: string;
-  items: unknown[];
-  depth: number;
-}) {
-  if (!items.length) return null;
-  const allScalar = items.every((i) => typeof i !== "object" || i === null);
-  if (allScalar) {
-    return (
-      <div className="space-y-1">
-        <p className="text-[11px] font-medium text-emerald-700/55">{label}</p>
-        <div className="flex flex-wrap gap-1">
-          {items.map((it, i) => (
-            <span
-              key={i}
-              className="rounded-full bg-white/80 px-2 py-0.5 text-[11px] font-medium text-emerald-800 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.15)]"
-            >
-              {formatScalar(it)}
-            </span>
-          ))}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-emerald-700/55">
-        {label}（{items.length}）
-      </p>
-      <div className="space-y-1.5">
-        {items.map((it, i) => (
-          <ArrayItemCard key={i} item={it} depth={depth} />
+    <div className="space-y-1">
+      <p className="text-[11px] font-medium text-emerald-700/55">输入</p>
+      <div className="flex flex-wrap gap-1.5">
+        {entries.map(([k, v]) => (
+          <span
+            key={k}
+            className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-2 py-0.5 text-[11px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
+          >
+            <span className="text-emerald-700/55">{labelFor(k)}</span>
+            <span className="font-medium text-emerald-950">{formatScalar(v, k)}</span>
+          </span>
         ))}
       </div>
     </div>
   );
 }
 
-function ArrayItemCard({ item, depth }: { item: unknown; depth: number }) {
-  if (!item || typeof item !== "object") {
-    return <p className="text-xs text-emerald-950/85">{formatScalar(item)}</p>;
-  }
-  const obj = item as Record<string, unknown>;
-  if (depth > 2) {
-    return <TextBlock label="" value={JSON.stringify(obj, null, 2)} />;
-  }
-  const titleKey = ["name", "title", "document_title", "food_name", "exercise_name", "date", "query"].find(
-    (k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== ""
-  );
-  const url = typeof obj.url === "string" ? obj.url : null;
-  const rest = { ...obj };
-  if (titleKey) delete rest[titleKey];
-  if (url) delete rest["url"];
+// ===== 出参：关键指标标签行 =====
+
+function MetricRow({ metrics }: { metrics: Metric[] }) {
+  if (!metrics.length) return null;
   return (
-    <div className="rounded-lg bg-white/80 px-2.5 py-2 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
-      {(titleKey || url) && (
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="text-xs font-semibold text-emerald-950">
-            {titleKey ? formatScalar(obj[titleKey], titleKey) : ""}
-          </p>
-          {url && <DetailLinkInline url={url} />}
-        </div>
-      )}
-      <ReadableFields data={rest} depth={depth} />
+    <div className="flex flex-wrap gap-1.5">
+      {metrics.map((m, i) => (
+        <span
+          key={i}
+          className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-2 py-0.5 text-[11px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
+        >
+          <span className="text-emerald-700/55">{m.label}</span>
+          <span className="font-medium text-emerald-950">{m.value}</span>
+          {m.ok && <span className="text-emerald-600">✓</span>}
+        </span>
+      ))}
     </div>
   );
 }
 
-/** 原始数据（入参 + 返回）折叠区，默认收起，供需要时排查 */
-function RawData({ tc }: { tc: ToolCall }) {
-  const [open, setOpen] = useState(false);
-  const rawOutput =
-    typeof tc.output === "string" ? tc.output : JSON.stringify(tc.output, null, 2);
+// ===== 出参：列表型查询结果项 =====
+
+type ListConfig = { itemsKey: string; titleKey: string; tags?: string[] };
+
+const listResultConfig: Record<string, ListConfig> = {
+  search_knowledge_base: { itemsKey: "results", titleKey: "document_title" },
+  list_my_knowledge_bases: { itemsKey: "knowledge_bases", titleKey: "name", tags: ["description"] },
+  list_plans_tool: { itemsKey: "plans", titleKey: "name", tags: ["status", "goal"] },
+  get_exercises_tool: { itemsKey: "exercises", titleKey: "name", tags: ["difficulty", "muscle_group"] },
+};
+
+function ResultItem({
+  item,
+  cfg,
+  toolName,
+}: {
+  item: Record<string, unknown>;
+  cfg: ListConfig;
+  toolName: string;
+}) {
+  const title = item[cfg.titleKey];
+  const explicitUrl = typeof item.url === "string" ? item.url : null;
+  const kbIdUrl =
+    toolName === "list_my_knowledge_bases" && typeof item.id === "string"
+      ? `/knowledge-bases/${item.id}`
+      : null;
+  const url = explicitUrl ?? kbIdUrl;
+  const tags = (cfg.tags ?? [])
+    .map((k) => item[k])
+    .filter((v) => v !== null && v !== undefined && v !== "");
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="mt-2.5">
-      <CollapsibleTrigger className="flex items-center gap-1 text-[11px] font-medium text-emerald-600/50 transition-colors hover:text-emerald-700">
-        <CodeIcon className="size-3" />
-        原始数据
-        <ChevronDownIcon
-          className={cn("size-3 transition-transform duration-200", open && "rotate-180")}
-        />
-      </CollapsibleTrigger>
-      {open && (
-        <CollapsibleContent className="mt-1.5 space-y-2">
-          <div className="space-y-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700/45">
-              入参
-            </p>
-            <pre className="max-h-32 overflow-auto rounded-md bg-emerald-950/[0.04] px-2.5 py-1.5 text-[10px] leading-relaxed text-emerald-900/60">
-              {JSON.stringify(tc.input, null, 2)}
-            </pre>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-emerald-700/45">
-              返回
-            </p>
-            <pre className="max-h-32 overflow-auto rounded-md bg-emerald-950/[0.04] px-2.5 py-1.5 text-[10px] leading-relaxed text-emerald-900/60">
-              {rawOutput || "（无）"}
-            </pre>
-          </div>
-        </CollapsibleContent>
+    <div className="rounded-lg bg-white/80 px-2.5 py-1.5 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-semibold text-emerald-950">
+          {title != null ? formatScalar(title, cfg.titleKey) : "—"}
+        </span>
+        {url && <DetailLinkInline url={url} />}
+      </div>
+      {tags.length > 0 && (
+        <div className="mt-0.5 flex flex-wrap gap-1">
+          {tags.map((t, i) => (
+            <span
+              key={i}
+              className="rounded-full bg-emerald-50/60 px-1.5 py-0.5 text-[10px] text-emerald-700"
+            >
+              {formatScalar(t)}
+            </span>
+          ))}
+        </div>
       )}
-    </Collapsible>
+    </div>
+  );
+}
+
+// ===== 出参分派 =====
+
+const toolOutputKind: Record<string, "op" | "list" | "stats"> = {
+  // 操作类：出参直接用 message（或 str）
+  record_meal_tool: "op",
+  manage_meal_tool: "op",
+  set_nutrition_goals_tool: "op",
+  checkin_tool: "op",
+  get_streak_tool: "op",
+  create_plan_tool: "op",
+  create_diet_plan_tool: "op",
+  update_plan_tool: "op",
+  delete_plan_tool: "op",
+  add_plan_day_tool: "op",
+  remove_plan_day_tool: "op",
+  sync_plan_day_tool: "op",
+  add_exercise_tool: "op",
+  update_exercise_tool: "op",
+  remove_exercise_tool: "op",
+  update_user_profile_tool: "op",
+  save_preference: "op",
+  save_user_fact: "op",
+  save_event: "op",
+  update_memory: "op",
+  delete_memory: "op",
+  skill_load_tool: "op",
+  recall_memory: "op",
+  list_user_profile: "op",
+  // 列表型查询：摘要 + 结果卡片列表
+  search_knowledge_base: "list",
+  list_my_knowledge_bases: "list",
+  list_plans_tool: "list",
+  get_exercises_tool: "list",
+  // 统计/单对象型查询：关键指标标签行
+  query_stats_tool: "stats",
+  query_diet_summary_tool: "stats",
+  get_user_profile_tool: "stats",
+  get_user_summary_tool: "stats",
+  get_plan_detail_tool: "stats",
+  read_kb_document: "stats",
+};
+
+/** 出参摘要：按工具类型三路分派 */
+function OutputSummary({
+  tc,
+  obj,
+  text,
+}: {
+  tc: ToolCall;
+  obj: Record<string, unknown> | null;
+  text: string | null;
+}) {
+  const kind = toolOutputKind[tc.name] ?? "op";
+
+  if (kind === "op") {
+    const msg = (obj?.message as string) || text || "";
+    if (!msg) return null;
+    return (
+      <div className="space-y-1">
+        <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
+        <p className="whitespace-pre-line text-xs leading-relaxed text-emerald-950/85">{msg}</p>
+      </div>
+    );
+  }
+
+  if (kind === "list") {
+    const cfg = listResultConfig[tc.name];
+    const summaryText =
+      (obj?.message as string) ||
+      (tc.name === "get_exercises_tool" ? (obj?.recommendation as string) : "") ||
+      "";
+    const rawItems = cfg && obj ? (obj[cfg.itemsKey] as unknown[] | undefined) : undefined;
+    const items: Record<string, unknown>[] = (rawItems ?? [])
+      .map((it) => (it && typeof it === "object" ? (it as Record<string, unknown>) : null))
+      .filter((x): x is Record<string, unknown> => x !== null);
+    return (
+      <div className="space-y-1.5">
+        {summaryText && (
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
+            <p className="text-xs leading-relaxed text-emerald-950/85">{summaryText}</p>
+          </div>
+        )}
+        {items.length > 0 && cfg && (
+          <div className="space-y-1">
+            <p className="text-[11px] font-medium text-emerald-700/55">
+              结果（{items.length}）
+            </p>
+            <div className="space-y-1.5">
+              {items.map((it, i) => (
+                <ResultItem key={i} item={it} cfg={cfg} toolName={tc.name} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // stats
+  const extractor = statsExtractors[tc.name];
+  const result = extractor ? extractor(obj) : null;
+  if (!result) return null;
+  const hasContent = !!result.text || result.metrics.length > 0 || !!result.detailLink;
+  if (!hasContent) return null;
+  return (
+    <div className="space-y-1.5">
+      {result.text && (
+        <div className="space-y-1">
+          <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
+          <p className="text-xs leading-relaxed text-emerald-950/85">{result.text}</p>
+        </div>
+      )}
+      {result.metrics.length > 0 && <MetricRow metrics={result.metrics} />}
+      {result.detailLink && <DetailLink url={result.detailLink} />}
+    </div>
   );
 }
 
 /**
- * 工具调用卡片：把一次 Tool 调用封装为可读卡片。
+ * 工具调用卡片：把一次 Tool 调用封装为面向用户的可读卡片。
  *
- * - 头部：图标 + 中文名 + 状态徽标 + 一句话摘要，始终可见
- * - 正文：结构化、中文化的结果渲染（键值对 / 分组 / 列表），不直接暴露字典
- * - 内容较多时默认折叠为 expander，点开头部展开
- * - 原始入参 / 返回字典收进「原始数据」二级折叠，默认隐藏
+ * - 头部：图标 + 中文名 + 状态徽标 + 一句话摘要，始终可见（可点击折叠正文）
+ * - 正文：入参摘要（标签行）+ 出参摘要（按工具类型分派：message / 结果列表 / 关键指标）
+ * - 不展示原始 JSON、字段字典、content 大文本
  *
- * embedded 模式：嵌入 ChainOfThought 步骤节点时使用，仅渲染结果正文
+ * embedded 模式：嵌入 ChainOfThought 步骤节点时使用，仅渲染正文
  *（无卡片外壳与头部，节点标题/图标/状态由外层步骤承载，避免重复）。
  */
 export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?: boolean }) {
@@ -454,20 +589,10 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
 
   const running = tc.status === "running";
   const failed = tc.status === "error" || obj?.success === false;
-  const hasBody = !running && (!!obj || !!text);
-  const large = isLargeContent(obj, text);
+  const hasInput = !!tc.input && Object.keys(tc.input).length > 0;
+  const showBody = hasInput || !running;
 
-  // 内容少则直接展开，内容多则折叠为 expander；出错时展开以便查看原因。
-  // 流式场景下卡片先以 running 挂载（无正文），结果到达后 hasBody 才变 true，
-  // 因此需要在 false→true 的跃迁上按体量决定展开与否，而不是只靠初始值。
-  const [open, setOpen] = useState(() => hasBody && (!large || failed));
-  const prevHasBody = useRef(hasBody);
-  useEffect(() => {
-    if (hasBody && !prevHasBody.current) {
-      setOpen(!large || failed);
-    }
-    prevHasBody.current = hasBody;
-  }, [hasBody, large, failed]);
+  const [open, setOpen] = useState(true);
 
   const Icon = toolIconMap[tc.name] ?? WrenchIcon;
   const title = toolNameMap[tc.name] ?? tc.name;
@@ -477,40 +602,22 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
     ? tc.error || (obj && String(obj.error || "")) || "执行失败"
     : "";
 
+  const body = (
+    <div className="space-y-2.5">
+      {hasInput && <InputSummary input={tc.input} />}
+      {!running && failed && errorMsg && (
+        <div className="flex items-start gap-2 rounded-md bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700 ring-1 ring-red-200/60">
+          <XCircleIcon className="mt-0.5 size-3.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+      {!running && !failed && <OutputSummary tc={tc} obj={obj} text={text} />}
+    </div>
+  );
+
   if (embedded) {
-    if (!hasBody) return null;
-    return (
-      <div className="not-prose w-full space-y-2">
-        {failed && errorMsg && (
-          <div className="flex items-start gap-2 rounded-md bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700 ring-1 ring-red-200/60">
-            <XCircleIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-        {large && !failed ? (
-          <Collapsible open={open} onOpenChange={setOpen}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-emerald-600/70 transition-colors hover:text-emerald-700">
-              {open ? "收起详情" : "查看详情"}
-              <ChevronDownIcon
-                className={cn("size-3 transition-transform duration-200", open && "rotate-180")}
-              />
-            </CollapsibleTrigger>
-            {open && (
-              <CollapsibleContent className="pt-1.5">
-                {obj && <ReadableFields data={obj} />}
-                {text && <TextBlock label="结果" value={text} />}
-              </CollapsibleContent>
-            )}
-          </Collapsible>
-        ) : (
-          <>
-            {obj && <ReadableFields data={obj} />}
-            {text && <TextBlock label="结果" value={text} />}
-          </>
-        )}
-        <RawData tc={tc} />
-      </div>
-    );
+    if (!showBody) return null;
+    return <div className="not-prose w-full space-y-2">{body}</div>;
   }
 
   const header = (
@@ -553,7 +660,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
           {summary}
         </span>
       </span>
-      {hasBody && (
+      {showBody && (
         <ChevronDownIcon
           className={cn(
             "size-4 shrink-0 text-emerald-600/50 transition-transform duration-200",
@@ -575,7 +682,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
             : "border-emerald-100 border-l-2 border-l-emerald-400 hover:shadow-md hover:shadow-emerald-900/[0.06]"
       )}
     >
-      {hasBody ? (
+      {showBody ? (
         <Collapsible open={open} onOpenChange={setOpen}>
           <CollapsibleTrigger className="block w-full transition-colors hover:bg-emerald-50/50">
             {header}
@@ -583,15 +690,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
           {open && (
             <CollapsibleContent>
               <div className="border-t border-emerald-100/70 bg-emerald-50/40 px-3 py-3">
-                {failed && errorMsg && (
-                  <div className="mb-2 flex items-start gap-2 rounded-md bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700 ring-1 ring-red-200/60">
-                    <XCircleIcon className="mt-0.5 size-3.5 shrink-0" />
-                    <span>{errorMsg}</span>
-                  </div>
-                )}
-                {obj && <ReadableFields data={obj} />}
-                {text && <TextBlock label="结果" value={text} />}
-                <RawData tc={tc} />
+                {body}
               </div>
             </CollapsibleContent>
           )}

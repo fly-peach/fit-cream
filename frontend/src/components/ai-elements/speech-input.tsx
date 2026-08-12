@@ -109,8 +109,10 @@ export const SpeechInput = ({
     useRef<SpeechInputProps["onAudioRecorded"]>(onAudioRecorded);
 
   // Keep refs in sync
+  /* eslint-disable react-hooks/refs -- 渲染期同步 ref 使回调始终最新，属有意设计 */
   onTranscriptionChangeRef.current = onTranscriptionChange;
   onAudioRecordedRef.current = onAudioRecorded;
+  /* eslint-enable react-hooks/refs */
 
   // Initialize Speech Recognition when mode is speech-recognition
   useEffect(() => {
