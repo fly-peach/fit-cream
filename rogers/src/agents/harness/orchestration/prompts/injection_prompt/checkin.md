@@ -15,9 +15,15 @@
 - 示例："今天做了3组卧推，每组10个，50公斤" -> 动作=卧推, 组数=3, 次数=10, 重量=50kg
 - 多个动作分别记录
 
-## 未匹配动作处理
-- checkin_tool 返回 success=false 且带 unmatched 时，本次打卡**未记录**
-- 根据 suggestions 候选列出近似动作供用户选择（或询问是否去掉该动作），确认后重新调用 checkin_tool
+## 未匹配动作处理（自定义动作三级匹配）
+- checkin_tool 对动作按三级匹配：动作库命中 -> 用户历史自定义动作（历史打卡/计划中的
+  custom_name）-> 全新未匹配。历史自定义动作会自动按自定义动作记录，无需确认
+- 全新未匹配时：checkin_tool 返回 success=false 且带 unmatched+suggestions，本次打卡**未记录**
+  - 用户确认该动作就是自定义动作（如"就按这个名字记"）时，重新调用 checkin_tool 并置
+    allow_custom=true，按自定义动作记录
+  - 用户选择 suggestions 候选时，用候选名重新调用 checkin_tool
+- 打卡成功但含自定义动作时，返回值带 custom_actions，须如实告知用户这些动作是按自定义动作记录的，
+  并提示如其实是指动作库动作可更正
 - 绝不编造打卡结果
 
 ## 计划关联

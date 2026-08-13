@@ -11,6 +11,7 @@
 
 from datetime import date as date_type
 from typing import List, Optional
+from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -33,6 +34,39 @@ async def _semantic_candidates(db, name: str, limit: int = 5) -> list:
         return [ex for ex, _ in scored]
     except Exception:
         return []
+
+
+async def _match_user_custom_names(
+    db, user_id: UUID, names: List[str]
+) -> set[str]:
+    """从用户历史打卡与计划动作中召回已建立的自定义动作名（大小写不敏感全等匹配）。
+
+    命中说明该名字是用户长期使用的自定义动作，可直接按 custom_name 记录，
+    无需再让 Agent 与用户反复确认。
+    """
+    lowered = {n.strip().lower() for n in names if n and n.strip()}
+    if not lowered:
+        return set()
+
+    from sqlalchemy import select
+
+    from src.fitme.models.checkin import Checkin, CheckinExercise
+    from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
+
+    custom_set: set[str] = set()
+    queries = (
+        select(CheckinExercise.custom_name)
+        .join(Checkin, Checkin.id == CheckinExercise.checkin_id)
+        .where(Checkin.user_id == user_id, CheckinExercise.custom_name.isnot(None)),
+        select(PlanDayExercise.custom_name)
+        .join(PlanDay, PlanDay.id == PlanDayExercise.plan_day_id)
+        .join(Plan, Plan.id == PlanDay.plan_id)
+        .where(Plan.user_id == user_id, PlanDayExercise.custom_name.isnot(None)),
+    )
+    for query in queries:
+        rows = (await db.execute(query)).all()
+        custom_set.update({r[0].strip().lower() for r in rows if r[0] and r[0].strip()})
+    return {n for n in names if n.strip().lower() in custom_set}
 
 
 class ExerciseRecord(BaseModel):
@@ -63,6 +97,13 @@ class CheckinInput(BaseModel):
     checkin_date: Optional[str] = Field(
         default=None, description="打卡日期 YYYY-MM-DD，默认今天"
     )
+    allow_custom: bool = Field(
+        default=False,
+        description=(
+            "是否允许把未匹配动作库的动作按自定义动作（custom_name）记录。"
+            "用户明确表示该动作是自定义动作（非动作库动作）后置 true"
+        ),
+    )
 
 
 @tool(args_schema=CheckinInput)
@@ -74,6 +115,7 @@ async def checkin_tool(
     mood: Optional[int] = None,
     note: Optional[str] = None,
     checkin_date: Optional[str] = None,
+    allow_custom: bool = False,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
@@ -83,10 +125,16 @@ async def checkin_tool(
     会解析用户描述的动作、组数、次数、重量，写入数据库，
     并自动按星期关联当前活跃计划的训练日。
 
+    动作匹配三级策略：
+    1. 动作库命中 -> 记录为动作库动作（exercise_id）
+    2. 用户历史自定义动作（历史打卡/计划中的 custom_name）-> 直接按自定义动作记录
+    3. 全新未匹配动作 -> 默认不落库返回 unmatched+suggestions；用户确认是自定义
+       动作后，以 allow_custom=true 重新调用，按自定义动作记录
+
     Returns:
-        打卡确认信息 + 当前连续打卡天数；
+        打卡确认信息 + 当前连续打卡天数 + custom_actions（本次按自定义记录的动作）；
         若打卡日期命中活跃计划的训练日，额外返回 plan_match（计划/已完成/未完成/计划外动作对比）；
-        若部分动作无法匹配动作库，则不落库，返回 success=False + unmatched + suggestions 候选动作
+        若存在用户未确认的全新未匹配动作，则不落库，返回 success=False + unmatched + suggestions
     """
     user_id = extract_user_id(config)
     if not user_id:
@@ -104,14 +152,20 @@ async def checkin_tool(
 
     try:
         async with session_scope() as db:
-            matched = await ExerciseService.match_names(
-                db, [ex.name for ex in exercises]
-            )
+            names = [ex.name for ex in exercises]
+            matched = await ExerciseService.match_names(db, names)
 
-            unmatched = [name for name, ex_ in matched.items() if ex_ is None]
+            # 未命中动作库的名字：先按用户历史自定义动作召回，剩余为全新未匹配
+            unmatched = [n for n, ex_ in matched.items() if ex_ is None]
+            known_custom: set[str] = set()
+            novel: List[str] = []
             if unmatched:
+                known_custom = await _match_user_custom_names(db, user_id, unmatched)
+                novel = [n for n in unmatched if n not in known_custom]
+
+            if novel and not allow_custom:
                 suggestions = {}
-                for name in unmatched:
+                for name in novel:
                     candidates = await ExerciseService.search(db, keyword=name, limit=5)
                     if not candidates:
                         candidates = await _semantic_candidates(db, name)
@@ -119,25 +173,38 @@ async def checkin_tool(
                 return {
                     "success": False,
                     "error": "部分动作未匹配到动作库，本次打卡未记录",
-                    "unmatched": unmatched,
+                    "unmatched": novel,
                     "suggestions": suggestions,
                     "message": (
-                        f"以下动作未匹配到动作库：{'、'.join(unmatched)}。"
-                        "请根据 suggestions 候选与用户确认正确动作名（或询问是否去掉该动作），"
-                        "确认后重新调用 checkin_tool。不要编造打卡结果。"
+                        f"以下动作未匹配到动作库：{'、'.join(novel)}。"
+                        "请与用户确认：若为动作库动作，用 suggestions 候选名重新调用；"
+                        "若用户确认是自定义动作，以 allow_custom=true 重新调用 checkin_tool 记录。"
+                        "不要编造打卡结果。"
                     ),
                 }
 
+            # 组装打卡动作：库命中用 exercise_id，其余（历史自定义 + 用户确认的自定义）用 custom_name
+            checked: List[tuple[Optional[UUID], Optional[str], ExerciseRecord]] = []
+            custom_actions: List[str] = []
+            for ex in exercises:
+                lib = matched.get(ex.name)
+                if lib is not None:
+                    checked.append((lib.id, None, ex))
+                else:
+                    checked.append((None, ex.name, ex))
+                    custom_actions.append(ex.name)
+
             matched_exercises = [
                 CheckinExerciseCreate(
-                    exercise_id=matched[ex.name].id,
+                    exercise_id=exercise_id,
+                    custom_name=custom_name,
                     sets_done=ex.sets_done,
                     reps_done=ex.reps_done,
                     weight_kg=ex.weight_kg,
                     rpe=ex.rpe,
                     notes=ex.notes,
                 )
-                for ex in exercises
+                for exercise_id, custom_name, ex in checked
             ]
 
             plan_match = await PlanService.get_plan_day_for_date(db, user_id, target_date)
@@ -163,21 +230,32 @@ async def checkin_tool(
             plan_feedback = None
             if plan_match:
                 plan, plan_day = plan_match
-                planned_map = {
-                    pex.exercise_id: (
-                        pex.exercise.name if pex.exercise else pex.custom_name
-                    )
-                    for pex in plan_day.exercises
-                    if pex.exercise_id
+                done_ids = {eid for eid, _, _ in checked if eid is not None}
+                done_custom = {cn for _, cn, _ in checked if cn is not None}
+                completed: List[str] = []
+                skipped: List[str] = []
+                for pex in plan_day.exercises:
+                    pname = pex.exercise.name if pex.exercise else pex.custom_name
+                    if not pname:
+                        continue
+                    if (pex.exercise_id and pex.exercise_id in done_ids) or (
+                        pex.custom_name and pex.custom_name in done_custom
+                    ):
+                        completed.append(pname)
+                    else:
+                        skipped.append(pname)
+                planned_lib_ids = {
+                    pex.exercise_id for pex in plan_day.exercises if pex.exercise_id
                 }
-                done_ids = {matched[ex.name].id for ex in exercises}
-                completed = [n for eid, n in planned_map.items() if eid in done_ids]
-                skipped = [n for eid, n in planned_map.items() if eid not in done_ids]
+                planned_custom_names = {
+                    pex.custom_name for pex in plan_day.exercises if pex.custom_name
+                }
                 extra = sorted(
                     {
-                        matched[ex.name].name
-                        for ex in exercises
-                        if matched[ex.name].id not in planned_map
+                        (matched[ex.name].name if eid else cn)
+                        for eid, cn, ex in checked
+                        if (eid is not None and eid not in planned_lib_ids)
+                        or (cn is not None and cn not in planned_custom_names)
                     }
                 )
                 plan_feedback = {
@@ -189,6 +267,10 @@ async def checkin_tool(
                 }
 
             message = f"打卡成功！已连续训练 {streak['current_streak']} 天 🔥"
+            if custom_actions:
+                message += (
+                    f" 其中 {'、'.join(custom_actions)} 是自定义动作，已按自定义动作记录。"
+                )
             if plan_feedback:
                 if plan_feedback["skipped"]:
                     message += (
@@ -203,6 +285,7 @@ async def checkin_tool(
                 "checkin_id": str(checkin.id),
                 "date": str(target_date),
                 "exercises_count": len(matched_exercises),
+                "custom_actions": custom_actions or None,
                 "duration_min": duration_min,
                 "current_streak": streak["current_streak"],
                 "message": message,
