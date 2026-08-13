@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.knowledge_base.graph import (
     find_stale_pages,
     find_uncited_sources,
+    get_backlinked_doc_ids,
     get_backlinks,
     get_forward_references,
     get_graph,
@@ -137,17 +138,15 @@ class KBGraphService:
             for d in docs
         ]
 
-        backlinks_map: dict[str, list[dict]] = {}
-        forward_map: dict[str, list[dict]] = {}
-        for d in docs:
-            did = str(d.id)
-            backlinks_map[did] = await get_backlinks(db, d.id)
-            forward_map[did] = await get_forward_references(db, d.id)
+        backlinked_ids = await get_backlinked_doc_ids(db, kb_id)
+        backlinks_map: dict[str, list[dict]] = {
+            str(d.id): [{}] if str(d.id) in backlinked_ids else [] for d in docs
+        }
 
         uncited = await KBGraphService.find_uncited_sources(db, kb_id)
         stale = await KBGraphService.find_stale_pages(db, kb_id)
 
-        report = run_all_lint(doc_dicts, uncited, stale, backlinks_map, forward_map)
+        report = run_all_lint(doc_dicts, uncited, stale, backlinks_map)
         return {"kb_id": str(kb_id), **report}
 
     @staticmethod

@@ -37,6 +37,15 @@ const LAYER_CONFIG: Record<NodeLayer, { radius: number; size: number; color: str
   outer: { radius: 360, size: 8, color: "#94a3b8" },
 };
 
+const GROUP_COLORS: Record<string, string> = {
+  训练动作: "#ea580c",
+  饮食营养: "#059669",
+  康复拉伸: "#2563eb",
+  装备选购: "#7c3aed",
+  计划: "#eab308",
+  其他: "#94a3b8",
+};
+
 function computeRadialLayout(
   nodes: KBGraphNode[],
   edges: KBGraphEdge[]
@@ -96,7 +105,7 @@ function computeRadialLayout(
         x,
         y,
         radius: config.size,
-        color: config.color,
+        color: GROUP_COLORS[node.semantic_group ?? "其他"] ?? GROUP_COLORS["其他"],
         layer,
         degree: degree.get(node.id) ?? 0,
         title: node.title,
@@ -121,7 +130,7 @@ interface KBGraphProps {
   onRequestMode: (mode: "full" | "overview") => Promise<void>;
 }
 
-export function KBGraph({ kbId, graph }: KBGraphProps) {
+export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [refs, setRefs] = useState<KBDocumentReferences | null>(null);
   const [refLoading, setRefLoading] = useState(false);
@@ -130,6 +139,9 @@ export function KBGraph({ kbId, graph }: KBGraphProps) {
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
   const [viewBox, setViewBox] = useState({ width: 900, height: 700 });
+  const [view, setView] = useState({ k: 1, tx: 0, ty: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
 
   useEffect(() => {
     const updateSize = () => {
@@ -145,10 +157,72 @@ export function KBGraph({ kbId, graph }: KBGraphProps) {
     return () => window.removeEventListener("resize", updateSize);
   }, []);
 
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      setView((v) => {
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        const newK = Math.min(3, Math.max(0.3, v.k * factor));
+        const worldX = (px - viewBox.width / 2 - v.tx) / v.k;
+        const worldY = (py - viewBox.height / 2 - v.ty) / v.k;
+        return {
+          k: newK,
+          tx: px - viewBox.width / 2 - worldX * newK,
+          ty: py - viewBox.height / 2 - worldY * newK,
+        };
+      });
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, [viewBox]);
+
+  const zoomBy = (factor: number) => {
+    setView((v) => {
+      const newK = Math.min(3, Math.max(0.3, v.k * factor));
+      const ratio = newK / v.k;
+      return { k: newK, tx: v.tx * ratio, ty: v.ty * ratio };
+    });
+  };
+
+  const resetView = () => setView({ k: 1, tx: 0, ty: 0 });
+
+  const handlePanStart = (e: React.PointerEvent<SVGRectElement>) => {
+    dragStart.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+    setDragging(true);
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePanMove = (e: React.PointerEvent<SVGRectElement>) => {
+    const start = dragStart.current;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    setView((v) => ({ ...v, tx: start.tx + dx, ty: start.ty + dy }));
+  };
+
+  const handlePanEnd = () => {
+    dragStart.current = null;
+    setDragging(false);
+  };
+
   const layout = useMemo(
     () => computeRadialLayout(graph.nodes, graph.edges),
     [graph.nodes, graph.edges]
   );
+
+  const groups = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of graph.nodes) set.add(n.semantic_group ?? "其他");
+    return Array.from(set);
+  }, [graph.nodes]);
+
+  const totalNodes = Number(graph.stats?.total_nodes ?? graph.nodes.length);
+  const isOverview = graph.stats?.downsampled === true;
 
   const connectedEdgeIds = useMemo(() => {
     if (!selected) return null;
@@ -215,7 +289,19 @@ export function KBGraph({ kbId, graph }: KBGraphProps) {
         viewBox={`0 0 ${viewBox.width} ${viewBox.height}`}
         className="absolute inset-0"
       >
-        <g transform={`translate(${cx}, ${cy})`}>
+        <rect
+          x={0}
+          y={0}
+          width={viewBox.width}
+          height={viewBox.height}
+          fill="transparent"
+          className={dragging ? "cursor-grabbing" : "cursor-grab"}
+          onPointerDown={handlePanStart}
+          onPointerMove={handlePanMove}
+          onPointerUp={handlePanEnd}
+          onPointerCancel={handlePanEnd}
+        />
+        <g transform={`translate(${cx + view.tx}, ${cy + view.ty}) scale(${view.k})`}>
           {layout.rings.map((r) => (
             <circle
               key={r}
@@ -310,6 +396,67 @@ export function KBGraph({ kbId, graph }: KBGraphProps) {
           })}
         </g>
       </svg>
+
+      {totalNodes >= 200 && (
+        <div className="absolute left-3 top-3 z-20 flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+          <button
+            onClick={() => void onRequestMode("full")}
+            className={`rounded-md px-2 py-1 text-xs ${
+              !isOverview ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            完整
+          </button>
+          <button
+            onClick={() => void onRequestMode("overview")}
+            className={`rounded-md px-2 py-1 text-xs ${
+              isOverview ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            概览
+          </button>
+        </div>
+      )}
+
+      {groups.length > 0 && (
+        <div className="absolute left-3 top-14 z-20 space-y-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-2 text-xs shadow-sm">
+          {groups.map((g) => (
+            <div key={g} className="flex items-center gap-2">
+              <span
+                className="size-2.5 rounded-full"
+                style={{ background: GROUP_COLORS[g] ?? GROUP_COLORS["其他"] }}
+              />
+              <span className="text-slate-600">{g}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="absolute bottom-3 right-3 z-20 flex flex-col gap-1">
+        <button
+          onClick={() => zoomBy(1.25)}
+          disabled={view.k >= 3}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm leading-none text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+          title="放大"
+        >
+          +
+        </button>
+        <button
+          onClick={() => zoomBy(1 / 1.25)}
+          disabled={view.k <= 0.3}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm leading-none text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+          title="缩小"
+        >
+          −
+        </button>
+        <button
+          onClick={resetView}
+          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs leading-none text-slate-600 shadow-sm hover:bg-slate-50"
+          title="复位"
+        >
+          复位
+        </button>
+      </div>
 
       {hoveredNodeData && (
         <div

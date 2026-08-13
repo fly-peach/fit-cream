@@ -127,6 +127,16 @@ async def reindex_document_references(
     return {"citations": cites, "links": links, "errors": 0}
 
 
+async def reindex_document_references_for_kb(
+    db: AsyncSession, kb_id: UUID, doc: KBDocument
+) -> dict:
+    """构建 KB 查找映射并增量重建单文档出边（供文档创建/更新时调用）。"""
+    _, filename_map, base_map, wiki_map = await _load_docs(db, kb_id)
+    return await reindex_document_references(
+        db, doc, kb_id, filename_map, base_map, wiki_map
+    )
+
+
 async def rebuild_graph(db: AsyncSession, kb_id: UUID) -> dict:
     """全量重建知识图谱（原子操作）。
 
@@ -263,6 +273,7 @@ async def get_graph(
 async def propagate_staleness(db: AsyncSession, doc_id: UUID) -> int:
     """文档更新后，把引用它的 wiki 页标记为过期（参考 VaultFS.propagate_staleness）。
 
+    同时覆盖 cites（wiki -> 源文件）与 links_to（wiki -> wiki）两类入边。
     返回被标记的页数。
     """
     result = await db.execute(
@@ -271,7 +282,7 @@ async def propagate_staleness(db: AsyncSession, doc_id: UUID) -> int:
             KBDocument.id.in_(
                 select(KBReference.source_document_id).where(
                     KBReference.target_document_id == doc_id,
-                    KBReference.reference_type == "links_to",
+                    KBReference.reference_type.in_(["cites", "links_to"]),
                 )
             ),
             KBDocument.archived == False,  # noqa: E712
@@ -280,6 +291,14 @@ async def propagate_staleness(db: AsyncSession, doc_id: UUID) -> int:
     )
     await db.flush()
     return result.rowcount or 0
+
+
+async def get_backlinked_doc_ids(db: AsyncSession, kb_id: UUID) -> set[str]:
+    """返回被任何入边引用的文档 id 集合（供 lint 孤儿页判断，仅需有无入边）。"""
+    result = await db.execute(
+        select(KBReference.target_document_id).where(KBReference.kb_id == kb_id)
+    )
+    return {str(row[0]) for row in result.all()}
 
 
 async def get_backlinks(db: AsyncSession, doc_id: UUID) -> list[dict]:

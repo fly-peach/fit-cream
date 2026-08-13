@@ -182,14 +182,12 @@ def run_all_lint(
     uncited_sources: list[dict],
     stale_pages: list[dict],
     backlinks_map: dict[str, list[dict]],
-    forward_map: dict[str, list[dict]],
 ) -> dict:
     """运行所有 lint 规则，返回完整报告。
 
     docs: KB 所有文档（含 content）
     uncited_sources / stale_pages: 来自 graph.find_uncited_sources / find_stale_pages
-    backlinks_map: {doc_id: [backlink dict]} 入边
-    forward_map: {doc_id: [forward ref dict]} 出边
+    backlinks_map: {doc_id: [backlink dict]} 入边（仅用于孤儿页判断，只需有无入边）
     """
     ctx = _build_context(docs)
     issues: list[LintIssue] = []

@@ -14,7 +14,10 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.knowledge_base.graph import propagate_staleness
+from src.knowledge_base.graph import (
+    propagate_staleness,
+    reindex_document_references_for_kb,
+)
 from src.knowledge_base.indexer import compute_content_hash, index_document, reindex_document
 from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.schemas.document import (
@@ -69,6 +72,10 @@ class KBDocumentService:
             doc.status = "failed"
             doc.error_message = str(e)
             logger.warning("创建文档后自动索引失败 %s: %s", str(doc.id)[:8], e)
+        try:
+            await reindex_document_references_for_kb(db, kb_id, doc)
+        except Exception as e:
+            logger.warning("创建文档后引用重建失败 %s: %s", str(doc.id)[:8], e)
         await db.flush()
         return doc
 
@@ -142,6 +149,10 @@ class KBDocumentService:
             doc.status = "failed"
             doc.error_message = str(e)
             logger.warning("更新文档后自动索引失败 %s: %s", str(doc.id)[:8], e)
+        try:
+            await reindex_document_references_for_kb(db, doc.kb_id, doc)
+        except Exception as e:
+            logger.warning("更新文档后引用重建失败 %s: %s", str(doc.id)[:8], e)
         await db.flush()
         return doc
 
