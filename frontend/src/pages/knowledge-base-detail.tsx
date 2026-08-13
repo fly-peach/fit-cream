@@ -6,6 +6,7 @@ import {
   Loader2,
   SearchIcon,
   Share2Icon,
+  XIcon,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { buttonVariants } from "@/components/ui/button";
@@ -14,12 +15,15 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { KBGraph } from "@/components/kb-graph";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
 import {
   kbApi,
   type KB,
   type KBDocument,
+  type KBDocumentContent,
+  type KBDocumentReferences,
   type KBSearchResult,
   type KBGraphData,
 } from "@/lib/kb-api";
@@ -37,6 +41,11 @@ export default function KnowledgeBaseDetailPage() {
 
   const [graph, setGraph] = useState<KBGraphData | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
+
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [article, setArticle] = useState<KBDocumentContent | null>(null);
+  const [articleLoading, setArticleLoading] = useState(false);
+  const [refs, setRefs] = useState<KBDocumentReferences | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -94,11 +103,36 @@ export default function KnowledgeBaseDetailPage() {
     }
   };
 
+  const selectNode = useCallback(
+    async (docId: string | null) => {
+      setSelectedDocId(docId);
+      setArticle(null);
+      setRefs(null);
+      if (!docId) return;
+      setArticleLoading(true);
+      try {
+        const [r, a] = await Promise.all([
+          kbApi.getReferences(kbId, docId),
+          kbApi.readDocument(kbId, docId),
+        ]);
+        setRefs(r);
+        setArticle(a);
+      } catch {
+        setArticle(null);
+        setRefs(null);
+      } finally {
+        setArticleLoading(false);
+      }
+    },
+    [kbId]
+  );
+
   const [tab, setTab] = useState("docs");
 
   const handleTabChange = (value: string) => {
     setTab(value);
     if (value === "graph") void loadGraph();
+    else void selectNode(null);
   };
 
   return (
@@ -240,8 +274,9 @@ export default function KnowledgeBaseDetailPage() {
                       </p>
                     ) : (
                       <KBGraph
-                        kbId={kbId}
                         graph={graph}
+                        selected={selectedDocId}
+                        onSelectNode={selectNode}
                         onRequestMode={requestGraphMode}
                       />
                     )}
@@ -252,6 +287,98 @@ export default function KnowledgeBaseDetailPage() {
           )}
         </div>
       </div>
+
+      {selectedDocId && (
+        <div className="fixed inset-y-0 right-0 z-40 flex w-[420px] max-w-[85vw] flex-col border-l border-slate-200 bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-emerald-950">
+                {article?.title ?? "文档"}
+              </p>
+              {article && (
+                <p className="truncate text-xs text-slate-500">
+                  {article.filename} · v{article.version}
+                </p>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <Link
+                to={`/knowledge-bases/${kbId}/documents/${selectedDocId}`}
+                className="text-xs text-emerald-600 hover:underline"
+              >
+                打开全文
+              </Link>
+              <button
+                onClick={() => void selectNode(null)}
+                className="text-xs text-slate-400 hover:text-slate-600"
+                title="关闭"
+              >
+                <XIcon className="size-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {articleLoading ? (
+              <div className="flex items-center justify-center py-10 text-emerald-500">
+                <Loader2 className="size-5 animate-spin" />
+              </div>
+            ) : article ? (
+              <article className="text-sm leading-relaxed text-slate-700">
+                <MessageResponse>{article.content}</MessageResponse>
+              </article>
+            ) : (
+              <p className="py-8 text-center text-sm text-slate-400">加载文章失败</p>
+            )}
+          </div>
+
+          {refs && (
+            <div className="border-t border-slate-100 p-4 text-sm">
+              <p className="mb-2 font-semibold text-emerald-900">引用关系</p>
+              <div className="space-y-3 text-xs text-slate-600">
+                <div>
+                  <p className="mb-1 font-medium">引用了谁</p>
+                  <ul className="space-y-1">
+                    {refs.cites.length === 0 && refs.links_to.length === 0 ? (
+                      <li className="text-slate-400">无</li>
+                    ) : (
+                      [...refs.cites, ...refs.links_to].map((r) => (
+                        <li key={r.id}>
+                          <Link
+                            to={`/knowledge-bases/${kbId}/documents/${r.document_id}`}
+                            className="text-emerald-600 hover:underline"
+                          >
+                            {r.title}
+                          </Link>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+                <div>
+                  <p className="mb-1 font-medium">被谁引用</p>
+                  <ul className="space-y-1">
+                    {refs.cited_by.length === 0 && refs.linked_by.length === 0 ? (
+                      <li className="text-slate-400">无</li>
+                    ) : (
+                      [...refs.cited_by, ...refs.linked_by].map((r) => (
+                        <li key={r.id}>
+                          <Link
+                            to={`/knowledge-bases/${kbId}/documents/${r.document_id}`}
+                            className="text-emerald-600 hover:underline"
+                          >
+                            {r.title}
+                          </Link>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </AppLayout>
   );
 }

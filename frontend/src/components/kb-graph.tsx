@@ -1,14 +1,8 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from "react";
-import { Link } from "react-router-dom";
-import { Loader2 } from "lucide-react";
-import { MessageResponse } from "@/components/ai-elements/message";
+import { useMemo, useRef, useState, useEffect } from "react";
 import {
-  kbApi,
   type KBGraphData,
   type KBGraphEdge,
   type KBGraphNode,
-  type KBDocumentContent,
-  type KBDocumentReferences,
 } from "@/lib/kb-api";
 
 type NodeLayer = "center" | "inner" | "middle" | "outer";
@@ -127,16 +121,13 @@ function truncateTitle(title: string, maxLen = 12): string {
 }
 
 interface KBGraphProps {
-  kbId: string;
   graph: KBGraphData;
+  selected: string | null;
+  onSelectNode: (docId: string | null) => void;
   onRequestMode: (mode: "full" | "overview") => Promise<void>;
 }
 
-export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
-  const [selected, setSelected] = useState<string | null>(null);
-  const [refs, setRefs] = useState<KBDocumentReferences | null>(null);
-  const [article, setArticle] = useState<KBDocumentContent | null>(null);
-  const [articleLoading, setArticleLoading] = useState(false);
+export function KBGraph({ graph, selected, onSelectNode, onRequestMode }: KBGraphProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<number | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -246,29 +237,6 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
     return set;
   }, [selected, graph.edges]);
 
-  const selectNode = useCallback(
-    async (docId: string) => {
-      setSelected(docId);
-      setArticleLoading(true);
-      setRefs(null);
-      setArticle(null);
-      try {
-        const [r, a] = await Promise.all([
-          kbApi.getReferences(kbId, docId),
-          kbApi.readDocument(kbId, docId),
-        ]);
-        setRefs(r);
-        setArticle(a);
-      } catch {
-        setRefs(null);
-        setArticle(null);
-      } finally {
-        setArticleLoading(false);
-      }
-    },
-    [kbId]
-  );
-
   const cx = viewBox.width / 2;
   const cy = viewBox.height / 2;
 
@@ -369,7 +337,7 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
                 style={{ transition: "opacity 120ms" }}
                 onMouseEnter={(e) => handleNodeMouseEnter(n.id, e)}
                 onMouseLeave={() => setHoveredNode(null)}
-                onClick={() => void selectNode(n.id)}
+                onClick={() => onSelectNode(n.id)}
                 className="cursor-pointer"
               >
                 {isSelected && (
@@ -495,101 +463,6 @@ export function KBGraph({ kbId, graph, onRequestMode }: KBGraphProps) {
           {hoveredEdgeData.type === "cites"
             ? `引用${hoveredEdgeData.page ? ` p.${hoveredEdgeData.page}` : ""}`
             : "链接"}
-        </div>
-      )}
-
-      {selected && (
-        <div className="absolute inset-y-0 right-0 z-20 flex w-[420px] flex-col border-l border-slate-200 bg-white shadow-xl">
-          <div className="flex items-start justify-between gap-2 border-b border-slate-100 p-4">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-emerald-950">
-                {article?.title ?? "文档"}
-              </p>
-              {article && (
-                <p className="truncate text-xs text-slate-500">
-                  {article.filename} · v{article.version}
-                </p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-3">
-              <Link
-                to={`/knowledge-bases/${kbId}/documents/${selected}`}
-                className="text-xs text-emerald-600 hover:underline"
-              >
-                打开全文
-              </Link>
-              <button
-                onClick={() => {
-                  setSelected(null);
-                  setRefs(null);
-                  setArticle(null);
-                }}
-                className="text-xs text-slate-400 hover:text-slate-600"
-              >
-                关闭
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4">
-            {articleLoading ? (
-              <div className="flex items-center justify-center py-10 text-emerald-500">
-                <Loader2 className="size-5 animate-spin" />
-              </div>
-            ) : article ? (
-              <article className="text-sm leading-relaxed text-slate-700">
-                <MessageResponse>{article.content}</MessageResponse>
-              </article>
-            ) : (
-              <p className="py-8 text-center text-sm text-slate-400">加载文章失败</p>
-            )}
-          </div>
-
-          {refs && (
-            <div className="border-t border-slate-100 p-4 text-sm">
-              <p className="mb-2 font-semibold text-emerald-900">引用关系</p>
-              <div className="space-y-3 text-xs text-slate-600">
-                <div>
-                  <p className="mb-1 font-medium">引用了谁</p>
-                  <ul className="space-y-1">
-                    {refs.cites.length === 0 && refs.links_to.length === 0 ? (
-                      <li className="text-slate-400">无</li>
-                    ) : (
-                      [...refs.cites, ...refs.links_to].map((r) => (
-                        <li key={r.id}>
-                          <Link
-                            to={`/knowledge-bases/${kbId}/documents/${r.document_id}`}
-                            className="text-emerald-600 hover:underline"
-                          >
-                            {r.title}
-                          </Link>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </div>
-                <div>
-                  <p className="mb-1 font-medium">被谁引用</p>
-                  <ul className="space-y-1">
-                    {refs.cited_by.length === 0 && refs.linked_by.length === 0 ? (
-                      <li className="text-slate-400">无</li>
-                    ) : (
-                      [...refs.cited_by, ...refs.linked_by].map((r) => (
-                        <li key={r.id}>
-                          <Link
-                            to={`/knowledge-bases/${kbId}/documents/${r.document_id}`}
-                            className="text-emerald-600 hover:underline"
-                          >
-                            {r.title}
-                          </Link>
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
