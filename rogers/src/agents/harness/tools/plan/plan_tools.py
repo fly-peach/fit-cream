@@ -12,6 +12,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from src.fitme.schemas.diet_plan import DietDayCreate, DietPlanCreate
 from src.fitme.schemas.plan import (
     PlanCreate,
     PlanDayCreate,
@@ -185,8 +186,11 @@ async def create_plan_tool(
                 )
                 # 预加载 days->exercises->exercise，避免 plan_data 访问关系触发异步懒加载
                 plan = await PlanService.get_plan_detail(db, created.id, user_id)
+                mode = "days"
             else:
-                # 旧路径：后端模板智能生成（向后兼容）
+                # 旧路径：后端模板智能生成（向后兼容）。
+                # 注意：未传 days 时，落库内容由后端模板生成，可能与
+                # present_plan_tool 提案不一致；通过 mode 标记以便审计。
                 user_data = await UserService.get_body_summary(db, user_id)
                 plan = await PlanService.generate_plan_from_goal(
                     db=db,
@@ -197,6 +201,7 @@ async def create_plan_tool(
                     preferences=preferences,
                     user_data=user_data,
                 )
+                mode = "template_generated"
 
             plan_data = {
                 "id": str(plan.id),
@@ -232,10 +237,16 @@ async def create_plan_tool(
             }
             goal_name = goal_names.get(goal, "综合训练")
 
+            msg = f"已为你创建{goal_name}计划，每周训练{days_per_week}天，难度{difficulty}。"
+            if mode == "template_generated":
+                msg += "（本次按目标由系统模板生成，未按逐日提案落库）"
+
             return {
                 "success": True,
                 "plan": plan_data,
-                "message": f"已为你创建{goal_name}计划，每周训练{days_per_week}天，难度{difficulty}。",
+                "persisted_plan": plan_data,
+                "mode": mode,
+                "message": msg,
             }
     except Exception as e:
         return error_response(e)
@@ -260,6 +271,14 @@ class CreateDietPlanInput(BaseModel):
         default=None,
         description="饮食偏好或禁忌，如'不吃辣'、'素食'、'乳糖不耐'",
     )
+    days: Optional[List[DietDayCreate]] = Field(
+        default=None,
+        description=(
+            "逐日设计的完整饮食日结构（含每日各餐 food_name/热量/宏量素）。"
+            "提供时后端直接按此落库，确保提案与落库一致；"
+            "未提供时走后端模板生成（向后兼容）。"
+        ),
+    )
 
 
 @tool(args_schema=CreateDietPlanInput)
@@ -267,6 +286,7 @@ async def create_diet_plan_tool(
     goal: str,
     target_calories: Optional[int] = None,
     preferences: Optional[str] = None,
+    days: Optional[List[DietDayCreate]] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
@@ -278,6 +298,8 @@ async def create_diet_plan_tool(
     - 用户说"帮我安排健康饮食"-> goal="improve_health"
 
     会根据用户身体数据自动计算合适的热量和宏量素比例。
+    若提供 days 参数，则按 agent 设计的逐日结构直接落库（不再后端模板生成），
+    确保提案与落库内容一致；未提供 days 时走后端模板生成（向后兼容）。
 
     Returns:
         包含饮食计划详情、每日餐食安排的结构化数据
@@ -288,16 +310,36 @@ async def create_diet_plan_tool(
 
     try:
         async with session_scope() as db:
-            user_data = await UserService.get_body_summary(db, user_id)
-
-            diet_plan = await DietPlanService.generate_diet_plan_from_goal(
-                db=db,
-                user_id=user_id,
-                goal=goal,
-                target_calories=target_calories,
-                preferences=preferences,
-                user_data=user_data,
-            )
+            if days:
+                # 逐日设计流程：按 agent 设计的结构直接落库，跳过后端模板生成
+                plan_name = f"{goal}饮食计划"
+                diet_plan = await DietPlanService.create_diet_plan(
+                    db,
+                    user_id,
+                    DietPlanCreate(
+                        name=plan_name,
+                        target_calories=target_calories,
+                        goal=goal,
+                        days=days,
+                    ),
+                )
+                # 预加载 days->meals，避免访问关系触发异步懒加载
+                diet_plan = await DietPlanService.get_diet_plan_detail(
+                    db, diet_plan.id, user_id
+                )
+                mode = "days"
+            else:
+                # 旧路径：后端模板智能生成（向后兼容）
+                user_data = await UserService.get_body_summary(db, user_id)
+                diet_plan = await DietPlanService.generate_diet_plan_from_goal(
+                    db=db,
+                    user_id=user_id,
+                    goal=goal,
+                    target_calories=target_calories,
+                    preferences=preferences,
+                    user_data=user_data,
+                )
+                mode = "template_generated"
 
             plan_data = {
                 "id": str(diet_plan.id),
@@ -337,7 +379,9 @@ async def create_diet_plan_tool(
             return {
                 "success": True,
                 "diet_plan": plan_data,
-                "message": f"已为你创建{goal_name}饮食计划，每日目标热量 {diet_plan.target_calories} kcal，包含7天完整餐食安排。",
+                "persisted_plan": plan_data,
+                "mode": mode,
+                "message": f"已为你创建{goal_name}饮食计划，每日目标热量 {diet_plan.target_calories} kcal，包含{len(diet_plan.days)}天完整餐食安排。",
             }
     except Exception as e:
         return error_response(e)

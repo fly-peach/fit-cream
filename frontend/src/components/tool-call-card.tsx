@@ -9,6 +9,7 @@ import type { ToolCall } from "@/types/chat";
 import {
   CheckCircle2Icon,
   ChevronDownIcon,
+  ClockIcon,
   ExternalLinkIcon,
   Loader2Icon,
   WrenchIcon,
@@ -351,6 +352,7 @@ function getSummary(
   text: string | null
 ): string {
   if (tc.status === "running") return "正在执行…";
+  if (tc.status === "interrupted") return "等待用户审批";
   if (tc.status === "error") return tc.error || "执行出错";
   if (obj) {
     if (obj.success === false) return String(obj.error || "执行失败");
@@ -653,6 +655,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
   const { obj, text } = useMemo(() => parseOutput(tc.output), [tc.output]);
 
   const running = tc.status === "running";
+  const interrupted = tc.status === "interrupted";
   const failed = tc.status === "error" || obj?.success === false;
   const hasInput = !!tc.input && Object.keys(tc.input).length > 0;
   const showBody = hasInput || !running;
@@ -704,6 +707,11 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
               <Loader2Icon className="size-3 animate-spin" />
               执行中
             </span>
+          ) : interrupted ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/70">
+              <ClockIcon className="size-3" />
+              待审批
+            </span>
           ) : failed ? (
             <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200/70">
               <XCircleIcon className="size-3" />
@@ -744,7 +752,9 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
           ? "border-red-200/80 border-l-2 border-l-red-400"
           : running
             ? "border-amber-200/70 border-l-2 border-l-amber-400"
-            : "border-emerald-100 border-l-2 border-l-emerald-400 hover:shadow-md hover:shadow-emerald-900/[0.06]"
+            : interrupted
+              ? "border-slate-200/80 border-l-2 border-l-slate-400"
+              : "border-emerald-100 border-l-2 border-l-emerald-400 hover:shadow-md hover:shadow-emerald-900/[0.06]"
       )}
     >
       {showBody ? (

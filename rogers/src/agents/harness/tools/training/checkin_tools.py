@@ -22,6 +22,7 @@ from src.fitme.schemas.checkin import CheckinCreate, CheckinExerciseCreate
 from src.fitme.services.checkin_service import CheckinService
 from src.fitme.services.exercise_service import ExerciseService
 from src.fitme.services.plan_service import PlanService
+from utils.timeutil import today as tz_today
 
 
 async def _semantic_candidates(db, name: str, limit: int = 5) -> list:
@@ -66,7 +67,7 @@ class CheckinInput(BaseModel):
 
 @tool(args_schema=CheckinInput)
 async def checkin_tool(
-    exercises: List[dict],
+    exercises: List[ExerciseRecord],
     duration_min: int,
     actual_intensity: Optional[str] = None,
     calories_burned: Optional[int] = None,
@@ -93,7 +94,7 @@ async def checkin_tool(
 
     try:
         target_date = (
-            date_type.fromisoformat(checkin_date) if checkin_date else date_type.today()
+            date_type.fromisoformat(checkin_date) if checkin_date else tz_today()
         )
     except ValueError:
         return {
@@ -104,7 +105,7 @@ async def checkin_tool(
     try:
         async with session_scope() as db:
             matched = await ExerciseService.match_names(
-                db, [ex["name"] for ex in exercises]
+                db, [ex.name for ex in exercises]
             )
 
             unmatched = [name for name, ex_ in matched.items() if ex_ is None]
@@ -129,12 +130,12 @@ async def checkin_tool(
 
             matched_exercises = [
                 CheckinExerciseCreate(
-                    exercise_id=matched[ex["name"]].id,
-                    sets_done=ex["sets_done"],
-                    reps_done=ex["reps_done"],
-                    weight_kg=ex.get("weight_kg"),
-                    rpe=ex.get("rpe"),
-                    notes=ex.get("notes"),
+                    exercise_id=matched[ex.name].id,
+                    sets_done=ex.sets_done,
+                    reps_done=ex.reps_done,
+                    weight_kg=ex.weight_kg,
+                    rpe=ex.rpe,
+                    notes=ex.notes,
                 )
                 for ex in exercises
             ]
@@ -169,14 +170,14 @@ async def checkin_tool(
                     for pex in plan_day.exercises
                     if pex.exercise_id
                 }
-                done_ids = {matched[ex["name"]].id for ex in exercises}
+                done_ids = {matched[ex.name].id for ex in exercises}
                 completed = [n for eid, n in planned_map.items() if eid in done_ids]
                 skipped = [n for eid, n in planned_map.items() if eid not in done_ids]
                 extra = sorted(
                     {
-                        matched[ex["name"]].name
+                        matched[ex.name].name
                         for ex in exercises
-                        if matched[ex["name"]].id not in planned_map
+                        if matched[ex.name].id not in planned_map
                     }
                 )
                 plan_feedback = {

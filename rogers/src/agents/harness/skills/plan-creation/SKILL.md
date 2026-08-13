@@ -176,6 +176,11 @@ todos:
      （content 含各训练日动作/组次/重量表格 + 经验层级说明；changes 覆盖会落库的全部变更）
   2. **紧接着** `create_plan_tool`，**必须传入 `days`**（各日 `day_design` 装配的 `PlanDayCreate`），
      后端直接落库、不再模板重新生成 -> 提案与落库一致。**禁止**不传 `days` 走后端模板路径
+- **`changes` 变更总览必须逐项覆盖本次将写入数据库的全部变更**（这是用户审批的决策依据）：
+  - 至少包含：计划主体（新增训练计划 + 目标/难度/天数/周期）、各训练日（新增训练日 + 分化 focus）、
+    各动作（新增动作 + 组次/重量）、以及同步更新的用户档案字段（如体重）。
+  - 一项一行为宜，`detail` 写清具体内容（如「每周4天力量训练」「卧推 4组×8次 60kg」）。
+  - 宁可多列，不可漏列——漏列会导致用户在批准时看不到真实将要发生的变更。
 - 打勾 assemble
 
 #### 5.6 审批落库项
@@ -190,6 +195,13 @@ todos:
 
 饮食计划暂不走待办队列：基于 intake（含 `diet_profile`）设计后直接
 `present_plan_tool` + `create_diet_plan_tool` 触发审批（沿用原有流程）。
+
+**预览==落库约束**：装配饮食计划时，`present_plan_tool` 的 `content` 必须按
+`days` 结构书写，并在调用 `create_diet_plan_tool` 时**传入 `days`**
+（`DietDayCreate` 列表：`day_of_week`/`focus`/`meals[{meal_type, food_name, calories,
+protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库，不再用模板重新
+生成，保证提案与落库一致。**禁止**不传 `days` 走后端模板路径（模板生成的餐食与提案
+展示的餐食不一致，用户批准的是另一份计划）。`changes` 需逐项覆盖计划主体与每日餐食。
 
 ## 循环与收尾规则（重要）
 

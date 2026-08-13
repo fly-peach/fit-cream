@@ -255,6 +255,47 @@ export function useChatSSE(
     []
   );
 
+  /**
+   * 流结束后用已落库的全量 steps 刷新某条 assistant 消息。
+   *
+   * 后端实时 `step` 事件的工具入参会被截断（nginx 缓冲限制，见 chat.py
+   * _MAX_SSE_FIELD_LENGTH），而落库的 steps 存的是完整入参。审批前/完成后
+   * 用最新一条已保存的 assistant 消息的完整 steps 覆盖内存版本，保证
+   * PlanCard 等「落库前展示全部内容」的预览不因截断而缺失。
+   *
+   * 关键：保留本地 assistantId（按 id merge，不整表替换），否则
+   * pendingApproval.messageId 会与服务端 UUID 失配，审批按钮失效。
+   */
+  const refreshPersistedSteps = useCallback(
+    async (assistantId: string, threadId: string) => {
+      if (!threadId) return;
+      try {
+        const SIZE = 8; // 与 chat.tsx HISTORY_PAGE_SIZE 一致
+        const base = `/api/chat/threads/${threadId}/messages`;
+        const r1 = await fetch(`${base}?page=1&size=${SIZE}`);
+        if (!r1.ok) return;
+        const d1 = (await r1.json()).data || {};
+        const total: number = typeof d1.total === "number" ? d1.total : 0;
+        const lastPage = Math.max(1, Math.ceil(total / SIZE));
+        const r2 = await fetch(`${base}?page=${lastPage}&size=${SIZE}`);
+        if (!r2.ok) return;
+        const rows: Array<{
+          role: string;
+          metadata_json?: { steps?: AgentStep[] } | null;
+        }> = (await r2.json()).data?.messages || [];
+        const lastAssistant = [...rows].reverse().find((m) => m.role === "assistant");
+        const steps = lastAssistant?.metadata_json?.steps;
+        if (!steps) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, steps } : m))
+        );
+      } catch {
+        // 忽略刷新失败，保留当前（可能截断的）内容
+      }
+    },
+    [setMessages]
+  );
+
   const sendMessage = useCallback(
     async (content: string, images?: string[], planDesign?: boolean) => {
       const hasText = content.trim().length > 0;
@@ -328,6 +369,11 @@ export function useChatSSE(
                 approvals,
                 threadId: (event.data.thread_id as string) || activeThreadIdRef.current || "",
               });
+              // 审批前用落库全量 steps 刷新预览（覆盖截断的实时内容）
+              void refreshPersistedSteps(
+                assistantId,
+                (event.data.thread_id as string) || activeThreadIdRef.current || ""
+              );
               break;
             }
 
@@ -341,6 +387,11 @@ export function useChatSSE(
                 prev.map((m) =>
                   m.id === assistantId ? { ...m, isStreaming: false } : m
                 )
+              );
+              // 用落库全量 steps 刷新，恢复被 SSE 截断的完整正文/预览
+              void refreshPersistedSteps(
+                assistantId,
+                activeThreadIdRef.current || threadId || ""
               );
               // 后端已落库 ThreadUsage，通知页面刷新 threads 快照，供切会话 seed 用
               onUsageCommittedRef.current?.({ ...usageRef.current });
@@ -380,7 +431,7 @@ export function useChatSSE(
         abortRef.current = null;
       }
     },
-    [threadId, isStreaming, setThreadId, applyStreamDelta, buildApprovals, applyUsage]
+    [threadId, isStreaming, setThreadId, applyStreamDelta, buildApprovals, applyUsage, refreshPersistedSteps]
   );
 
   const stop = useCallback(async () => {
@@ -478,6 +529,8 @@ export function useChatSSE(
                 })
               );
               setPendingApproval({ messageId: assistantId, approvals: newApprovals, threadId: tid });
+              // 重新提案：用落库全量 steps 刷新预览（覆盖截断的实时内容）
+              void refreshPersistedSteps(assistantId, tid);
               break;
             }
 
@@ -503,6 +556,8 @@ export function useChatSSE(
                   return { ...m, approvals, isStreaming: false };
                 })
               );
+              // 用落库全量 steps 刷新，恢复被 SSE 截断的完整正文/预览
+              void refreshPersistedSteps(assistantId, tid);
               onUsageCommittedRef.current?.({ ...usageRef.current });
               break;
 
@@ -541,7 +596,7 @@ export function useChatSSE(
         abortRef.current = null;
       }
     },
-    [isStreaming, applyStreamDelta, buildApprovals, applyUsage]
+    [isStreaming, applyStreamDelta, buildApprovals, applyUsage, refreshPersistedSteps]
   );
 
   const clearMessages = useCallback(() => {

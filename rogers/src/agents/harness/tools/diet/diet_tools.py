@@ -18,6 +18,7 @@ from src.fitme.schemas.diet import DietMealCreate, DietMealUpdate
 from src.fitme.schemas.user import UserGoalsUpdate
 from src.fitme.services.diet_meal_service import DietMealService
 from src.fitme.services.user_service import UserService
+from utils.timeutil import today as tz_today
 
 
 class RecordMealInput(BaseModel):
@@ -67,7 +68,7 @@ async def record_meal_tool(
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    parsed_date = date_type.fromisoformat(meal_date) if meal_date else date_type.today()
+    parsed_date = date_type.fromisoformat(meal_date) if meal_date else tz_today()
 
     try:
         async with session_scope() as db:
@@ -130,7 +131,7 @@ async def query_diet_summary_tool(
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
 
-    query_date = date_type.fromisoformat(date) if date else date_type.today()
+    query_date = date_type.fromisoformat(date) if date else tz_today()
 
     try:
         async with session_scope() as db:

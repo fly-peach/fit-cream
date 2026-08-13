@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     # 是否开放 Swagger UI / OpenAPI（默认关闭，需后端显式开启）
     API_DOCS_ENABLED: bool = False
+    # Agent 时间上下文与打卡/饮食默认日期的时区（默认国内用户 UTC+8）
+    APP_TZ: str = "Asia/Shanghai"
 
     # ---------- 数据库 ----------
     DATABASE_URL: str = "postgresql+asyncpg://fitcream:fitcream@localhost:5432/fitcream"

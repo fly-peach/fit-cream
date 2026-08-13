@@ -33,7 +33,7 @@ export interface SSEEvent {
 export type MessageRole = "user" | "assistant";
 
 /** Tool 调用状态 */
-export type ToolCallStatus = "running" | "completed" | "error";
+export type ToolCallStatus = "running" | "completed" | "error" | "interrupted";
 
 /** Tool 调用记录 */
 export interface ToolCall {

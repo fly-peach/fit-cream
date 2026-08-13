@@ -176,14 +176,23 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str, force_strip: b
 
 
 async def _build_user_context(user: User) -> str:
-    """构建用户动态上下文（精简版）：仅注入当前日期与用户称呼。
+    """构建用户动态上下文（精简版）：注入当前日期/时间（用户时区）与用户称呼。
 
     此前每轮会查询 goal/BMI/streak/active plan 并作为 SystemMessage 注入，
     这些数据随 checkpointer 累积在历史中、逐轮重复消耗 token。用户目标 / 身体
     数据 / 打卡 / 计划均可通过 get_user_profile_tool / get_streak_tool /
     list_plans_tool 等按需获取，故不再每轮注入，仅在需要时由模型主动调用工具。
+    日期/时间由 utils.timeutil 按 APP_TZ（默认 Asia/Shanghai）计算，
+    保证打卡/补卡等按"今天/昨天"语义取到用户时区的正确日期。
     """
-    parts = [f"- 当前日期：{date.today().isoformat()}"]
+    from utils.timeutil import now, today
+
+    now_local = now()
+    weekday_cn = ["一", "二", "三", "四", "五", "六", "日"][now_local.weekday()]
+    parts = [
+        f"- 当前日期：{today().isoformat()}（周{weekday_cn}）",
+        f"- 当前时间：{now_local:%H:%M}",
+    ]
     parts.append(f"- 用户称呼：{user.name or '用户'}")
     return "# 当前对话上下文\n" + "\n".join(parts)
 
@@ -239,6 +248,17 @@ async def _detect_interrupts(agent, config) -> list[dict]:
         logger.warning(f"[Chat] aget_state failed: {e}")
         return []
     return _extract_pending_approvals(state)
+
+
+def _mark_interrupted_tools(steps: list) -> None:
+    """把仍处于 running 的工具步骤标记为 interrupted（HITL 中断时调用）。
+
+    中断发生在 on_tool_start 之后、on_tool_end 之前，被中断的工具没有 tool_result，
+    步骤会停留在 running。这里就地改写状态，避免前端在历史里永久显示转圈。
+    """
+    for s in steps:
+        if isinstance(s, dict) and s.get("type") == "tool" and s.get("status") == "running":
+            s["status"] = "interrupted"
 
 
 class StopRequest(BaseModel):
@@ -462,7 +482,10 @@ async def _run_agent_sse(
         approvals = await _detect_interrupts(agent, config)
 
         if approvals:
-            # 中断：保存当前阶段的 assistant 消息（含审批请求状态），等待 /chat/resume
+            # 中断：保存当前阶段的 assistant 消息（含审批请求状态），等待 /chat/resume。
+            # 被中断的工具（如 create_plan_tool）没有 on_tool_end，步骤停留在 running；
+            # 统一标记为 interrupted，避免前端在历史里永久显示转圈。
+            _mark_interrupted_tools(steps)
             if full_content or full_thinking or tool_calls:
                 await ConversationService.save_message(
                     stream_db, user.id, thread_id, "assistant", full_content,

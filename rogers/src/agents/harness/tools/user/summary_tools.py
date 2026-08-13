@@ -12,13 +12,13 @@
 - DietMealService.get_summary_with_goals（当日饮食）
 """
 
-from datetime import date
 from typing import Optional
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from utils.timeutil import today as tz_today
 
 
 @tool
@@ -96,7 +96,7 @@ async def get_user_summary_tool(config: RunnableConfig) -> dict:
             diet: Optional[dict] = None
             try:
                 diet = await DietMealService.get_summary_with_goals(
-                    db, user_id, date.today()
+                    db, user_id, tz_today()
                 )
             except Exception:
                 pass

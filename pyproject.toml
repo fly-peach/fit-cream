@@ -46,6 +46,8 @@ dependencies = [
     "lxml>=5.0",
     "beautifulsoup4>=4.12",
     "pillow>=12.3.0",
+    # 时区数据（zoneinfo 在 Windows/部分镜像需要；Linux 无副作用）
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]
