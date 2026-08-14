@@ -46,6 +46,10 @@ async def search_knowledge_base(
 
     返回搜索结果（含文档标题、分块内容、面包屑路径）。
 
+    回复用户时，若涉及具体文档，须用结果中的 `url` 以 markdown 链接形式
+    附上站内详情链接（如 `[《文档标题》](/knowledge-bases/<kb_id>/documents/<doc_id>)`），
+    只使用工具返回的 url，不编造。
+
     Returns:
         包含搜索结果列表的字典
     """
@@ -171,6 +175,9 @@ async def read_kb_document(
     使用场景：
     - search_knowledge_base 找到相关文档后，需要读取完整内容以提供详细回答
     - 用户指定查看某个文档时
+
+    回复用户时，须用返回的 `document.url` 以 markdown 链接形式附上站内详情链接，
+    只使用工具返回的 url，不编造。
 
     Returns:
         包含文档标题、完整内容、元数据的字典

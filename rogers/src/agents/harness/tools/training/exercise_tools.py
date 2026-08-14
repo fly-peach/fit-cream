@@ -79,6 +79,10 @@ async def get_exercises_tool(
     keyword 走名称/描述关键词匹配。两者同时提供时优先 semantic_query；
     语义检索不可用（未装 pgvector / 未回填向量）或无命中时自动回退关键词检索。
 
+    回复用户时，若涉及具体动作，须用返回的 `url` 以 markdown 链接形式
+    附上站内详情链接（如 `[卧推动作详解](/exercises/<id>)`），
+    只使用工具返回的 url，不编造。
+
     Returns:
         包含动作列表和推荐建议的结构化数据
     """

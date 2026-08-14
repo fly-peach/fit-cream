@@ -331,6 +331,14 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      linkSafety={{ enabled: false }}
+      components={{
+        a: ({ href, children, ...rest }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+            {children}
+          </a>
+        ),
+      }}
       {...props}
     />
   ),
