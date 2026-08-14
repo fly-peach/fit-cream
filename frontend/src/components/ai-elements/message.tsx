@@ -17,7 +17,7 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { UIMessage } from "ai";
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { ArrowUpRightIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type { ComponentProps, HTMLAttributes, ReactElement } from "react";
 import {
   createContext,
@@ -333,9 +333,20 @@ export const MessageResponse = memo(
       plugins={streamdownPlugins}
       linkSafety={{ enabled: false }}
       components={{
-        a: ({ href, children, ...rest }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+        a: ({ href, children, className, ...rest }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100",
+              "dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50",
+              className
+            )}
+            {...rest}
+          >
             {children}
+            <ArrowUpRightIcon className="h-3 w-3 shrink-0" />
           </a>
         ),
       }}
