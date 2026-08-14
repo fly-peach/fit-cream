@@ -100,7 +100,14 @@ class Settings(BaseSettings):
     MEMORY_PROCEDURAL_MAX: int = 50
 
     # ---------- CORS ----------
-    CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"]
+    # https://localhost / http://localhost 为 Capacitor App（本地 WebView）origin
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8000",
+        "https://localhost",
+        "http://localhost",
+    ]
 
     # ---------- 限流 ----------
     AGENT_RATE_LIMIT: int = 10

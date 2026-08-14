@@ -99,6 +99,7 @@ rogers/logs/
 # ========================
 node_modules/
 frontend/dist/
+frontend/android/
 frontend/dist-ssr/
 frontend/.next/
 frontend/.nuxt/
@@ -123,6 +124,19 @@ rogers/static/
 # LangGraph
 # ========================
 .langgraph_api/
+
+# ========================
+# Android (Capacitor native project)
+# ========================
+frontend/android/local.properties
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/capacitor-cordova-android-plugins/build/
+frontend/android/keystore.properties
+frontend/android/keystore.pwd
+*.jks
+*.keystore
 
 # ========================
 # OS

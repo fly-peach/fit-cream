@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { resumeChat, streamChat, stopGeneration } from "@/lib/sse-client";
 import { useChatStore } from "@/stores/chat-store";
+import { API_URL } from "@/lib/api-url";
 import type { AgentStep, ChatMessage, ToolApproval, ToolCall, TokenUsage } from "@/types/chat";
 
 /** 待审批的 HITL 请求（仅当前流式消息携带，交互态；历史消息的 approvals 为只读） */
@@ -271,13 +272,17 @@ export function useChatSSE(
       if (!threadId) return;
       try {
         const SIZE = 8; // 与 chat.tsx HISTORY_PAGE_SIZE 一致
-        const base = `/api/chat/threads/${threadId}/messages`;
-        const r1 = await fetch(`${base}?page=1&size=${SIZE}`);
+        const base = `${API_URL}/chat/threads/${threadId}/messages`;
+        const r1 = await fetch(`${base}?page=1&size=${SIZE}`, {
+          credentials: "include",
+        });
         if (!r1.ok) return;
         const d1 = (await r1.json()).data || {};
         const total: number = typeof d1.total === "number" ? d1.total : 0;
         const lastPage = Math.max(1, Math.ceil(total / SIZE));
-        const r2 = await fetch(`${base}?page=${lastPage}&size=${SIZE}`);
+        const r2 = await fetch(`${base}?page=${lastPage}&size=${SIZE}`, {
+          credentials: "include",
+        });
         if (!r2.ok) return;
         const rows: Array<{
           role: string;

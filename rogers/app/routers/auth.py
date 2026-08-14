@@ -43,14 +43,20 @@ def _get_client_ip(request: Request) -> str | None:
 
 
 def _set_auth_cookies(response: Response, tokens: TokenPair) -> None:
-    """将 access/refresh token 写入 httpOnly Cookie（SameSite=Lax 防跨站携带）。"""
+    """将 access/refresh token 写入 httpOnly Cookie。
+
+    SameSite：COOKIE_SECURE=true（生产 HTTPS）时用 None —— Capacitor App 的本地
+    WebView（origin=https://localhost）请求线上 API 属跨站，Lax 不会被携带；
+    非安全环境保持 Lax（防跨站携带，保护 Web 端）。
+    """
+    samesite = "none" if settings.COOKIE_SECURE else "lax"
     response.set_cookie(
         key=settings.COOKIE_ACCESS_NAME,
         value=tokens.access_token,
         max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite="lax",
+        samesite=samesite,
         path="/",
     )
     response.set_cookie(
@@ -59,7 +65,7 @@ def _set_auth_cookies(response: Response, tokens: TokenPair) -> None:
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600,
         httponly=True,
         secure=settings.COOKIE_SECURE,
-        samesite="lax",
+        samesite=samesite,
         path="/",
     )
 

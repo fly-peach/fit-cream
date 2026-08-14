@@ -267,6 +267,14 @@ class CreateDietPlanInput(BaseModel):
         le=5000,
         description="每日目标热量（kcal），不填则根据用户数据自动计算",
     )
+    activity_level: Optional[str] = Field(
+        default=None,
+        description=(
+            "用户每周运动时长档位：light(每周2-3小时)/moderate(每周4-5小时)/"
+            "active(每周6-7小时)/very_active(每周8-9小时)。"
+            "不填则按默认 moderate 换算（用于自动计算热量目标）。"
+        ),
+    )
     preferences: Optional[str] = Field(
         default=None,
         description="饮食偏好或禁忌，如'不吃辣'、'素食'、'乳糖不耐'",
@@ -285,6 +293,7 @@ class CreateDietPlanInput(BaseModel):
 async def create_diet_plan_tool(
     goal: str,
     target_calories: Optional[int] = None,
+    activity_level: Optional[str] = None,
     preferences: Optional[str] = None,
     days: Optional[List[DietDayCreate]] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
@@ -338,6 +347,7 @@ async def create_diet_plan_tool(
                     target_calories=target_calories,
                     preferences=preferences,
                     user_data=user_data,
+                    activity_level=activity_level,
                 )
                 mode = "template_generated"
 

@@ -234,9 +234,9 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
       </aside>
 
       {/* ============ 主内容区 ============ */}
-      <main className="flex flex-1 flex-col overflow-hidden pb-16 md:pb-0">
+      <main className="flex flex-1 flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
         {/* 移动端顶栏：菜单按钮 */}
-        <div className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-3 py-2 backdrop-blur md:hidden">
+        <div className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur md:hidden">
           <Button
             variant="ghost"
             size="icon"
@@ -257,7 +257,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
       </main>
 
       {/* ============ 移动端底部 Tab 栏 ============ */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-emerald-100 bg-white/95 backdrop-blur md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around border-t border-emerald-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {bottomNavItems.map((item) => {
           const isActive = location.pathname.startsWith(item.to);
           return (
@@ -265,7 +265,7 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
               key={item.to}
               to={item.to}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition-colors",
+                "flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs font-medium transition-colors",
                 isActive
                   ? "text-emerald-600"
                   : "text-emerald-700/50 hover:text-emerald-700"

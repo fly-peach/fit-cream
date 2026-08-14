@@ -20,6 +20,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { api, exerciseFavApi } from "@/lib/api";
+import { resolveStaticUrl } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 import {
@@ -109,9 +110,9 @@ export default function ExerciseDetailPage() {
                 <Card className="overflow-hidden border-emerald-100 bg-white/80">
                   <CardContent className="p-3">
                     <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-emerald-50">
-                      {exercise.gif_url || exercise.image ? (
+                      {resolveStaticUrl(exercise.gif_url) || resolveStaticUrl(exercise.image) ? (
                         <img
-                          src={exercise.gif_url ?? exercise.image ?? ""}
+                          src={resolveStaticUrl(exercise.gif_url ?? exercise.image ?? "")}
                           alt={exercise.name}
                           className="absolute inset-0 size-full object-contain"
                         />

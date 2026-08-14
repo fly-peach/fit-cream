@@ -1,10 +1,19 @@
 import { useState } from "react";
 import { MetadataEditor, MetadataPreview } from "@/components/metadata-editor";
 import { toMetaRows, toMetaDict, type MetaRow } from "@/lib/meta-utils";
+import { ActivityLevelSelector } from "@/components/activity-level-selector";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Loader2, Trash2, UtensilsCrossed, Pencil, Plus, Settings2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -58,6 +67,8 @@ export function DietPlanCard({
   const [targetCarbs, setTargetCarbs] = useState("");
   const [targetFat, setTargetFat] = useState("");
   const [targetsSaving, setTargetsSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DietMeal | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const startEditTargets = () => {
     setTargetCal(String(settings?.calorie_goal ?? 2000));
@@ -166,12 +177,15 @@ export function DietPlanCard({
   };
 
   const deleteMeal = async (mealId: string) => {
-    if (!confirm("确定删除该餐食？")) return;
+    setDeleting(true);
     try {
       const updated = await api.delete<DietPlanDetail>(`/diet-plans/meals/${mealId}`);
       onDietPlanUpdated(updated);
+      setDeleteTarget(null);
     } catch (e) {
       showError((e as Error).message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -411,6 +425,15 @@ export function DietPlanCard({
                       <span className="text-[10px] text-orange-500">g</span>
                     </div>
                   </div>
+                  <ActivityLevelSelector
+                    goal={dietPlan.goal ?? "lose_fat"}
+                    onApply={(t) => {
+                      setTargetCal(String(t.target_calories ?? ""));
+                      setTargetProtein(String(t.protein_g ?? ""));
+                      setTargetCarbs(String(t.carbs_g ?? ""));
+                      setTargetFat(String(t.fat_g ?? ""));
+                    }}
+                  />
                   <div className="flex gap-2">
                     <Button size="sm" className="h-7 text-xs" onClick={saveTargets} disabled={targetsSaving}>
                       {targetsSaving ? "保存中..." : "保存目标"}
@@ -421,7 +444,7 @@ export function DietPlanCard({
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {(
                     [
                       { label: "热量", value: settings?.calorie_goal ?? 2000, unit: "kcal" },
@@ -545,7 +568,7 @@ export function DietPlanCard({
                             <Button variant="ghost" size="icon" className="size-6 text-orange-300 hover:text-orange-600" onClick={() => startEditMeal(meal)}>
                               <Pencil className="size-3" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="size-6 text-red-300 hover:text-red-600" onClick={() => deleteMeal(meal.id)}>
+                            <Button variant="ghost" size="icon" className="size-6 text-red-300 hover:text-red-600" onClick={() => setDeleteTarget(meal)}>
                               <Trash2 className="size-3" />
                             </Button>
                           </div>
@@ -682,6 +705,29 @@ export function DietPlanCard({
           </div>
         )}
       </CardContent>
+
+      <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>删除餐食</DialogTitle>
+            <DialogDescription>
+              确定删除「{deleteTarget?.food_name}」吗？此操作不可撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteTarget && deleteMeal(deleteTarget.id)}
+              disabled={deleting}
+            >
+              {deleting ? "删除中..." : "删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

@@ -21,6 +21,7 @@ from src.fitme.schemas.diet_plan import (
     DietPlanCreate,
     DietPlanUpdate,
 )
+from src.fitme.services import activity_level_service
 from utils.exceptions import ForbiddenException, NotFoundException
 
 
@@ -327,19 +328,41 @@ class DietPlanService:
         days_per_week: int = 7,
         preferences: Optional[str] = None,
         user_data: Optional[dict] = None,
+        activity_level: Optional[str] = None,
     ) -> DietPlan:
         """根据目标智能生成饮食计划（Agent 调用）。
 
-        target_calories 为空时，根据 user_data 的体重 + 目标自动估算：
-        减脂=体重×22，增肌=体重×33，其余=体重×28；无体重则兜底 2000。
+        target_calories 为空时优先用 Mifflin-St Jeor + TDEE（含活动水平档位）换算，
+        身体数据不全则回退旧的体重×系数估算，再兜底 2000。
         """
+        ud = user_data or {}
+        daily_macros: Optional[dict] = None
         if target_calories is None:
-            weight = (user_data or {}).get("weight_kg")
-            if weight:
-                factor = {"lose_fat": 22, "gain_muscle": 33}.get(goal, 28)
-                target_calories = int(weight * factor)
+            targets = activity_level_service.compute_daily_targets(
+                weight_kg=ud.get("weight_kg"),
+                height_cm=ud.get("height_cm"),
+                age=ud.get("age"),
+                gender=ud.get("gender"),
+                activity_level=activity_level,
+                goal=goal,
+            )
+            if targets["target_calories"] is not None:
+                target_calories = targets["target_calories"]
+                daily_macros = {
+                    "protein_g": targets["protein_g"],
+                    "carbs_g": targets["carbs_g"],
+                    "fat_g": targets["fat_g"],
+                }
             else:
-                target_calories = 2000
+                weight = ud.get("weight_kg")
+                if weight:
+                    factor = {"lose_fat": 22, "gain_muscle": 33}.get(goal, 28)
+                    target_calories = int(weight * factor)
+                else:
+                    target_calories = 2000
+
+        if daily_macros is None:
+            daily_macros = activity_level_service.calculate_macros(target_calories, goal)
 
         goal_names = {
             "lose_fat": "减脂饮食",
@@ -358,14 +381,6 @@ class DietPlanService:
         )
         db.add(diet_plan)
         await db.flush()
-
-        macro_ratios = {
-            "lose_fat": {"protein": 0.4, "carbs": 0.3, "fat": 0.3},
-            "gain_muscle": {"protein": 0.35, "carbs": 0.45, "fat": 0.2},
-            "maintain": {"protein": 0.3, "carbs": 0.4, "fat": 0.3},
-            "improve_health": {"protein": 0.3, "carbs": 0.4, "fat": 0.3},
-        }
-        ratios = macro_ratios.get(goal, macro_ratios["maintain"])
 
         meal_calories = {
             "breakfast": int(target_calories * 0.3),
@@ -422,9 +437,9 @@ class DietPlanService:
                     else {"food_name": "健康餐食", "portion": "适量"}
                 )
 
-                protein_g = round(calories * ratios["protein"] / 4, 1)
-                carbs_g = round(calories * ratios["carbs"] / 4, 1)
-                fat_g = round(calories * ratios["fat"] / 9, 1)
+                protein_g = round(daily_macros["protein_g"] * (calories / target_calories), 1)
+                carbs_g = round(daily_macros["carbs_g"] * (calories / target_calories), 1)
+                fat_g = round(daily_macros["fat_g"] * (calories / target_calories), 1)
 
                 meal = DietPlanMeal(
                     id=uuid4(),

@@ -168,6 +168,18 @@ if STATIC_DIR.exists():
             name="exercises-media",
         )
 
+    # Android App 下载：正确 Content-Type + attachment 文件名，避免浏览器下载被改名（apk.1）
+    @app.get("/download-app")
+    async def download_app():
+        apk = STATIC_DIR / "fitcream.apk"
+        if not apk.exists():
+            return JSONResponse({"detail": "APK not found"}, status_code=404)
+        return FileResponse(
+            str(apk),
+            media_type="application/vnd.android.package-archive",
+            filename="fitcream.apk",
+        )
+
     @app.get("/{full_path:path}")
     async def serve_spa(request: Request, full_path: str):
         """SPA fallback: 非 API / 非静态文件请求返回 index.html"""

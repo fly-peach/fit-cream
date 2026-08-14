@@ -20,6 +20,7 @@ API 路由汇总
 """
 from fastapi import APIRouter
 
+from app.routers.activity import router as activity_router
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
 from app.routers.chat import router as chat_router
@@ -45,4 +46,5 @@ api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
 api_router.include_router(knowledge_bases_router)
 api_router.include_router(memory_router)
+api_router.include_router(activity_router)
 api_router.include_router(admin_router, prefix="/admin")

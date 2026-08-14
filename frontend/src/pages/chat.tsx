@@ -87,7 +87,7 @@ import type { PlanQueue } from "@/types/chat";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { api, checkAuthEnvelope } from "@/lib/api";
+import { api, API_URL, checkAuthEnvelope } from "@/lib/api";
 import {
   PlusIcon,
   BotMessageSquareIcon,
@@ -1089,15 +1089,14 @@ export default function ChatPage() {
   // 加载指定线程的历史消息：仅取最近一页（10 条），更早的由向上滚动按需加载。
   // 后端按 created_at 升序 + offset 分页，最后一页即最新消息。
   const loadThreadMessages = useCallback(async (id: string) => {
-    // 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
-    const API_URL = "/api";
     loadedThreadIdRef.current = id;
     nextOlderPageRef.current = 0;
     setHasMore(false);
     try {
       // 首页请求顺带拿 total；消息数不超过一页时它就是完整消息列表
       const res = await fetch(
-        `${API_URL}/chat/threads/${id}/messages?page=1&size=${HISTORY_PAGE_SIZE}`
+        `${API_URL}/chat/threads/${id}/messages?page=1&size=${HISTORY_PAGE_SIZE}`,
+        { credentials: "include" }
       );
       if (!res.ok) return;
       const json = await res.json();
@@ -1108,7 +1107,8 @@ export default function ChatPage() {
       let rows: HistoryMessageRow[] = data.messages || [];
       if (lastPage > 1) {
         const res2 = await fetch(
-          `${API_URL}/chat/threads/${id}/messages?page=${lastPage}&size=${HISTORY_PAGE_SIZE}`
+          `${API_URL}/chat/threads/${id}/messages?page=${lastPage}&size=${HISTORY_PAGE_SIZE}`,
+          { credentials: "include" }
         );
         if (res2.ok) {
           const json2 = await res2.json();
@@ -1135,7 +1135,8 @@ export default function ChatPage() {
     setLoadingOlder(true);
     try {
       const res = await fetch(
-        `/api/chat/threads/${id}/messages?page=${page}&size=${HISTORY_PAGE_SIZE}`
+        `${API_URL}/chat/threads/${id}/messages?page=${page}&size=${HISTORY_PAGE_SIZE}`,
+        { credentials: "include" }
       );
       if (!res.ok) return;
       const json = await res.json();
@@ -1225,16 +1226,16 @@ export default function ChatPage() {
     <AppLayout>
       <div className="relative flex h-full flex-col">
         {/* 页面顶部 header：AI 教练标题 + 新对话按钮（置于最上方） */}
-        <header className="flex shrink-0 items-center justify-between border-b border-emerald-100 bg-white/70 px-4 py-2.5 backdrop-blur">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
+        <header className="flex shrink-0 items-center justify-between gap-2 border-b border-emerald-100 bg-white/70 px-3 py-2 backdrop-blur sm:px-4 sm:py-2.5">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm shadow-emerald-500/20">
               <BotMessageSquareIcon className="size-4 text-white" />
             </div>
-            <div className="leading-tight">
+            <div className="min-w-0 leading-tight">
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-bold text-emerald-950">AI 教练</h1>
+                <h1 className="truncate text-base font-bold text-emerald-950">AI 教练</h1>
                 {isPlanDesignThread && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                  <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 sm:inline-flex">
                     <DumbbellIcon className="size-2.5" />
                     计划设计
                   </span>
@@ -1245,7 +1246,7 @@ export default function ChatPage() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <Context
               usedTokens={usage.total_tokens}
               maxTokens={MAX_CONTEXT_TOKENS}
@@ -1296,7 +1297,7 @@ export default function ChatPage() {
               className="gap-1.5 rounded-lg border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
             >
               <PlusIcon className="size-4" />
-              新对话
+              <span className="hidden sm:inline">新对话</span>
             </Button>
             <Button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1412,7 +1413,7 @@ export default function ChatPage() {
 
         {/* 右侧会话历史抽屉 */}
         {sidebarOpen && (
-          <div className="absolute inset-y-0 right-0 z-20 flex w-80 flex-col border-l border-emerald-100 bg-white/95 shadow-xl backdrop-blur">
+          <div className="absolute inset-y-0 right-0 z-20 flex w-[85vw] max-w-80 flex-col border-l border-emerald-100 bg-white/95 shadow-xl backdrop-blur">
             <div className="flex shrink-0 items-center justify-between border-b border-emerald-100 px-4 py-3">
               <span className="text-sm font-semibold text-emerald-900">会话历史</span>
               <button

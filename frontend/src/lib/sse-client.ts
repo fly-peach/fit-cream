@@ -1,9 +1,6 @@
 import type { SSEEvent } from "@/types/chat";
-import { checkAuthEnvelope, isAuthError } from "@/lib/api";
+import { API_URL, checkAuthEnvelope, isAuthError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
-
-// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
-const API_URL = "/api";
 
 export async function* streamChat(
   message: string,
@@ -23,6 +20,7 @@ export async function* streamChat(
     headers,
     body: JSON.stringify(body),
     signal,
+    credentials: "include",
   });
 
   if (!response.ok) {
@@ -81,6 +79,7 @@ export async function stopGeneration(threadId: string): Promise<void> {
       method: "POST",
       headers,
       body: JSON.stringify({ thread_id: threadId }),
+      credentials: "include",
     });
     checkAuthEnvelope(await res.json().catch(() => null));
   } catch {
@@ -106,6 +105,7 @@ export async function* resumeChat(
     headers,
     body: JSON.stringify({ thread_id: threadId, decisions }),
     signal,
+    credentials: "include",
   });
 
   if (!response.ok) {

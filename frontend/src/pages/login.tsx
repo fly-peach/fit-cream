@@ -18,9 +18,7 @@ import {
   ShieldCheckIcon,
 } from "lucide-react";
 import { Logo } from "@/components/logo";
-
-// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
-const API_URL = "/api";
+import { API_URL } from "@/lib/api";
 
 type Mode = "sms" | "password" | "register" | "reset";
 
@@ -61,6 +59,7 @@ async function authFetch<T = unknown>(path: string, body: unknown): Promise<T> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      credentials: "include",
     });
     json = await res.json();
   } catch {

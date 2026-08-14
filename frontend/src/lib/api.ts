@@ -6,9 +6,10 @@
  * - 401 时自动登出（清除本地会话状态）
  */
 import { useAuthStore } from "@/stores/auth-store";
+import { API_URL } from "@/lib/api-url";
 
-// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
-const API_URL = "/api";
+// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域。
+// App 封装（Capacitor 本地 WebView）时通过 VITE_API_URL 注入绝对地址（见 api-url.ts）。
 
 export class ApiError extends Error {
   code: number;
@@ -65,7 +66,11 @@ async function request<T>(
   };
   if (!isFormData) headers["Content-Type"] = "application/json";
 
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  const res = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
 
   if (res.status === 401) {
     handleAuthExpired(401);

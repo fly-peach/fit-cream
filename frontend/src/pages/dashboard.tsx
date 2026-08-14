@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AppLayout } from "@/components/app-layout";
+import { TodayOverviewBar } from "@/components/today-overview-bar";
 import {
   Flame,
   Dumbbell,
@@ -96,6 +97,7 @@ interface CheckinItem {
   id: string;
   date: string;
   duration_min: number | null;
+  calories_burned: number | null;
   mood: number | null;
   note: string | null;
   exercises: CheckinExercise[];
@@ -501,9 +503,9 @@ function WeeklyVolumeCard({
         </span>
       }
     >
-      <div className="h-40 sm:h-52">
+      <div className="h-32 sm:h-44">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 4, left: -14, bottom: 0 }}>
+          <BarChart data={data} margin={{ top: 10, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
             <XAxis
               dataKey="day"
@@ -511,7 +513,7 @@ function WeeklyVolumeCard({
               axisLine={false}
               tickLine={false}
             />
-            <YAxis tick={{ fill: "#6ee7b7", fontSize: 10 }} axisLine={false} tickLine={false} />
+            <YAxis width={28} tick={{ fill: "#6ee7b7", fontSize: 10 }} axisLine={false} tickLine={false} />
             <Tooltip
               contentStyle={{
                 backgroundColor: "#ffffff",
@@ -566,9 +568,9 @@ function MoodTrendCard({ checkins }: { checkins: CheckinItem[] }) {
           <p className="text-[11px] text-emerald-500/50 sm:text-xs">训练打卡时记录一下当天心情吧</p>
         </div>
       ) : (
-        <div className="h-40 sm:h-52">
+        <div className="h-32 sm:h-44">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={moodData} margin={{ top: 14, right: 8, left: -18, bottom: 0 }}>
+            <AreaChart data={moodData} margin={{ top: 14, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="moodGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.32} />
@@ -787,6 +789,12 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="mx-auto max-w-7xl space-y-4 p-4 sm:space-y-6 sm:p-6">
+              {/* 今日概览条：热量环形图 + 三大营养素 + 缺口提示 */}
+              <TodayOverviewBar
+                trainingCalories={todayCheckin?.calories_burned ?? null}
+                trainingDuration={todayCheckin?.duration_min ?? null}
+              />
+
               {/* 第一行：统计小卡片 */}
               <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
                 {stats.map((stat) => (

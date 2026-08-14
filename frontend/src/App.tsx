@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import { Capacitor } from "@capacitor/core";
 import { useAuthStore } from "@/stores/auth-store";
 import { AdminRoute } from "@/components/admin-route";
 import { AdminLayout } from "@/components/admin/admin-layout";
@@ -31,6 +32,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** 原生 App（Capacitor WebView）不展示首页：已登录直达工作台，未登录跳登录页；Web 端保留首页 */
+const isNativeApp = Capacitor.isNativePlatform();
+
+function EntryRoute() {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (isNativeApp) {
+    return isAuthenticated ? <Navigate to="/dashboard" replace /> : <Navigate to="/login" replace />;
+  }
+  return <HomePage />;
+}
+
 export function App() {
   const isInitialized = useAuthStore((s) => s.isInitialized);
   const fetchCurrentUser = useAuthStore((s) => s.fetchCurrentUser);
@@ -55,7 +67,7 @@ export function App() {
         <Toaster position="top-center" richColors />
         <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<EntryRoute />} />
 
         {/* 用户端 */}
         <Route

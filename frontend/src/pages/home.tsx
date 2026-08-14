@@ -26,6 +26,7 @@ import {
   CalendarDaysIcon,
   ClipboardListIcon,
   SparkleIcon,
+  DownloadIcon,
 } from "lucide-react";
 
 /** GitHub 品牌图标（lucide-react 1.x 已移除品牌图标，内联 SVG 替代） */
@@ -444,6 +445,13 @@ function Hero() {
               className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-7 py-3.5 text-base font-semibold text-emerald-100 backdrop-blur-sm transition-all hover:border-emerald-400/60 hover:bg-emerald-400/20"
             >
               了解功能
+            </a>
+            <a
+              href="/download-app"
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-7 py-3.5 text-base font-semibold text-emerald-100 backdrop-blur-sm transition-all hover:border-emerald-400/60 hover:bg-emerald-400/20"
+            >
+              <DownloadIcon className="size-4" />
+              下载 App
             </a>
           </motion.div>
 

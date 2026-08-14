@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Thread } from "@/types/chat";
-import { checkAuthEnvelope } from "@/lib/api";
-
-// 使用同源相对路径：dev 由 vite proxy 转发，prod 由后端同域托管，避免跨域
-const API_URL = "/api";
+import { API_URL, checkAuthEnvelope } from "@/lib/api";
 
 export function useThreads() {
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -11,7 +8,9 @@ export function useThreads() {
 
   const loadThreads = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/chat/threads`);
+      const res = await fetch(`${API_URL}/chat/threads`, {
+        credentials: "include",
+      });
       if (res.ok) {
         const json = await res.json();
         checkAuthEnvelope(json);
@@ -46,6 +45,7 @@ export function useThreads() {
     try {
       const res = await fetch(`${API_URL}/chat/threads/${id}`, {
         method: "DELETE",
+        credentials: "include",
       });
       checkAuthEnvelope(await res.json().catch(() => null));
       if (!res.ok) return;
@@ -59,6 +59,7 @@ export function useThreads() {
     try {
       const res = await fetch(`${API_URL}/chat/history`, {
         method: "DELETE",
+        credentials: "include",
       });
       checkAuthEnvelope(await res.json().catch(() => null));
       if (!res.ok) return;
@@ -80,6 +81,7 @@ export function useThreads() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: trimmed }),
+        credentials: "include",
       });
       const json = await res.json().catch(() => null);
       checkAuthEnvelope(json);

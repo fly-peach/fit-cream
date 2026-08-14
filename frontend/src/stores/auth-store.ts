@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { API_URL } from "@/lib/api-url";
 
 export interface AuthUser {
   id: string;
@@ -33,7 +34,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   fetchCurrentUser: async () => {
     try {
-      const res = await fetch("/api/auth/me", { method: "GET" });
+      const res = await fetch(`${API_URL}/auth/me`, {
+        method: "GET",
+        credentials: "include",
+      });
       const json = await res.json();
       if (json.code === 0 || json.code === 200) {
         set({
@@ -53,10 +57,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   logout: (reason) => {
     // 尽力清除服务端会话（httpOnly Cookie 由后端删除），失败不影响本地状态
-    fetch("/api/auth/logout", {
+    fetch(`${API_URL}/auth/logout`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "{}",
+      credentials: "include",
     }).catch(() => {});
     set({
       user: null,

@@ -211,8 +211,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       </aside>
 
       {/* ============ 主内容区 ============ */}
-      <main className="flex flex-1 flex-col overflow-hidden pb-16 md:pb-0">
-        <header className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-4 py-2.5 backdrop-blur">
+      <main className="flex flex-1 flex-col overflow-hidden pb-4 md:pb-0">
+        <header className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-4 py-2.5 backdrop-blur pt-[calc(0.625rem+env(safe-area-inset-top))]">
           <Button
             variant="ghost"
             size="icon"

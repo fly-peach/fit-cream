@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api, exerciseFavApi } from "@/lib/api";
+import { resolveStaticUrl } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
 import {
@@ -145,11 +146,11 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
     >
       <CardContent className="flex flex-col gap-2 p-3">
         <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-emerald-50">
-          {ex.image || ex.gif_url ? (
+          {resolveStaticUrl(ex.image) || resolveStaticUrl(ex.gif_url) ? (
             <>
               {ex.image && (
                 <img
-                  src={ex.image}
+                  src={resolveStaticUrl(ex.image)}
                   alt={ex.name}
                   loading="lazy"
                   className="absolute inset-0 size-full object-contain transition-opacity duration-200 group-hover:opacity-0"
@@ -157,7 +158,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
               )}
               {ex.gif_url && (
                 <img
-                  src={ex.gif_url}
+                  src={resolveStaticUrl(ex.gif_url)}
                   alt={ex.name}
                   loading="lazy"
                   className="absolute inset-0 size-full object-contain opacity-0 transition-opacity duration-200 group-hover:opacity-100"
@@ -386,7 +387,7 @@ export default function ExercisesPage() {
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-7xl space-y-5 p-6">
+        <div className="mx-auto max-w-7xl space-y-5 p-3 sm:p-6">
           <header className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100">
