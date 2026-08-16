@@ -17,7 +17,6 @@ export interface Paginated<T> {
 export interface AdminUserListItem {
   id: string;
   phone: string | null;
-  email: string | null;
   name: string | null;
   gender: string | null;
   role: string;
@@ -28,6 +27,8 @@ export interface AdminUserListItem {
   created_at: string;
   plan_count: number;
   checkin_count: number;
+  total_tokens: number;
+  tokens_7d: number;
 }
 
 export interface AdminUserHealthMetric {
@@ -92,11 +93,17 @@ export interface AdminConversationStats {
   threads_7d: number;
 }
 
+export interface AdminTokenStats {
+  total_tokens: number;
+  tokens_7d: number;
+}
+
 export interface AdminOverviewStats {
   users: AdminUsersStats;
   training: AdminTrainingStats;
   kb: AdminKbStats;
   conversation: AdminConversationStats;
+  tokens: AdminTokenStats;
 }
 
 export interface AdminTrends {
@@ -105,6 +112,7 @@ export interface AdminTrends {
   checkins: number[];
   conversations: number[];
   active_users: number[];
+  tokens: number[];
 }
 
 export interface AdminKbListItem {
@@ -118,6 +126,30 @@ export interface AdminKbListItem {
   pending_document_count: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface TokenSourceStat {
+  source: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+}
+
+export interface TokenDailyPoint {
+  usage_date: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface UserTokenUsageOut {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+  by_source: TokenSourceStat[];
+  daily: TokenDailyPoint[];
 }
 
 export interface AdminListUsersParams {
@@ -154,6 +186,8 @@ export const adminApi = {
   getUser: (userId: string) => api.get<AdminUserDetail>(`/admin/users/${userId}`),
   listUserCheckins: (userId: string, limit = 20) =>
     api.get<AdminCheckin[]>(`/admin/users/${userId}/checkins?limit=${limit}`),
+  getUserTokenUsage: (userId: string, days = 30) =>
+    api.get<UserTokenUsageOut>(`/admin/users/${userId}/token-usage?days=${days}`),
   updateUser: (userId: string, data: AdminUserUpdateInput) =>
     api.patch<AdminUserListItem>(`/admin/users/${userId}`, data),
 

@@ -11,6 +11,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.auth_service import AuthService
 from src.agents.models.conversation import Conversation
 from src.fitme.models.checkin import Checkin
 from src.fitme.models.diet_plan import DietPlan
@@ -23,6 +24,7 @@ from src.fitme.schemas.admin import (
     AdminKbListItem,
     AdminKbStats,
     AdminOverviewStats,
+    AdminTokenStats,
     AdminTrainingStats,
     AdminTrends,
     AdminUserDetail,
@@ -34,6 +36,7 @@ from src.fitme.schemas.admin import (
 from src.knowledge_base.models.chunk import KBChunk
 from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.models.knowledge_base import KnowledgeBase
+from src.fitme.services.usage_service import UsageService
 from utils.exceptions import ForbiddenException, NotFoundException
 
 
@@ -72,12 +75,19 @@ class AdminService:
         return counts
 
     @staticmethod
-    async def _to_list_item(db: AsyncSession, user: User) -> AdminUserListItem:
+    async def _to_list_item(
+        db: AsyncSession, user: User, token_map: Optional[dict] = None
+    ) -> AdminUserListItem:
         counts = await AdminService._batch_counts(db, [user.id])
         c = counts.get(user.id, {"plans": 0, "checkins": 0})
+        if token_map is None:
+            token_map = await UsageService.batch_user_totals(db, [user.id])
+        t = token_map.get(user.id, {"total_tokens": 0, "tokens_7d": 0})
         item = AdminUserListItem.model_validate(user)
         item.plan_count = c["plans"]
         item.checkin_count = c["checkins"]
+        item.total_tokens = t["total_tokens"]
+        item.tokens_7d = t["tokens_7d"]
         return item
 
     @staticmethod
@@ -93,7 +103,7 @@ class AdminService:
         if keyword:
             kw = f"%{keyword.strip()}%"
             filters.append(
-                or_(User.phone.ilike(kw), User.name.ilike(kw), User.email.ilike(kw))
+                or_(User.phone.ilike(kw), User.name.ilike(kw))
             )
         if role:
             filters.append(User.role == role)
@@ -112,7 +122,8 @@ class AdminService:
             .limit(size)
         )
         users = list(result.scalars().all())
-        items = [await AdminService._to_list_item(db, u) for u in users]
+        token_map = await UsageService.batch_user_totals(db, [u.id for u in users])
+        items = [await AdminService._to_list_item(db, u, token_map) for u in users]
         return items, total
 
     @staticmethod
@@ -163,8 +174,12 @@ class AdminService:
             )
 
         item = AdminUserDetail.model_validate(user)
+        token_map = await UsageService.batch_user_totals(db, [user.id])
+        t = token_map.get(user.id, {"total_tokens": 0, "tokens_7d": 0})
         item.plan_count = c["plans"]
         item.checkin_count = c["checkins"]
+        item.total_tokens = t["total_tokens"]
+        item.tokens_7d = t["tokens_7d"]
         item.diet_plan_count = diet_plan_count
         item.settings = settings
         item.latest_health_metric = latest_metric
@@ -196,6 +211,31 @@ class AdminService:
 
         await db.flush()
         return await AdminService._to_list_item(db, user)
+
+    @staticmethod
+    async def deactivate_user(db: AsyncSession, user_id: UUID, admin_user: User) -> None:
+        """注销用户（软删 + 数据清理，含自保护：不能注销自己）"""
+        result = await db.execute(
+            select(User).where(User.id == user_id, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("用户不存在")
+        if user.id == admin_user.id:
+            raise ForbiddenException("不能注销自己")
+        await AuthService.deactivate_user(db, user)
+
+    @staticmethod
+    async def reset_password(db: AsyncSession, user_id: UUID) -> tuple[User, str]:
+        """管理员重置密码：生成随机临时密码（不校验旧密码）"""
+        result = await db.execute(
+            select(User).where(User.id == user_id, User.deleted_at.is_(None))
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise NotFoundException("用户不存在")
+        temp = await AuthService.admin_reset_password(db, user)
+        return user, temp
 
     @staticmethod
     async def list_user_checkins(
@@ -297,6 +337,8 @@ class AdminService:
             )
         ).scalar_one()
 
+        total_tokens, tokens_7d = await UsageService.get_overview_totals(db)
+
         return AdminOverviewStats(
             users=AdminUsersStats(
                 total=total_users, new_7d=new_7d, active_7d=active_7d
@@ -317,6 +359,9 @@ class AdminService:
                 total_threads=total_threads,
                 total_messages=total_messages,
                 threads_7d=threads_7d,
+            ),
+            tokens=AdminTokenStats(
+                total_tokens=total_tokens, tokens_7d=tokens_7d
             ),
         )
 
@@ -375,12 +420,15 @@ class AdminService:
         ).all()
         conversations = merge({d: n for d, n in conv_rows})
 
+        token_series = await UsageService.get_trend_series(db, days)
+
         return AdminTrends(
             days=[d.isoformat() for d in series],
             registrations=registrations,
             checkins=checkins,
             conversations=conversations,
             active_users=active_users,
+            tokens=token_series,
         )
 
     # ============================================================

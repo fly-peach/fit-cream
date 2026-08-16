@@ -89,3 +89,31 @@ def verify_refresh_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+def create_password_setup_token(phone: str, expires_minutes: int = 10) -> str:
+    """创建「设置密码」短时令牌（绑定手机号，用于验证码登录未注册时的建号引导）。
+
+    此时用户尚未建号，无法用 user_id 作为 sub，故以 phone 为 sub，
+    并由 type 与 access/refresh 区分，禁止其通过 get_current_user 鉴权。
+    """
+    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    payload = {
+        "sub": phone,
+        "jti": str(uuid4()),
+        "iat": datetime.utcnow(),
+        "exp": expire,
+        "type": "password_setup",
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def verify_password_setup_token(token: str) -> Optional[str]:
+    """验证「设置密码」令牌，返回绑定的手机号；无效/过期/类型不符返回 None。"""
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        if payload.get("type") != "password_setup":
+            return None
+        return payload.get("sub")
+    except JWTError:
+        return None

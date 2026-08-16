@@ -45,6 +45,12 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
 export default function AdminUsersPage() {
   const me = useAuthStore((s) => s.user);
   const [users, setUsers] = useState<AdminUserListItem[]>([]);
@@ -213,6 +219,7 @@ export default function AdminUsersPage() {
                   <th className="px-4 py-3 font-medium">状态</th>
                   <th className="px-4 py-3 font-medium">计划数</th>
                   <th className="px-4 py-3 font-medium">打卡数</th>
+                  <th className="px-4 py-3 font-medium">Token 用量</th>
                   <th className="px-4 py-3 font-medium">最近登录</th>
                   <th className="px-4 py-3 font-medium">注册时间</th>
                   <th className="px-4 py-3 text-right font-medium">操作</th>
@@ -221,13 +228,13 @@ export default function AdminUsersPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-16 text-center text-emerald-500">
+                    <td colSpan={9} className="px-4 py-16 text-center text-emerald-500">
                       <Loader2 className="mx-auto size-5 animate-spin" />
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-16 text-center text-sm text-emerald-600/50">
+                    <td colSpan={9} className="px-4 py-16 text-center text-sm text-emerald-600/50">
                       暂无用户
                     </td>
                   </tr>
@@ -242,7 +249,7 @@ export default function AdminUsersPage() {
                           {u.name || "未设置姓名"}
                         </p>
                         <p className="truncate text-xs text-emerald-600/60">
-                          {u.phone || u.email || u.id}
+                          {u.phone || u.id}
                         </p>
                       </td>
                       <td className="px-4 py-3">
@@ -256,6 +263,12 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-4 py-3 tabular-nums text-emerald-900">
                         {u.checkin_count}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-emerald-900">
+                        <span className="font-medium">{formatTokens(u.total_tokens)}</span>
+                        <span className="ml-1 text-xs text-emerald-500/70">
+                          /7d {formatTokens(u.tokens_7d)}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-emerald-600/70">
                         {u.last_login_at

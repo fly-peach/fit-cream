@@ -231,6 +231,23 @@ async def shutdown_agent():
         pass
 
 
+async def delete_user_checkpoints(thread_ids: list[str]) -> int:
+    """按 thread_id 删除 LangGraph checkpoint 状态（账户注销数据清理用）。
+
+    返回删除的线程数；checkpointer 未初始化或无 thread_ids 时返回 0。
+    """
+    if not thread_ids or _checkpointer is None:
+        return 0
+    deleted = 0
+    for tid in thread_ids:
+        try:
+            await _checkpointer.adelete_thread(tid)
+            deleted += 1
+        except Exception:
+            pass
+    return deleted
+
+
 def get_agent():
     """
     获取当前 Agent 实例。

@@ -379,9 +379,9 @@ function DetailLink({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200/60 transition-colors hover:bg-emerald-100 hover:text-emerald-800"
+      className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200/60 transition-colors hover:bg-emerald-100 hover:text-emerald-800"
     >
-      <ExternalLinkIcon className="size-3.5" />
+      <ExternalLinkIcon className="size-3" />
       查看详情
     </a>
   );
@@ -394,10 +394,10 @@ function DetailLinkInline({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-medium text-emerald-600 transition-colors hover:text-emerald-800 hover:underline"
+      className="inline-flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-emerald-600 transition-colors hover:text-emerald-800 hover:underline"
     >
       详情
-      <ExternalLinkIcon className="size-3" />
+      <ExternalLinkIcon className="size-2.5" />
     </a>
   );
 }
@@ -418,13 +418,13 @@ function InputSummary({ input }: { input: Record<string, unknown> }) {
   );
   if (!entries.length) return null;
   return (
-    <div className="space-y-1">
-      <p className="text-[11px] font-medium text-emerald-700/55">输入</p>
-      <div className="flex flex-wrap gap-1.5">
+    <div className="space-y-0.5">
+      <p className="text-[10px] font-medium text-emerald-700/55">输入</p>
+      <div className="flex flex-wrap gap-1">
         {entries.map(([k, v]) => (
           <span
             key={k}
-            className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-2 py-0.5 text-[11px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
+            className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
           >
             <span className="text-emerald-700/55">{labelFor(k)}</span>
             <span className="font-medium text-emerald-950">{formatScalar(v, k)}</span>
@@ -440,11 +440,11 @@ function InputSummary({ input }: { input: Record<string, unknown> }) {
 function MetricRow({ metrics }: { metrics: Metric[] }) {
   if (!metrics.length) return null;
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {metrics.map((m, i) => (
         <span
           key={i}
-          className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-2 py-0.5 text-[11px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
+          className="inline-flex items-baseline gap-1 rounded-md bg-white/80 px-1.5 py-0.5 text-[10px] shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]"
         >
           <span className="text-emerald-700/55">{m.label}</span>
           <span className="font-medium text-emerald-950">{m.value}</span>
@@ -486,9 +486,9 @@ function ResultItem({
     .map((k) => item[k])
     .filter((v) => v !== null && v !== undefined && v !== "");
   return (
-    <div className="rounded-lg bg-white/80 px-2.5 py-1.5 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
+    <div className="rounded-lg bg-white/80 px-2 py-1 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.1)]">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-semibold text-emerald-950">
+        <span className="truncate text-[11px] font-semibold text-emerald-950">
           {title != null ? formatScalar(title, cfg.titleKey) : "—"}
         </span>
         {url && <DetailLinkInline url={url} />}
@@ -498,7 +498,7 @@ function ResultItem({
           {tags.map((t, i) => (
             <span
               key={i}
-              className="rounded-full bg-emerald-50/60 px-1.5 py-0.5 text-[10px] text-emerald-700"
+              className="rounded-full bg-emerald-50/60 px-1 py-0.5 text-[9px] text-emerald-700"
             >
               {formatScalar(t)}
             </span>
@@ -574,11 +574,11 @@ function OutputSummary({
     const hasContent = !!displayText || metrics.length > 0 || !!detailLink;
     if (!hasContent) return null;
     return (
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {displayText && (
-          <div className="space-y-1">
-            <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
-            <p className="whitespace-pre-line text-xs leading-relaxed text-emerald-950/85">{displayText}</p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] font-medium text-emerald-700/55">输出</p>
+            <p className="whitespace-pre-line text-[11px] leading-relaxed text-emerald-950/85">{displayText}</p>
           </div>
         )}
         {metrics.length > 0 && <MetricRow metrics={metrics} />}
@@ -598,19 +598,19 @@ function OutputSummary({
       .map((it) => (it && typeof it === "object" ? (it as Record<string, unknown>) : null))
       .filter((x): x is Record<string, unknown> => x !== null);
     return (
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {summaryText && (
-          <div className="space-y-1">
-            <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
-            <p className="text-xs leading-relaxed text-emerald-950/85">{summaryText}</p>
+          <div className="space-y-0.5">
+            <p className="text-[10px] font-medium text-emerald-700/55">输出</p>
+            <p className="text-[11px] leading-relaxed text-emerald-950/85">{summaryText}</p>
           </div>
         )}
         {items.length > 0 && cfg && (
           <div className="space-y-1">
-            <p className="text-[11px] font-medium text-emerald-700/55">
+            <p className="text-[10px] font-medium text-emerald-700/55">
               结果（{items.length}）
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {items.map((it, i) => (
                 <ResultItem key={i} item={it} cfg={cfg} toolName={tc.name} />
               ))}
@@ -628,11 +628,11 @@ function OutputSummary({
   const hasContent = !!result.text || result.metrics.length > 0 || !!result.detailLink;
   if (!hasContent) return null;
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       {result.text && (
-        <div className="space-y-1">
-          <p className="text-[11px] font-medium text-emerald-700/55">输出</p>
-          <p className="text-xs leading-relaxed text-emerald-950/85">{result.text}</p>
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-medium text-emerald-700/55">输出</p>
+          <p className="text-[11px] leading-relaxed text-emerald-950/85">{result.text}</p>
         </div>
       )}
       {result.metrics.length > 0 && <MetricRow metrics={result.metrics} />}
@@ -671,11 +671,11 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
     : "";
 
   const body = (
-    <div className="space-y-2.5">
+    <div className="space-y-1.5">
       {hasInput && <InputSummary input={tc.input} />}
       {!running && failed && errorMsg && (
-        <div className="flex items-start gap-2 rounded-md bg-red-50 px-2.5 py-2 text-xs leading-relaxed text-red-700 ring-1 ring-red-200/60">
-          <XCircleIcon className="mt-0.5 size-3.5 shrink-0" />
+        <div className="flex items-start gap-1.5 rounded-md bg-red-50 px-2 py-1.5 text-[11px] leading-relaxed text-red-700 ring-1 ring-red-200/60">
+          <XCircleIcon className="mt-0.5 size-3 shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
@@ -689,44 +689,44 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
   }
 
   const header = (
-    <div className="flex w-full items-center gap-3 px-3 py-2.5 text-left">
+    <div className="flex w-full items-center gap-2 px-2 py-1.5 text-left">
       <span
         className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
+          "flex size-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
           tint,
           running && "animate-pulse"
         )}
       >
-        <Icon className="size-4" />
+        <Icon className="size-3.5" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-emerald-950">{title}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-xs font-semibold text-emerald-950">{title}</span>
           {running ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200/70">
-              <Loader2Icon className="size-3 animate-spin" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1 py-0.5 text-[9px] font-medium text-amber-700 ring-1 ring-amber-200/70">
+              <Loader2Icon className="size-2.5 animate-spin" />
               执行中
             </span>
           ) : interrupted ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-slate-200/70">
-              <ClockIcon className="size-3" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-slate-50 px-1 py-0.5 text-[9px] font-medium text-slate-600 ring-1 ring-slate-200/70">
+              <ClockIcon className="size-2.5" />
               待审批
             </span>
           ) : failed ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200/70">
-              <XCircleIcon className="size-3" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1 py-0.5 text-[9px] font-medium text-red-700 ring-1 ring-red-200/70">
+              <XCircleIcon className="size-2.5" />
               失败
             </span>
           ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-200/70">
-              <CheckCircle2Icon className="size-3" />
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-50 px-1 py-0.5 text-[9px] font-medium text-emerald-700 ring-1 ring-emerald-200/70">
+              <CheckCircle2Icon className="size-2.5" />
               完成
             </span>
           )}
         </span>
         <span
           className={cn(
-            "truncate text-xs",
+            "truncate text-[11px]",
             failed ? "text-red-600/80" : "text-emerald-700/60"
           )}
         >
@@ -764,7 +764,7 @@ export function ToolCallCard({ tc, embedded = false }: { tc: ToolCall; embedded?
           </CollapsibleTrigger>
           {open && (
             <CollapsibleContent>
-              <div className="border-t border-emerald-100/70 bg-emerald-50/40 px-3 py-3">
+              <div className="border-t border-emerald-100/70 bg-emerald-50/40 px-2 py-2">
                 {body}
               </div>
             </CollapsibleContent>

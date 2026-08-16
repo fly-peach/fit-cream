@@ -20,12 +20,14 @@ import {
 import { Logo } from "@/components/logo";
 import { API_URL } from "@/lib/api";
 
-type Mode = "sms" | "password" | "register" | "reset";
+type Mode = "sms" | "password" | "register" | "reset" | "setPassword";
+
+type CodeMode = "sms" | "register" | "reset";
 
 const CODE_LENGTH = 4;
 
 /** 验证码对应的后端 code_type */
-const CODE_TYPE: Record<Exclude<Mode, "password">, string> = {
+const CODE_TYPE: Record<CodeMode, string> = {
   sms: "login",
   register: "register",
   reset: "reset_password",
@@ -44,6 +46,14 @@ interface AuthData {
   role: string;
   name?: string | null;
   phone?: string | null;
+}
+
+/** 短信验证码登录响应：未注册返回 requires_password_setup + setup_token */
+interface SmsLoginData {
+  requires_password_setup: boolean;
+  setup_token?: string | null;
+  phone?: string | null;
+  user?: AuthData | null;
 }
 
 /**
@@ -285,6 +295,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
@@ -303,13 +314,16 @@ export default function LoginPage() {
   }, [countdown]);
 
   const isLoginMode = mode === "sms" || mode === "password";
-  const needsCode = mode !== "password";
+  const needsCode = mode === "sms" || mode === "register" || mode === "reset";
+  const needsPassword =
+    mode === "password" || mode === "register" || mode === "reset" || mode === "setPassword";
 
   const switchMode = (next: Mode) => {
     setMode(next);
     // 清空验证码与密码，避免跨模式残留（如重置码被带进验证码登录导致误导报错）
     setCode("");
     setPassword("");
+    setSetupToken("");
     setError("");
     setNotice("");
     clearLogoutReason();
@@ -346,7 +360,7 @@ export default function LoginPage() {
       } else {
         await authFetch("/auth/send-verification-code", {
           phone,
-          code_type: CODE_TYPE[mode as Exclude<Mode, "password">],
+          code_type: CODE_TYPE[mode as CodeMode],
         });
       }
       setCountdown(60);
@@ -372,7 +386,22 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (mode === "sms") {
-        finishAuth(await authFetch<AuthData>("/auth/sms-login", { phone, code }));
+        const data = await authFetch<SmsLoginData>("/auth/sms-login", { phone, code });
+        if (data?.requires_password_setup) {
+          setSetupToken(data.setup_token ?? "");
+          setMode("setPassword");
+          setNotice("该手机号尚未注册，请设置登录密码");
+          return;
+        }
+        finishAuth(data?.user ?? null);
+      } else if (mode === "setPassword") {
+        finishAuth(
+          await authFetch<AuthData>("/auth/setup-password", {
+            setup_token: setupToken,
+            password,
+            name: name || null,
+          })
+        );
       } else if (mode === "password") {
         finishAuth(await authFetch<AuthData>("/auth/login", { phone, password }));
       } else if (mode === "register") {
@@ -398,13 +427,21 @@ export default function LoginPage() {
   };
 
   const title =
-    mode === "register" ? "创建账号" : mode === "reset" ? "重置密码" : "欢迎回来";
+    mode === "register"
+      ? "创建账号"
+      : mode === "reset"
+        ? "重置密码"
+        : mode === "setPassword"
+          ? "设置密码"
+          : "欢迎回来";
   const subtitle =
     mode === "register"
       ? "开启你的科学健身之旅"
       : mode === "reset"
         ? "验证手机号后设置新密码"
-        : "登录你的 FitCream 账号";
+        : mode === "setPassword"
+          ? "该手机号尚未注册，请设置登录密码"
+          : "登录你的 FitCream 账号";
 
   const inputCls =
     "h-12 rounded-xl border-emerald-200 bg-emerald-50/50 text-emerald-950 transition-all placeholder:text-emerald-400 focus-visible:border-emerald-400 focus-visible:bg-white focus-visible:ring-emerald-500/20";
@@ -499,7 +536,7 @@ export default function LoginPage() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-5">
-              {mode === "register" && (
+              {mode === "register" || mode === "setPassword" ? (
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-emerald-900">昵称</label>
                   <Input
@@ -509,7 +546,7 @@ export default function LoginPage() {
                     className={inputCls}
                   />
                 </div>
-              )}
+              ) : null}
 
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-emerald-900">手机号</label>
@@ -521,6 +558,7 @@ export default function LoginPage() {
                   required
                   pattern="[0-9]{11}"
                   maxLength={11}
+                  disabled={mode === "setPassword"}
                   className={inputCls}
                 />
               </div>
@@ -546,7 +584,7 @@ export default function LoginPage() {
                 </div>
               )}
 
-              {(mode === "password" || mode === "register" || mode === "reset") && (
+              {needsPassword && (
                 <div className="space-y-2">
                   <label className="text-sm font-semibold text-emerald-900">
                     {mode === "reset" ? "新密码" : "密码"}
@@ -600,6 +638,8 @@ export default function LoginPage() {
                   "创建账号"
                 ) : mode === "reset" ? (
                   "重置密码"
+                ) : mode === "setPassword" ? (
+                  "设置密码并进入"
                 ) : (
                   "登录"
                 )}
@@ -627,7 +667,11 @@ export default function LoginPage() {
                 </>
               ) : (
                 <span className="w-full text-center text-emerald-800/60">
-                  {mode === "register" ? "已有账号？" : "想起密码了？"}
+                  {mode === "register"
+                    ? "已有账号？"
+                    : mode === "setPassword"
+                      ? "返回登录"
+                      : "想起密码了？"}
                   <button
                     type="button"
                     className="ml-1 font-semibold text-emerald-600 transition-colors hover:text-emerald-500 hover:underline"

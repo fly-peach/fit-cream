@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from langchain_core.messages import BaseMessage
 from langchain_core.language_models import BaseChatModel
 
+from src.fitme.services.usage_service import SOURCE_MEMORY_EXTRACTION, UsageService
+
 logger = logging.getLogger("fitcream.memory")
 
 
@@ -177,7 +179,18 @@ class MemoryExtractor:
                 ("system", "你是一个记忆提取专家，请按要求输出 JSON 格式。"),
                 ("human", prompt),
             ])
-            
+
+            usage = getattr(response, "usage_metadata", None) or {}
+            if usage:
+                await UsageService.record_background(
+                    user_id=user_id,
+                    source=SOURCE_MEMORY_EXTRACTION,
+                    input_tokens=usage.get("input_tokens", 0) or 0,
+                    output_tokens=usage.get("output_tokens", 0) or 0,
+                    total_tokens=usage.get("total_tokens", 0) or 0,
+                    llm_calls=1,
+                )
+
             # 解析响应
             result = self._parse_response(response.content)
             

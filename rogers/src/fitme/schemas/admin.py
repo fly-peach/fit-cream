@@ -18,7 +18,6 @@ class AdminUserListItem(BaseModel):
 
     id: UUID
     phone: Optional[str] = None
-    email: Optional[str] = None
     name: Optional[str] = None
     gender: Optional[str] = None
     role: str = "user"
@@ -29,6 +28,8 @@ class AdminUserListItem(BaseModel):
     created_at: datetime
     plan_count: int = 0
     checkin_count: int = 0
+    total_tokens: int = 0
+    tokens_7d: int = 0
 
 
 class AdminUserHealthMetric(BaseModel):
@@ -62,6 +63,12 @@ class AdminUserUpdate(BaseModel):
 
     is_active: Optional[bool] = None
     role: Optional[str] = Field(default=None, pattern="^(user|admin)$")
+
+
+class AdminResetPasswordOut(BaseModel):
+    """管理端重置密码返回（临时密码明文仅返回一次）"""
+
+    new_password: str
 
 
 class AdminCheckinOut(BaseModel):
@@ -120,6 +127,11 @@ class AdminConversationStats(BaseModel):
     threads_7d: int = 0
 
 
+class AdminTokenStats(BaseModel):
+    total_tokens: int = 0
+    tokens_7d: int = 0
+
+
 class AdminOverviewStats(BaseModel):
     """总览 KPI（四维度）"""
 
@@ -127,6 +139,7 @@ class AdminOverviewStats(BaseModel):
     training: AdminTrainingStats = Field(default_factory=AdminTrainingStats)
     kb: AdminKbStats = Field(default_factory=AdminKbStats)
     conversation: AdminConversationStats = Field(default_factory=AdminConversationStats)
+    tokens: AdminTokenStats = Field(default_factory=AdminTokenStats)
 
 
 class AdminTrends(BaseModel):
@@ -137,3 +150,4 @@ class AdminTrends(BaseModel):
     checkins: list[int] = Field(default_factory=list)
     conversations: list[int] = Field(default_factory=list)
     active_users: list[int] = Field(default_factory=list)
+    tokens: list[int] = Field(default_factory=list)

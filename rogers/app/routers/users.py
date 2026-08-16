@@ -14,6 +14,7 @@ from app.dependencies import get_current_user
 from src.auth.api_key_service import UserApiKeyService
 from src.fitme.models.user import User
 from src.fitme.schemas.common import PaginatedResponse, ResponseModel
+from src.fitme.schemas.usage import UserTokenUsageOut
 from src.fitme.schemas.user import (
     HealthMetricCreate,
     HealthMetricOut,
@@ -27,6 +28,7 @@ from src.fitme.schemas.user import (
     UserUpdate,
 )
 from src.fitme.services.user_service import UserService
+from src.fitme.services.usage_service import UsageService
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -43,6 +45,17 @@ async def get_me(current_user: User = Depends(get_current_user), db: AsyncSessio
         "goal": profile["goal"],
         "age": profile["age"],
     }))
+
+
+@router.get("/me/token-usage", response_model=ResponseModel[UserTokenUsageOut], operation_id="get_my_token_usage")
+async def get_my_token_usage(
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户 token 用量（累计 + 分来源 + 近 N 天日趋势）"""
+    summary = await UsageService.get_user_summary(db, current_user.id, days)
+    return ResponseModel(data=summary)
 
 
 @router.put("/me", response_model=ResponseModel[UserOut], operation_id="update_me")

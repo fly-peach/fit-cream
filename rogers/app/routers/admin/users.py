@@ -15,12 +15,15 @@ from app.dependencies import get_admin_user
 from src.fitme.models.user import User
 from src.fitme.schemas.admin import (
     AdminCheckinOut,
+    AdminResetPasswordOut,
     AdminUserDetail,
     AdminUserListItem,
     AdminUserUpdate,
 )
 from src.fitme.schemas.common import PaginatedResponse, ResponseModel
+from src.fitme.schemas.usage import UserTokenUsageOut
 from src.fitme.services.admin_service import AdminService
+from src.fitme.services.usage_service import UsageService
 
 router = APIRouter(prefix="/users", tags=["admin-users"])
 
@@ -79,6 +82,22 @@ async def admin_list_user_checkins(
     return ResponseModel(data=items)
 
 
+@router.get(
+    "/{user_id}/token-usage",
+    response_model=ResponseModel[UserTokenUsageOut],
+    operation_id="admin_get_user_token_usage",
+)
+async def admin_get_user_token_usage(
+    user_id: UUID,
+    days: int = Query(30, ge=1, le=365),
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """用户 token 用量（admin）"""
+    summary = await UsageService.get_user_summary(db, user_id, days)
+    return ResponseModel(data=summary)
+
+
 @router.patch(
     "/{user_id}",
     response_model=ResponseModel[AdminUserListItem],
@@ -100,3 +119,35 @@ async def admin_update_user(
     )
     await db.commit()
     return ResponseModel(data=item)
+
+
+@router.delete(
+    "/{user_id}",
+    response_model=ResponseModel[None],
+    operation_id="admin_delete_user",
+)
+async def admin_delete_user(
+    user_id: UUID,
+    admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """注销用户（软删 + 数据清理，admin，含自保护）"""
+    await AdminService.deactivate_user(db, user_id, admin)
+    await db.commit()
+    return ResponseModel(message="已注销该用户")
+
+
+@router.post(
+    "/{user_id}/reset-password",
+    response_model=ResponseModel[AdminResetPasswordOut],
+    operation_id="admin_reset_password",
+)
+async def admin_reset_password(
+    user_id: UUID,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重置用户密码（返回一次性临时密码）"""
+    _user, temp = await AdminService.reset_password(db, user_id)
+    await db.commit()
+    return ResponseModel(data=AdminResetPasswordOut(new_password=temp))

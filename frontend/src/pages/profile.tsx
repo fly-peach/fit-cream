@@ -17,7 +17,6 @@ import { api } from "@/lib/api";
 interface UserProfile {
   id: string;
   phone: string | null;
-  email: string | null;
   name: string | null;
   height_cm: number | null;
   weight_kg: number | null;
@@ -26,6 +25,14 @@ interface UserProfile {
   gender: string | null;
   goal: string | null;
   created_at: string;
+}
+
+interface TokenUsage {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  llm_calls: number;
+  by_source: { source: string; total_tokens: number; llm_calls: number }[];
 }
 
 const genderOptions = [
@@ -41,6 +48,13 @@ const goalOptions = [
   { value: "improve_health", label: "改善体质" },
 ];
 
+const sourceLabels: Record<string, string> = {
+  chat: "对话",
+  memory_extraction: "记忆提取",
+  memory_consolidation: "记忆整合",
+  embedding: "向量化",
+};
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [form, setForm] = useState({
@@ -55,6 +69,14 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [usage, setUsage] = useState<TokenUsage | null>(null);
+
+  useEffect(() => {
+    api
+      .get<TokenUsage>("/users/me/token-usage?days=30")
+      .then(setUsage)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     api
@@ -257,6 +279,59 @@ export default function ProfilePage() {
                       {saved ? "已保存" : "保存资料"}
                     </Button>
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold text-emerald-950">
+                    Token 用量
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {usage ? (
+                    <>
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div className="rounded-xl bg-emerald-50/60 py-3">
+                          <p className="text-xs text-emerald-600/60">累计</p>
+                          <p className="text-xl font-bold tabular-nums text-emerald-950">
+                            {usage.total_tokens.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-50/60 py-3">
+                          <p className="text-xs text-emerald-600/60">输入</p>
+                          <p className="text-xl font-bold tabular-nums text-emerald-950">
+                            {usage.input_tokens.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-50/60 py-3">
+                          <p className="text-xs text-emerald-600/60">输出</p>
+                          <p className="text-xl font-bold tabular-nums text-emerald-950">
+                            {usage.output_tokens.toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      {usage.by_source.length > 0 && (
+                        <div className="space-y-1.5 text-sm">
+                          {usage.by_source.map((s) => (
+                            <div
+                              key={s.source}
+                              className="flex items-center justify-between rounded-lg bg-emerald-50/40 px-3 py-2"
+                            >
+                              <span className="text-emerald-800">
+                                {sourceLabels[s.source] ?? s.source}
+                              </span>
+                              <span className="tabular-nums text-emerald-900">
+                                {s.total_tokens.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-emerald-600/50">暂无用量数据</p>
+                  )}
                 </CardContent>
               </Card>
 

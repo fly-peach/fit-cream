@@ -15,13 +15,17 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from src.auth.auth import (
     ChangePasswordRequest,
+    ChangePhoneRequest,
+    DeactivateRequest,
     LoginRequest,
     LogoutRequest,
+    PasswordSetupRequest,
     RefreshRequest,
     RegisterRequest,
     RequestPasswordResetRequest,
     ResetPasswordRequest,
     SendVerificationCodeRequest,
+    SmsLoginOut,
     SmsLoginRequest,
     TokenPair,
     VerifyCodeRequest,
@@ -115,15 +119,42 @@ async def login(
     return ResponseModel(data=UserOut.model_validate(user))
 
 
-@router.post("/sms-login", response_model=ResponseModel[UserOut])
+@router.post("/sms-login", response_model=ResponseModel[SmsLoginOut])
 async def sms_login(
     data: SmsLoginRequest,
     request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ):
-    user, tokens = await AuthService.sms_login(
+    result = await AuthService.sms_login(
         db, data.phone, data.code,
+        ip=_get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await db.commit()
+    if result.requires_password_setup:
+        return ResponseModel(data=SmsLoginOut(
+            requires_password_setup=True,
+            setup_token=result.setup_token,
+            phone=result.phone,
+        ))
+    _set_auth_cookies(response, result.tokens)
+    return ResponseModel(data=SmsLoginOut(
+        requires_password_setup=False,
+        user=UserOut.model_validate(result.user),
+    ))
+
+
+@router.post("/setup-password", response_model=ResponseModel[UserOut])
+async def setup_password(
+    data: PasswordSetupRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    """验证码登录未注册用户设置密码并建号"""
+    user, tokens = await AuthService.setup_password(
+        db, data.setup_token, data.password, data.name,
         ip=_get_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
@@ -168,6 +199,42 @@ async def change_password(
     )
     await db.commit()
     return ResponseModel(message="密码修改成功")
+
+
+@router.post("/change-phone", response_model=ResponseModel[None])
+async def change_phone(
+    data: ChangePhoneRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """换绑手机号（验证码发送至新手机号）"""
+    await AuthService.change_phone(
+        db, user, data.new_phone, data.code,
+        ip=_get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await db.commit()
+    return ResponseModel(message="手机号更换成功")
+
+
+@router.post("/deactivate", response_model=ResponseModel[None])
+async def deactivate_me(
+    data: DeactivateRequest,
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """注销当前账号（软删 + 清理对话/记忆/checkpoint）"""
+    await AuthService.confirm_deactivate(
+        db, user, data.password, data.verification_code,
+        ip=_get_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+    )
+    await db.commit()
+    _clear_auth_cookies(response)
+    return ResponseModel(message="账号已注销")
 
 
 @router.post("/logout", response_model=ResponseModel[None])

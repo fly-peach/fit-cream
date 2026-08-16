@@ -44,6 +44,7 @@ from src.agents.models.memory import (
     EpisodicMemory,
     SemanticMemory,
     ProceduralMemory,
+    MemoryConsolidationLog,
 )
 
 
@@ -899,6 +900,35 @@ class MemoryStore:
     # ============================================================
     # 工具方法
     # ============================================================
+
+    async def delete_all_user(self, user_id: str) -> dict:
+        """删除用户全部记忆（情景/语义/程序性 + 整合日志），用于账户注销。
+
+        user_id 为 str（对应用户 UUID 字符串）。先删语义（其 source_episodic_id
+        外键引用情景）再删情景，避免外键约束冲突。
+        """
+        stats = {"episodic": 0, "semantic": 0, "procedural": 0, "consolidation_logs": 0}
+        async with self.async_session() as session:
+            r = await session.execute(
+                delete(SemanticMemory).where(SemanticMemory.user_id == user_id)
+            )
+            stats["semantic"] = r.rowcount
+            r = await session.execute(
+                delete(EpisodicMemory).where(EpisodicMemory.user_id == user_id)
+            )
+            stats["episodic"] = r.rowcount
+            r = await session.execute(
+                delete(ProceduralMemory).where(ProceduralMemory.user_id == user_id)
+            )
+            stats["procedural"] = r.rowcount
+            r = await session.execute(
+                delete(MemoryConsolidationLog).where(
+                    MemoryConsolidationLog.user_id == user_id
+                )
+            )
+            stats["consolidation_logs"] = r.rowcount
+            await session.commit()
+        return stats
     
     @staticmethod
     def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:

@@ -116,7 +116,6 @@ export default function AdminUserDetailPage() {
             </h1>
             <p className="text-sm text-emerald-600/60">
               {user.phone || "无手机号"}
-              {user.email ? ` · ${user.email}` : ""}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -187,11 +186,7 @@ export default function AdminUserDetailPage() {
                   <dd className="text-emerald-900">{user.gender || "—"}</dd>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <dt className="text-emerald-600/60">邮箱</dt>
-                  <dd className="truncate text-emerald-900">{user.email || "—"}</dd>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <dt className="text-emerald-600/60">邮箱验证</dt>
+                  <dt className="text-emerald-600/60">手机号验证</dt>
                   <dd className="text-emerald-900">{user.is_verified ? "已验证" : "未验证"}</dd>
                 </div>
                 <div className="flex justify-between gap-4">
@@ -223,6 +218,14 @@ export default function AdminUserDetailPage() {
                       locale: zhCN,
                     })}
                   </dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-emerald-600/60">Token 累计用量</dt>
+                  <dd className="text-emerald-900">{user.total_tokens.toLocaleString()}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-emerald-600/60">Token 近 7 天</dt>
+                  <dd className="text-emerald-900">{user.tokens_7d.toLocaleString()}</dd>
                 </div>
               </dl>
 

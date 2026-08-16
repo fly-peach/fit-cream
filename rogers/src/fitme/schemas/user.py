@@ -105,7 +105,6 @@ class UserOut(BaseModel):
 
     id: UUID
     phone: Optional[str] = None
-    email: Optional[str] = None
     name: Optional[str] = None
     role: str = "user"
     birth_date: Optional[date] = None

@@ -21,6 +21,7 @@ from src.agents.harness.runtime.conversation_service import ConversationService
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
 from src.fitme.models.user import User
+from src.fitme.services.usage_service import UsageService
 from src.agents.schemas.chat import (
     ChatRequest,
     MessageOut,
@@ -250,15 +251,15 @@ async def _detect_interrupts(agent, config) -> list[dict]:
     return _extract_pending_approvals(state)
 
 
-def _mark_interrupted_tools(steps: list) -> None:
-    """把仍处于 running 的工具步骤标记为 interrupted（HITL 中断时调用）。
+def _mark_stale_tools(steps: list, status: str) -> None:
+    """把仍处于 running 的工具步骤就地改写为指定状态。
 
-    中断发生在 on_tool_start 之后、on_tool_end 之前，被中断的工具没有 tool_result，
-    步骤会停留在 running。这里就地改写状态，避免前端在历史里永久显示转圈。
+    中断/异常发生在 on_tool_start 之后、on_tool_end 之前时，被中断的工具
+    没有 tool_result，步骤会停留在 running。这里统一改写，避免前端永久转圈。
     """
     for s in steps:
         if isinstance(s, dict) and s.get("type") == "tool" and s.get("status") == "running":
-            s["status"] = "interrupted"
+            s["status"] = status
 
 
 class StopRequest(BaseModel):
@@ -339,7 +340,9 @@ async def _run_agent_sse(
     steps: list[dict] = []   # ReAct 步骤序列
     pending_thought: Optional[dict] = None
     pending_reply: Optional[dict] = None
-    _current_tool: Optional[dict] = None
+    # 按 run_id 索引进行中的工具：并行工具调用时 on_tool_start/end 事件交错，
+    # 单指针跟踪会丢失先启动的工具，导致其永远停留在 running
+    _tools_by_run_id: dict[str, dict] = {}
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     run_usage: dict[str, dict[str, int]] = {}
     # FR-3: 请求级累加 token（区别于非累加的 usage「最近一次上下文大小」）
@@ -355,6 +358,7 @@ async def _run_agent_sse(
     try:
         async for event in agent.astream_events(input_or_command, config=config, version="v2"):
             if stop_event.is_set():
+                _mark_stale_tools(steps, "interrupted")
                 if full_content or full_thinking:
                     await ConversationService.save_message(
                         stream_db, user.id, thread_id, "assistant", full_content,
@@ -445,7 +449,7 @@ async def _run_agent_sse(
                     "status": "running",
                 }
                 steps.append(tool_step)
-                _current_tool = tool_step
+                _tools_by_run_id[run_id] = tool_step
                 tool_calls.append(tool_step)
                 # SSE 事件使用截断后的入参，防止单事件超出 nginx 缓冲区
                 sse_input = _truncate_tool_input(tool_input or {})
@@ -464,23 +468,28 @@ async def _run_agent_sse(
             elif kind == "on_tool_end":
                 raw_output = event["data"].get("output", "")
                 output_str = _serialize_tool_output(raw_output)
-                tool_id = None
-                if _current_tool is not None:
-                    tool_id = _current_tool["id"]
-                    _current_tool["output"] = output_str[:2000]
-                    _current_tool["status"] = "completed"
+                tool_step = _tools_by_run_id.pop(event.get("run_id"), None)
+                if tool_step is not None:
+                    tool_id = tool_step["id"]
+                    tool_step["output"] = output_str[:2000]
+                    tool_step["status"] = "completed"
                     yield _sse_event("step", {
                         "type": "tool_result",
                         "id": tool_id,
                         "tool": event["name"],
                         "data": output_str[:2000],
                     })
-                    _current_tool = None
-                yield _sse_event("tool_result", {
-                    "id": tool_id,
-                    "tool": event["name"],
-                    "data": output_str[:2000],
-                })
+                    yield _sse_event("tool_result", {
+                        "id": tool_id,
+                        "tool": event["name"],
+                        "data": output_str[:2000],
+                    })
+                else:
+                    # run_id 匹配不上时不发 id=None 的 tool_result，
+                    # 避免前端按 name 回退匹配错误改写其他同名工具的状态
+                    logger.warning(
+                        f"[Chat] on_tool_end with unmatched run_id: tool={event['name']}"
+                    )
 
         # ---- 流结束：检测 HITL 中断 ----
         approvals = await _detect_interrupts(agent, config)
@@ -489,7 +498,7 @@ async def _run_agent_sse(
             # 中断：保存当前阶段的 assistant 消息（含审批请求状态），等待 /chat/resume。
             # 被中断的工具（如 create_plan_tool）没有 on_tool_end，步骤停留在 running；
             # 统一标记为 interrupted，避免前端在历史里永久显示转圈。
-            _mark_interrupted_tools(steps)
+            _mark_stale_tools(steps, "interrupted")
             if full_content or full_thinking or tool_calls:
                 await ConversationService.save_message(
                     stream_db, user.id, thread_id, "assistant", full_content,
@@ -514,6 +523,8 @@ async def _run_agent_sse(
             return
 
         # ---- 无中断：正常结束，落库 assistant 消息 ----
+        # 兜底：未匹配到 on_tool_end 的残留 running 工具统一收尾，防止"执行中"落库
+        _mark_stale_tools(steps, "completed")
         if full_content or full_thinking:
             await ConversationService.save_message(
                 stream_db, user.id, thread_id, "assistant", full_content,
@@ -539,6 +550,7 @@ async def _run_agent_sse(
         yield _sse_event("error", {"message": str(e)})
     finally:
         _log_usage_summary(usage_total, output_chars, thread_id, user_id)
+        await _upsert_user_token_usage(stream_db, user_id, usage_total)
 
 
 async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str, usage: dict) -> None:
@@ -564,6 +576,31 @@ async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str,
         await stream_db.commit()
     except Exception as e:
         logger.warning(f"[Chat] Failed to upsert thread_usage: {e}")
+
+
+async def _upsert_user_token_usage(stream_db: AsyncSession, user_id, usage_total: dict) -> None:
+    """累加本请求 token 到用户级每日流水（source=chat）。
+
+    与 thread_usages 的覆盖式「最近一次上下文大小」区分：这里记录请求内
+    所有 LLM 调用真实 usage_metadata 之和（含 estimated 兜底），口径与
+    _log_usage_summary 一致，用于用户整体对话的累计用量。
+    """
+    total = usage_total.get("total_tokens", 0) or 0
+    if total <= 0:
+        return
+    try:
+        await UsageService.record(
+            stream_db,
+            user_id=user_id,
+            source="chat",
+            input_tokens=usage_total.get("input_tokens", 0) or 0,
+            output_tokens=usage_total.get("output_tokens", 0) or 0,
+            total_tokens=total,
+            llm_calls=usage_total.get("llm_calls", 0) or 0,
+            estimated=bool(usage_total.get("estimated", False)),
+        )
+    except Exception as e:
+        logger.warning(f"[Chat] Failed to upsert user_token_usage: {e}")
 
 
 def _log_usage_summary(

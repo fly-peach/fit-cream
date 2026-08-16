@@ -87,6 +87,7 @@ import { ToolCallCard } from "@/components/tool-call-card";
 import { toolNameMap } from "@/components/tool-meta";
 import type { PlanQueue } from "@/types/chat";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { api, API_URL, checkAuthEnvelope } from "@/lib/api";
@@ -140,7 +141,7 @@ function InterleavedReasoning({
     return (
       <>
         {thinking && <div className="whitespace-pre-wrap">{thinking}</div>}
-        <div className={thinking ? "mt-3 space-y-2 border-t border-border/50 pt-3" : "space-y-2"}>
+        <div className={thinking ? "mt-2 space-y-1.5 border-t border-border/50 pt-2" : "space-y-1.5"}>
           {toolCalls.map((tc) => (
             <ToolCallCard key={tc.id} tc={tc} />
           ))}
@@ -632,7 +633,7 @@ function ApprovalCard({
         </ConfirmationActions>
       )}
       {interactive && state === "approval-requested" && editing && (
-        <div className="space-y-2">
+    <div className="space-y-1.5">
           <Textarea
             value={editText}
             onChange={(e) => setEditText(e.target.value)}
@@ -951,20 +952,28 @@ function ChatPromptInner({
               </PromptInputButton>
             </>
           )}
-          {/* 知识库回答开关：开启后本轮优先检索用户订阅的知识库作答（全局偏好，localStorage 持久化，默认关闭） */}
+          {/* 知识库回答开关（toggle）：开启后本轮优先检索用户订阅的知识库作答（全局偏好，localStorage 持久化，默认关闭） */}
           <PromptInputButton
             tooltip="知识库回答"
             onClick={onToggleKb}
             aria-pressed={kbEnabled}
             className={cn(
-              "gap-1 px-2",
+              "gap-1.5 px-2",
               kbEnabled
-                ? "bg-emerald-50 text-emerald-700 hover:text-emerald-800"
+                ? "text-emerald-700 hover:text-emerald-800"
                 : "text-muted-foreground"
             )}
           >
             <BookOpenIcon className="size-4" />
             <span className="hidden text-xs md:inline">知识库回答</span>
+            <Switch
+              size="sm"
+              checked={kbEnabled}
+              onCheckedChange={onToggleKb}
+              aria-label="知识库回答开关"
+              onClick={(e) => e.stopPropagation()}
+              className={kbEnabled ? "!bg-emerald-600" : ""}
+            />
           </PromptInputButton>
           {/* 一键进入计划设计流程（弹窗确认后触发 plan_creation） */}
           <PromptInputButton
@@ -1466,7 +1475,7 @@ export default function ChatPage() {
           <PlanQueuePanel queue={latestQueue} onAction={sendMessage} />
         )}
 
-        <div className="border-t border-emerald-100 bg-white/70 p-4 backdrop-blur-sm">
+        <div className="border-t border-emerald-100 bg-white/70 p-2.5 backdrop-blur-sm">
           <PromptInputProvider>
             <PromptInput
               accept="image/*"

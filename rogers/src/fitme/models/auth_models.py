@@ -72,7 +72,6 @@ class VerificationCode(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     phone: Mapped[Optional[str]] = mapped_column(String(20), index=True)
-    email: Mapped[Optional[str]] = mapped_column(String(255))
     ip: Mapped[Optional[str]] = mapped_column(String(50), index=True)
     code: Mapped[str] = mapped_column(String(10), nullable=False)
     code_type: Mapped[str] = mapped_column(

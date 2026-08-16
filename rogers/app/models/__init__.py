@@ -24,6 +24,7 @@ from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
+from src.agents.models.user_token_usage import UserTokenUsage
 from src.fitme.models.user import User
 from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.user_settings import UserSettings
@@ -82,6 +83,7 @@ __all__ = [
     "UserExerciseFavorite",
     "ThreadUsage",
     "ThreadMeta",
+    "UserTokenUsage",
     # Agent 模型
     "Conversation",
     # 认证模型

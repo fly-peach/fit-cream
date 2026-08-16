@@ -32,6 +32,7 @@ from sqlalchemy import update
 from src.agents.harness.runtime.memory.store import MemoryStore, get_memory_store
 from src.agents.harness.runtime.memory.extractor import MemoryExtractor, ExtractionResult
 from src.agents.models.memory import SemanticMemory, MemoryConsolidationLog
+from src.fitme.services.usage_service import SOURCE_MEMORY_CONSOLIDATION, UsageService
 
 logger = logging.getLogger("fitcream.memory")
 
@@ -240,6 +241,16 @@ class MemoryPipeline:
                 resp = await llm.ainvoke(
                     [("human", CONSOLIDATE_PROMPT.format(memories=triples))]
                 )
+                usage = getattr(resp, "usage_metadata", None) or {}
+                if usage:
+                    await UsageService.record_background(
+                        user_id=user_id,
+                        source=SOURCE_MEMORY_CONSOLIDATION,
+                        input_tokens=usage.get("input_tokens", 0) or 0,
+                        output_tokens=usage.get("output_tokens", 0) or 0,
+                        total_tokens=usage.get("total_tokens", 0) or 0,
+                        llm_calls=1,
+                    )
                 insights = self._parse_insights(resp.content)
             except Exception as e:
                 logger.warning(f"consolidate LLM insight failed: {e}")
