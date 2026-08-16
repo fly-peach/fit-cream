@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -281,6 +281,10 @@ class ResumeRequest(BaseModel):
     """恢复被中断对话的请求"""
     thread_id: str
     decisions: list[ResumeDecision]
+    # 知识库回答开关：resume 后仍有模型调用，需保持门控一致（前端随 resume 传当前开关状态）
+    kb_enabled: Optional[bool] = Field(
+        None, description="是否开启知识库回答（与 /chat/message 一致）"
+    )
 
 
 def _build_resume_command(decisions: list[ResumeDecision]):
@@ -633,7 +637,12 @@ async def send_message(
     # is_non_vision=True 表示本轮路由到 deepseek，需强制剥离历史图片为占位文本。
     agent, is_non_vision = await _resolve_agent(db, thread_id, req.plan_design, has_images=bool(req.images))
     config = {
-        "configurable": {"thread_id": thread_id, "user_id": user_id_str},
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id_str,
+            # 知识库回答开关：缺省（旧客户端/Studio）= 关闭 = 现状行为不变
+            "kb_enabled": bool(req.kb_enabled),
+        },
         "recursion_limit": 100,
     }
 
@@ -725,7 +734,12 @@ async def resume_conversation(
     # is_non_vision=True 时（路由到 deepseek）强制剥离历史图片，避免非视觉模型收到图片块
     agent, is_non_vision = await _resolve_agent(db, thread_id, False)
     config = {
-        "configurable": {"thread_id": thread_id, "user_id": user_id_str},
+        "configurable": {
+            "thread_id": thread_id,
+            "user_id": user_id_str,
+            # resume 后仍有模型调用，保持与原请求一致的 KB 门控（前端随 resume 传当前开关状态）
+            "kb_enabled": bool(req.kb_enabled),
+        },
         "recursion_limit": 100,
     }
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)

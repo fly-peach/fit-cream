@@ -14,7 +14,8 @@ export interface PendingApproval {
 
 export function useChatSSE(
   threadId: string | null,
-  onUsageCommitted?: (usage: TokenUsage) => void
+  onUsageCommitted?: (usage: TokenUsage) => void,
+  kbEnabled?: boolean
 ) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -44,6 +45,12 @@ export function useChatSSE(
   // 当前流式/活动线程 id（新会话由 start 事件创建）
   const activeThreadIdRef = useRef<string | null>(threadId);
   const onUsageCommittedRef = useRef(onUsageCommitted);
+  // 知识库回答开关镜像：sendMessage/resume 发起时读取当前值（含表单/队列面板等
+  // 以 sendMessage 为回调的间接调用路径，无需逐处透传参数）
+  const kbEnabledRef = useRef(kbEnabled);
+  useEffect(() => {
+    kbEnabledRef.current = kbEnabled;
+  }, [kbEnabled]);
   // pendingApproval 的 ref 镜像：resume() 内读取当前值（setState 异步）
   const pendingApprovalRef = useRef<PendingApproval | null>(null);
   useEffect(() => {
@@ -340,7 +347,15 @@ export function useChatSSE(
       const fullThinkingRef = { current: "" };
 
       try {
-        for await (const event of streamChat(content, threadId, controller.signal, images, planDesign)) {
+        for await (const event of streamChat(
+          content,
+          threadId,
+          controller.signal,
+          images,
+          planDesign,
+          // 计划设计流程不注入知识库工具，其余按当前开关状态
+          planDesign ? false : kbEnabledRef.current
+        )) {
           switch (event.event) {
             case "start":
               // 后端返回 thread_id，同步到全局 store
@@ -493,7 +508,7 @@ export function useChatSSE(
       const fullThinkingRef = { current: "" };
 
       try {
-        for await (const event of resumeChat(tid, decisions, controller.signal)) {
+        for await (const event of resumeChat(tid, decisions, controller.signal, kbEnabledRef.current)) {
           switch (event.event) {
             case "thinking":
             case "token":

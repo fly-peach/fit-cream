@@ -18,6 +18,24 @@ from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseServ
 from src.knowledge_base.services.search_service import KBSearchService
 
 
+def _kb_disabled(config) -> bool:
+    """知识库回答开关兜底判定：configurable.kb_enabled 缺失/falsy 即视为关闭。
+
+    正常路径下 KBGateMiddleware 已在关闭时移除 KB 工具（模型不可见、不会调用）；
+    此处为防绕过兜底（如 Studio 手动构造工具调用）。
+    """
+    if not config:
+        return True
+    configurable = config.get("configurable") if hasattr(config, "get") else None
+    return not (configurable or {}).get("kb_enabled")
+
+
+_KB_DISABLED_RESP = {
+    "success": False,
+    "error": "知识库回答未开启，请在前端开启后重试",
+}
+
+
 class SearchKBInput(BaseModel):
     """搜索知识库的输入参数"""
     query: str = Field(description="搜索关键词，如'哑铃卧推'、'蛋白质摄入'、'减脂原理'")
@@ -53,6 +71,8 @@ async def search_knowledge_base(
     Returns:
         包含搜索结果列表的字典
     """
+    if _kb_disabled(config):
+        return dict(_KB_DISABLED_RESP)
     user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
@@ -117,6 +137,8 @@ async def list_my_knowledge_bases(
     Returns:
         包含知识库列表的字典
     """
+    if _kb_disabled(config):
+        return dict(_KB_DISABLED_RESP)
     user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}
@@ -182,6 +204,8 @@ async def read_kb_document(
     Returns:
         包含文档标题、完整内容、元数据的字典
     """
+    if _kb_disabled(config):
+        return dict(_KB_DISABLED_RESP)
     user_id = extract_user_id(config)
     if not user_id:
         return {"success": False, "error": "缺少用户身份信息"}

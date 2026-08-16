@@ -38,6 +38,10 @@ class ChatRequest(BaseModel):
     thread_id: Optional[str] = Field(None, max_length=100)
     # 为 true 时：生成新 thread_id 并标记 agent_mode=plan_design，全程路由到计划设计专用模型
     plan_design: Optional[bool] = Field(None, description="是否开启计划设计会话（新线程 + 专用模型）")
+    # 知识库回答开关：默认关闭（None/falsy 时模型不可见知识库工具）
+    kb_enabled: Optional[bool] = Field(
+        None, description="是否开启知识库回答（开启则优先检索用户订阅的知识库作答）"
+    )
 
     @model_validator(mode="after")
     def _require_message_or_images(self):

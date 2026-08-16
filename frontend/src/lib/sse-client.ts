@@ -7,13 +7,16 @@ export async function* streamChat(
   threadId: string | null,
   signal?: AbortSignal,
   images?: string[],
-  planDesign?: boolean
+  planDesign?: boolean,
+  kbEnabled?: boolean
 ): AsyncGenerator<SSEEvent> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   const body: Record<string, unknown> = { message, thread_id: threadId };
   if (images && images.length > 0) body.images = images;
   if (planDesign) body.plan_design = true;
+  // 仅在开启时发送（关闭省略字段等价 falsy，旧客户端行为不变）
+  if (kbEnabled) body.kb_enabled = true;
 
   const response = await fetch(`${API_URL}/chat/message`, {
     method: "POST",
@@ -96,14 +99,18 @@ export async function stopGeneration(threadId: string): Promise<void> {
 export async function* resumeChat(
   threadId: string,
   decisions: { type: "approve" | "reject"; reason?: string }[],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  kbEnabled?: boolean
 ): AsyncGenerator<SSEEvent> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  const body: Record<string, unknown> = { thread_id: threadId, decisions };
+  if (kbEnabled) body.kb_enabled = true;
 
   const response = await fetch(`${API_URL}/chat/resume`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ thread_id: threadId, decisions }),
+    body: JSON.stringify(body),
     signal,
     credentials: "include",
   });

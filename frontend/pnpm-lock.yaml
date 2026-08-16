@@ -14,6 +14,9 @@ importers:
       '@capacitor/android':
         specifier: ^8.5.0
         version: 8.5.0(@capacitor/core@8.5.0)
+      '@capacitor/camera':
+        specifier: ^8.2.2
+        version: 8.2.2(@capacitor/core@8.5.0)
       '@capacitor/cli':
         specifier: ^8.5.0
         version: 8.5.0
@@ -375,6 +378,11 @@ packages:
     resolution: {integrity: sha512-Rb3prJeQiTp0pQhSSOReJuG9VgibOGMG4ECs+UhMwr6TCCHZ3NCZO811bDA0HxD0xrT/gCrJAsY5yfEATu84JQ==}
     peerDependencies:
       '@capacitor/core': ^8.5.0
+
+  '@capacitor/camera@8.2.2':
+    resolution: {integrity: sha512-WfaOsqrjPzvXGvrIBFqFtOZHBrc3hwGKssZje4ioJDNfTjIq2zrUNDXP+q6XmLyzifCYOu2YFC6k1+leb/BqSg==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
 
   '@capacitor/cli@8.5.0':
     resolution: {integrity: sha512-rLdzMUM5QV4WITcqoWv04p32i14BXgUH2diqEH6MWQlWaJfiyNrvOyt/+d5vHAfOxOm1klBu637VDEobctlwBA==}
@@ -4342,6 +4350,10 @@ snapshots:
   '@braintree/sanitize-url@7.1.2': {}
 
   '@capacitor/android@8.5.0(@capacitor/core@8.5.0)':
+    dependencies:
+      '@capacitor/core': 8.5.0
+
+  '@capacitor/camera@8.2.2(@capacitor/core@8.5.0)':
     dependencies:
       '@capacitor/core': 8.5.0
 

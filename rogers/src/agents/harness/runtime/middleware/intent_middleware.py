@@ -162,6 +162,17 @@ class IntentMiddleware(AgentMiddleware):
         if not intent_prompt:
             return None
 
+        # knowledge_query 意图注入「优先知识库检索」引导，与 KB 工具门控矛盾：
+        # 开关关闭（configurable.kb_enabled falsy）时跳过注入，避免模型想调不可见的 KB 工具
+        if intent == "knowledge_query":
+            from src.agents.harness.runtime.middleware.kb_gate_middleware import (
+                kb_enabled_from_config,
+            )
+
+            if not kb_enabled_from_config():
+                logger.info("[Intent] Detected: knowledge_query (skipped: KB disabled)")
+                return None
+
         logger.info(f"[Intent] Detected: {intent}")
 
         # 注入意图专项 SystemMessage

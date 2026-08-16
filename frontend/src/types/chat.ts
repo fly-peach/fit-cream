@@ -134,6 +134,8 @@ export interface SendMessageRequest {
   images?: string[];
   /** 为 true 时后端新开线程并标记 plan_design，全程路由到计划设计专用模型 */
   plan_design?: boolean;
+  /** 知识库回答开关：为 true 时模型可见知识库工具并优先检索作答；默认关闭（不传等价 false） */
+  kb_enabled?: boolean;
 }
 
 /** 线程列表响应 */

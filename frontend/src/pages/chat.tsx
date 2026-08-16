@@ -1,6 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
+import { Camera, CameraDirection } from "@capacitor/camera";
+import { Capacitor } from "@capacitor/core";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -859,13 +861,25 @@ function ChatPromptInner({
   isStreaming,
   onStop,
   onDesignPlan,
+  kbEnabled,
+  onToggleKb,
 }: {
   isStreaming: boolean;
   onStop: () => void;
   onDesignPlan: () => void;
+  kbEnabled: boolean;
+  onToggleKb: () => void;
 }) {
   const attachments = usePromptInputAttachments();
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  const isMobile = useMemo(
+    () =>
+      Capacitor.isNativePlatform() ||
+      (typeof window !== "undefined" &&
+        window.matchMedia("(pointer: coarse)").matches),
+    []
+  );
 
   const handleCameraChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -877,6 +891,31 @@ function ChatPromptInner({
     },
     [attachments]
   );
+
+  const handleCameraClick = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) {
+      cameraInputRef.current?.click();
+      return;
+    }
+    try {
+      const photo = await Camera.takePhoto({
+        quality: 90,
+        correctOrientation: true,
+        cameraDirection: CameraDirection.Rear,
+      });
+      if (!photo.webPath) {
+        return;
+      }
+      const response = await fetch(photo.webPath);
+      const blob = await response.blob();
+      const file = new File([blob], `camera-${Date.now()}.jpg`, {
+        type: blob.type || "image/jpeg",
+      });
+      attachments.add([file]);
+    } catch {
+      return;
+    }
+  }, [attachments]);
 
   return (
     <>
@@ -892,21 +931,40 @@ function ChatPromptInner({
               <PromptInputActionAddAttachments label="从相册选择" />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
-          {/* 拍照：移动端 capture=environment 直接调起后置摄像头 */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleCameraChange}
-            aria-label="拍照"
-          />
+          {/* 拍照：仅移动端展示（App 用 Camera.takePhoto，移动浏览器用 capture 调起后置摄像头） */}
+          {isMobile && (
+            <>
+              <input
+                ref={cameraInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleCameraChange}
+                aria-label="拍照"
+              />
+              <PromptInputButton
+                tooltip="拍照"
+                onClick={handleCameraClick}
+              >
+                <CameraIcon className="size-4" />
+              </PromptInputButton>
+            </>
+          )}
+          {/* 知识库回答开关：开启后本轮优先检索用户订阅的知识库作答（全局偏好，localStorage 持久化，默认关闭） */}
           <PromptInputButton
-            tooltip="拍照"
-            onClick={() => cameraInputRef.current?.click()}
+            tooltip="知识库回答"
+            onClick={onToggleKb}
+            aria-pressed={kbEnabled}
+            className={cn(
+              "gap-1 px-2",
+              kbEnabled
+                ? "bg-emerald-50 text-emerald-700 hover:text-emerald-800"
+                : "text-muted-foreground"
+            )}
           >
-            <CameraIcon className="size-4" />
+            <BookOpenIcon className="size-4" />
+            <span className="hidden text-xs md:inline">知识库回答</span>
           </PromptInputButton>
           {/* 一键进入计划设计流程（弹窗确认后触发 plan_creation） */}
           <PromptInputButton
@@ -932,8 +990,32 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const { currentThreadId, setThreadId, sidebarOpen, setSidebarOpen } = useChatStore();
   const { threads, loadThreads, deleteThread, renameThread } = useThreads();
+  // 知识库回答开关：全局偏好，localStorage 持久化（"1"=开启），默认关闭。
+  // 生效值剔除计划设计线程（plan_design 流程不受开关影响）
+  const [kbEnabled, setKbEnabled] = useState(() => {
+    try {
+      return localStorage.getItem("fitcream.kb-enabled") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const handleToggleKb = useCallback(() => {
+    setKbEnabled((prev) => {
+      const next = !prev;
+      try {
+        if (next) localStorage.setItem("fitcream.kb-enabled", "1");
+        else localStorage.removeItem("fitcream.kb-enabled");
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
+  const kbEffective =
+    kbEnabled &&
+    !threads.some((t) => t.id === currentThreadId && t.agentMode === "plan_design");
   const { messages, sendMessage, stop, resume, clearMessages, isStreaming, setMessages, usage, compressionCount, seedUsage, pendingApproval } =
-    useChatSSE(currentThreadId, loadThreads);
+    useChatSSE(currentThreadId, loadThreads, kbEffective);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [tab, setTab] = useState<"chat" | "memories">("chat");
@@ -1400,6 +1482,8 @@ export default function ChatPage() {
                 isStreaming={isStreaming}
                 onStop={stop}
                 onDesignPlan={() => setDesignPlanOpen(true)}
+                kbEnabled={kbEnabled}
+                onToggleKb={handleToggleKb}
               />
             </PromptInput>
           </PromptInputProvider>

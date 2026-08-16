@@ -217,12 +217,13 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
     2. SkillsMiddleware：纯占位（catalog 已烘焙进 system_prompt）
     3. PlanQueueMiddleware：计划设计队列进度快照注入（仅 plan_design 流程有队列时生效）
-    4. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
-    5. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
-    6. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
-    7. TokenUsageMiddleware：Token 用量追踪
-    8. SummarizationMiddleware：会话压缩
-    9. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
+    4. KBGateMiddleware：知识库回答开关（关闭时过滤 KB 工具 / 开启时注入 KB 优先提示词）
+    5. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
+    6. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    7. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    8. TokenUsageMiddleware：Token 用量追踪
+    9. SummarizationMiddleware：会话压缩
+    10. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
 
     会话压缩策略：
     - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
@@ -242,6 +243,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
     from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
     from src.agents.harness.runtime.middleware.plan_queue_middleware import PlanQueueMiddleware
+    from src.agents.harness.runtime.middleware.kb_gate_middleware import KBGateMiddleware
 
     # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
     summary_model = create_chat_dashscope(
@@ -254,6 +256,9 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         IntentMiddleware(),
         SkillsMiddleware(),
         PlanQueueMiddleware(),
+        # 知识库回答开关：kb_enabled falsy 时过滤 KB 工具，truthy 时注入 KB 优先提示词；
+        # 注册在意图之后（KB 提示词可叠加意图规则），HITL 之前（不涉及中断）
+        KBGateMiddleware(),
     ]
 
     # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
