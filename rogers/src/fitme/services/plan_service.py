@@ -210,11 +210,14 @@ class PlanService:
         db: AsyncSession,
         user_id: UUID,
         target_date: date_type,
-    ) -> Optional[Tuple[Plan, PlanDay]]:
+    ) -> Optional[Tuple[Plan, PlanDay, List[PlanDayExercise]]]:
         """获取活跃计划中与指定日期星期几匹配的训练日（供打卡关联计划）。
 
         显式 selectinload 预加载 exercises -> exercise，避免异步懒加载报错
         （同 generate_plan_from_goal 的处理）。无活跃计划或该星期几无训练日时返回 None。
+
+        同星期存在多个训练日时（add_plan_day 无去重所致），返回 (plan, 第一个训练日,
+        合并后的全部训练日动作列表)，使 plan_match 能比对到该星期所有计划动作，避免漏比对误报。
         """
         plan = await PlanService.get_active_plan(db, user_id)
         if not plan:
@@ -230,12 +233,13 @@ class PlanService:
                 PlanDay.day_of_week == target_date.isoweekday(),
             )
             .order_by(PlanDay.id)
-            .limit(1)
         )
-        plan_day = result.scalars().first()
-        if not plan_day:
+        plan_days = list(result.scalars().all())
+        if not plan_days:
             return None
-        return plan, plan_day
+        plan_day = plan_days[0]
+        plan_exercises = [ex for day in plan_days for ex in day.exercises]
+        return plan, plan_day, plan_exercises
 
     @staticmethod
     async def update_plan(

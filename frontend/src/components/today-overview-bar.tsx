@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { format } from "date-fns";
 import { ResponsiveContainer, RadialBarChart, RadialBar, PolarAngleAxis } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
-import { Flame, Footprints, Utensils } from "lucide-react";
+import { Flame, Footprints, Utensils, Pencil, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -18,6 +19,7 @@ interface UserSettings {
   protein_goal_g: number;
   carbs_goal_g: number;
   fat_goal_g: number;
+  weekly_duration_goal_min: number;
 }
 
 interface DietMealRecord {
@@ -26,6 +28,8 @@ interface DietMealRecord {
   carbs_g: number | null;
   fat_g: number | null;
 }
+
+type MacroKey = "protein_goal_g" | "carbs_goal_g" | "fat_goal_g";
 
 function calcBmr(p: UserProfile): number | null {
   const w = p.weight_kg;
@@ -53,9 +57,13 @@ export function TodayOverviewBar({
     carbs: 0,
     fat: 0,
   });
+  const [editingKey, setEditingKey] = useState<MacroKey | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = format(new Date(), "yyyy-MM-dd");
     Promise.all([
       api.get<UserSettings>("/users/settings").catch(() => null),
       api.get<UserProfile>("/users/me").catch(() => null),
@@ -80,6 +88,41 @@ export function TodayOverviewBar({
     });
   }, []);
 
+  useEffect(() => {
+    if (editingKey && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingKey]);
+
+  const startEdit = (key: MacroKey, currentVal: number) => {
+    setEditingKey(key);
+    setEditValue(String(currentVal));
+  };
+
+  const cancelEdit = () => {
+    setEditingKey(null);
+    setEditValue("");
+  };
+
+  const saveEdit = async (key: MacroKey) => {
+    const num = parseFloat(editValue);
+    if (isNaN(num) || num < 0) {
+      cancelEdit();
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.put<UserSettings>("/users/settings", { [key]: num });
+      if (updated) setSettings(updated);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+      setEditingKey(null);
+    }
+  };
+
   const bmr = useMemo(() => (profile ? calcBmr(profile) : null), [profile]);
 
   const targetCalories = settings?.calorie_goal ?? 2000;
@@ -88,24 +131,33 @@ export function TodayOverviewBar({
   const percent =
     targetCalories > 0 ? Math.min(100, Math.round((consumed / targetCalories) * 100)) : 0;
 
-  const macros = [
+  const macros: {
+    label: string;
+    value: number;
+    target: number;
+    color: string;
+    key: MacroKey;
+  }[] = [
     {
       label: "蛋白质",
       value: totals.protein,
       target: settings?.protein_goal_g ?? 0,
       color: "bg-emerald-500",
+      key: "protein_goal_g",
     },
     {
       label: "碳水",
       value: totals.carbs,
       target: settings?.carbs_goal_g ?? 0,
       color: "bg-amber-500",
+      key: "carbs_goal_g",
     },
     {
       label: "脂肪",
       value: totals.fat,
       target: settings?.fat_goal_g ?? 0,
       color: "bg-sky-500",
+      key: "fat_goal_g",
     },
   ];
 
@@ -154,6 +206,7 @@ export function TodayOverviewBar({
             {macros.map((m) => {
               const pct =
                 m.target > 0 ? Math.min(100, Math.round((m.value / m.target) * 100)) : 0;
+              const isEditing = editingKey === m.key;
               return (
                 <div key={m.label} className="flex items-center gap-2">
                   <span className="w-9 shrink-0 text-xs text-emerald-700">{m.label}</span>
@@ -163,9 +216,61 @@ export function TodayOverviewBar({
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span className="w-20 shrink-0 text-right text-[11px] tabular-nums text-emerald-600/70">
-                    {Math.round(m.value * 10) / 10} / {m.target} g
-                  </span>
+                  {isEditing ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <span className="text-[11px] tabular-nums text-emerald-600/70">
+                        {Math.round(m.value * 10) / 10} /
+                      </span>
+                      <input
+                        ref={editInputRef}
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveEdit(m.key);
+                          } else if (e.key === "Escape") {
+                            cancelEdit();
+                          }
+                        }}
+                        disabled={saving}
+                        className="h-5 w-12 rounded border border-emerald-200 bg-white px-1 text-right text-[11px] tabular-nums text-emerald-800 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200"
+                      />
+                      <span className="text-[11px] text-emerald-600/70">g</span>
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(m.key)}
+                        disabled={saving}
+                        className="flex size-4 items-center justify-center rounded text-emerald-600 transition-colors hover:bg-emerald-100"
+                        title="保存"
+                      >
+                        <Check className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        className="flex size-4 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-red-50 hover:text-red-500"
+                        title="取消"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startEdit(m.key, m.target)}
+                      className="group/target flex w-20 shrink-0 items-center justify-end gap-0.5 rounded px-0.5 text-right transition-colors hover:bg-emerald-50"
+                      title="点击编辑目标值"
+                    >
+                      <span className="text-[11px] tabular-nums text-emerald-600/70">
+                        {Math.round(m.value * 10) / 10} / {m.target} g
+                      </span>
+                      <Pencil className="size-2.5 text-emerald-300 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/target:opacity-100" />
+                    </button>
+                  )}
                 </div>
               );
             })}

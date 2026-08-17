@@ -952,7 +952,9 @@ function ChatPromptInner({
               </PromptInputButton>
             </>
           )}
-          {/* 知识库回答开关（toggle）：开启后本轮优先检索用户订阅的知识库作答（全局偏好，localStorage 持久化，默认关闭） */}
+          {/* 知识库回答开关（toggle）：开启后本轮优先检索用户订阅的知识库作答（全局偏好，localStorage 持久化，默认关闭）。
+              Switch 必须放在按钮外：Base UI Switch 点击时会向隐藏 input 派发冒泡 click，
+              嵌在按钮内会再次触发按钮 onClick 导致一次点击翻转两次（视觉上开关无效） */}
           <PromptInputButton
             tooltip="知识库回答"
             onClick={onToggleKb}
@@ -966,15 +968,14 @@ function ChatPromptInner({
           >
             <BookOpenIcon className="size-4" />
             <span className="hidden text-xs md:inline">知识库回答</span>
-            <Switch
-              size="sm"
-              checked={kbEnabled}
-              onCheckedChange={onToggleKb}
-              aria-label="知识库回答开关"
-              onClick={(e) => e.stopPropagation()}
-              className={kbEnabled ? "!bg-emerald-600" : ""}
-            />
           </PromptInputButton>
+          <Switch
+            size="sm"
+            checked={kbEnabled}
+            onCheckedChange={onToggleKb}
+            aria-label="知识库回答开关"
+            className={cn("ml-0.5", kbEnabled && "!bg-emerald-600")}
+          />
           {/* 一键进入计划设计流程（弹窗确认后触发 plan_creation） */}
           <PromptInputButton
             tooltip="为我设计健身计划"

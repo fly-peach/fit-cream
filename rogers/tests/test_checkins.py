@@ -1,6 +1,7 @@
 """打卡路由 /api/checkins/* 测试"""
 import uuid
-from datetime import date
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from tests.util import auth_headers, biz_code, create_exercise, create_user, unwrap
 
@@ -117,3 +118,67 @@ async def test_checkin_ownership(user_client, db_session):
     other = await create_user(db_session, phone="13700000003", name="其他用户")
     resp = await user_client.get(f"/api/checkins/{cid}", headers=auth_headers(other))
     assert biz_code(resp) != 0
+
+
+async def test_checkin_today_uses_app_tz_not_server_local(monkeypatch, user_client, db_session):
+    """应用时区（APP_TZ）的"今天"应被接受并计入连续打卡。
+
+    修复前用服务器本地 date.today()：在 UTC 容器 + CST 凌晨窗口（tz_today() 比
+    服务器本地日期晚一天）会把用户当天打卡误判为未来日期拒绝。此处固定时钟把
+    tz_today() 设为比本机 date.today() 晚一天，等效该窗口；打卡必须成功且计入 streak。
+    """
+    from utils import timeutil
+
+    ex = await create_exercise(db_session)
+    app_today = date.today() + timedelta(days=1)
+    fixed_now = datetime.combine(
+        app_today, time(0, 30), tzinfo=ZoneInfo("Asia/Shanghai")
+    )
+    monkeypatch.setattr(timeutil, "now", lambda: fixed_now)
+
+    unwrap(
+        await user_client.post(
+            "/api/checkins", json=await _checkin_payload(ex.id, date=app_today.isoformat())
+        )
+    )
+    streak = unwrap(await user_client.get("/api/checkins/streak"))
+    assert streak["last_checkin_date"] == app_today.isoformat()
+    assert streak["current_streak"] >= 1
+
+
+async def test_duplicate_race_maps_to_business_error(user_client, db_session, monkeypatch):
+    """并发双写竞态：预检被绕过时 flush 触发唯一约束，应转 CHECKIN_ALREADY_EXISTS。"""
+    from src.fitme.services.checkin_service import CheckinService
+
+    ex = await create_exercise(db_session)
+    payload = await _checkin_payload(ex.id)
+    unwrap(await user_client.post("/api/checkins", json=payload))
+
+    async def _no_precheck(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(CheckinService, "get_by_date", _no_precheck)
+    assert biz_code(await user_client.post("/api/checkins", json=payload)) == 40002
+
+
+async def test_checkin_aerobic_calories_estimated_by_minutes(user_client, db_session):
+    """有氧动作（duration_min/distance_km）应按分钟速率估算热量，而非力量公式。"""
+    ex = await create_exercise(db_session)
+    data = unwrap(
+        await user_client.post(
+            "/api/checkins",
+            json=await _checkin_payload(
+                ex.id,
+                exercises=[
+                    {
+                        "exercise_id": str(ex.id),
+                        "duration_min": 30,
+                        "distance_km": 5,
+                    }
+                ],
+            ),
+        )
+    )
+    assert data["calories_burned"] == 8.0 * 30
+    assert data["exercises"][0]["duration_min"] == 30
+    assert data["exercises"][0]["distance_km"] == 5

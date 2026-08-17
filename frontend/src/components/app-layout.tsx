@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DumbbellIcon,
   SunIcon,
@@ -11,8 +10,6 @@ import {
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   LogOutIcon,
-  MenuIcon,
-  XIcon,
   BookOpenIcon,
   ShieldIcon,
 } from "lucide-react";
@@ -58,14 +55,11 @@ interface AppLayoutProps {
 
 export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { logout } = useAuthStore();
   const navItems = useNavItems();
   const bottomNavItems = useBottomNavItems();
 
-  // 当路由变化时关闭移动端抽屉
-  const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/60">
@@ -153,107 +147,9 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
         </div>
       </aside>
 
-      {/* ============ 移动端：抽屉侧栏（用于 chat 历史等 sidebarExtra） ============ */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm md:hidden"
-          onClick={closeMobileMenu}
-        />
-      )}
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-emerald-100 bg-white shadow-2xl transition-transform duration-200 md:hidden",
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-emerald-100 px-4 py-4">
-          <div className="flex items-center gap-2.5">
-            <Logo className="size-8 shrink-0 rounded-lg shadow-sm shadow-emerald-500/20" />
-            <span className="text-base font-bold tracking-tight text-emerald-950">
-              Fit<span className="text-emerald-600">Cream</span>
-            </span>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8 text-emerald-700"
-            onClick={() => closeMobileMenu()}
-          >
-            <XIcon className="size-4" />
-          </Button>
-        </div>
-
-        {/* 移动端抽屉内导航：仅保留底部 Tab 栏没有的项（如管理后台），避免导航冗余 */}
-        <nav className="space-y-1 px-2 pt-3">
-          {navItems
-            .filter((item) => !bottomNavItems.some((b) => b.to === item.to))
-            .map((item) => {
-              const isActive = location.pathname.startsWith(item.to);
-              return (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  onClick={closeMobileMenu}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-emerald-100/80 text-emerald-800"
-                      : "text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800"
-                  )}
-                >
-                  <item.icon
-                    className={cn("size-4 shrink-0", isActive && "text-emerald-500")}
-                  />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-        </nav>
-
-        {/* 抽屉内额外内容（如对话历史） */}
-        {sidebarExtra && (
-          <div className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">{sidebarExtra}</ScrollArea>
-          </div>
-        )}
-        {!sidebarExtra && <div className="flex-1" />}
-
-        {/* 退出登录 */}
-        <div className="space-y-1 border-t border-emerald-100 p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-emerald-700/70 hover:bg-red-50 hover:text-red-600"
-            onClick={() => {
-              closeMobileMenu();
-              logout();
-            }}
-          >
-            <LogOutIcon className="size-4" />
-            <span className="ml-2 text-xs">退出登录</span>
-          </Button>
-        </div>
-      </aside>
 
       {/* ============ 主内容区 ============ */}
       <main className="flex flex-1 flex-col overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0">
-        {/* 移动端顶栏：菜单按钮 */}
-        <div className="flex items-center gap-2 border-b border-emerald-100 bg-white/70 px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur md:hidden">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9 text-emerald-700"
-            onClick={() => setMobileMenuOpen(true)}
-          >
-            <MenuIcon className="size-5" />
-          </Button>
-          <div className="flex items-center gap-2">
-            <Logo className="size-7 shrink-0 rounded-lg" />
-            <span className="text-sm font-bold tracking-tight text-emerald-950">
-              Fit<span className="text-emerald-600">Cream</span>
-            </span>
-          </div>
-        </div>
 
         <div className="flex-1 overflow-hidden">{children}</div>
       </main>

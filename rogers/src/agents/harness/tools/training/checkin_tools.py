@@ -81,6 +81,12 @@ class ExerciseRecord(BaseModel):
     sets_done: int = Field(ge=1, description="完成组数")
     reps_done: int = Field(ge=1, description="每组次数")
     weight_kg: Optional[float] = Field(default=None, description="重量（kg）")
+    duration_min: Optional[int] = Field(
+        default=None, ge=1, description="有氧实际时长（分钟），跑步/骑行等有氧动作填写"
+    )
+    distance_km: Optional[float] = Field(
+        default=None, ge=0, description="有氧实际距离（km），跑步/骑行等有氧动作填写"
+    )
     rpe: Optional[int] = Field(default=None, ge=1, le=10, description="自感用力等级 1-10")
     notes: Optional[str] = Field(default=None, description="动作备注")
 
@@ -104,6 +110,13 @@ class CheckinInput(BaseModel):
             "用户明确表示该动作是自定义动作（非动作库动作）后置 true"
         ),
     )
+    allow_custom_names: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "自定义动作白名单：这些名称即便未匹配动作库也可直接按自定义动作记录，"
+            "无需置 allow_custom。用户已明确表示用这些名字记录后填写"
+        ),
+    )
 
 
 @tool(args_schema=CheckinInput)
@@ -116,6 +129,7 @@ async def checkin_tool(
     note: Optional[str] = None,
     checkin_date: Optional[str] = None,
     allow_custom: bool = False,
+    allow_custom_names: Optional[List[str]] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
@@ -155,12 +169,19 @@ async def checkin_tool(
             names = [ex.name for ex in exercises]
             matched = await ExerciseService.match_names(db, names)
 
-            # 未命中动作库的名字：先按用户历史自定义动作召回，剩余为全新未匹配
+            # 未命中动作库的名字：先按用户历史自定义动作召回 + 白名单（allow_custom_names），
+            # 剩余为全新未匹配
             unmatched = [n for n, ex_ in matched.items() if ex_ is None]
             known_custom: set[str] = set()
             novel: List[str] = []
             if unmatched:
                 known_custom = await _match_user_custom_names(db, user_id, unmatched)
+                approved = {
+                    n.strip().lower() for n in (allow_custom_names or []) if n and n.strip()
+                }
+                known_custom.update(
+                    n for n in unmatched if n.strip().lower() in approved
+                )
                 novel = [n for n in unmatched if n not in known_custom]
 
             if novel and not allow_custom:
@@ -201,6 +222,8 @@ async def checkin_tool(
                     sets_done=ex.sets_done,
                     reps_done=ex.reps_done,
                     weight_kg=ex.weight_kg,
+                    duration_min=ex.duration_min,
+                    distance_km=ex.distance_km,
                     rpe=ex.rpe,
                     notes=ex.notes,
                 )
@@ -229,33 +252,41 @@ async def checkin_tool(
 
             plan_feedback = None
             if plan_match:
-                plan, plan_day = plan_match
+                plan, plan_day, plan_exercises = plan_match
                 done_ids = {eid for eid, _, _ in checked if eid is not None}
-                done_custom = {cn for _, cn, _ in checked if cn is not None}
+                done_custom = {
+                    cn.strip().lower() for _, cn, _ in checked if cn is not None
+                }
                 completed: List[str] = []
                 skipped: List[str] = []
-                for pex in plan_day.exercises:
+                for pex in plan_exercises:
                     pname = pex.exercise.name if pex.exercise else pex.custom_name
                     if not pname:
                         continue
                     if (pex.exercise_id and pex.exercise_id in done_ids) or (
-                        pex.custom_name and pex.custom_name in done_custom
+                        pex.custom_name
+                        and pex.custom_name.strip().lower() in done_custom
                     ):
                         completed.append(pname)
                     else:
                         skipped.append(pname)
                 planned_lib_ids = {
-                    pex.exercise_id for pex in plan_day.exercises if pex.exercise_id
+                    pex.exercise_id for pex in plan_exercises if pex.exercise_id
                 }
                 planned_custom_names = {
-                    pex.custom_name for pex in plan_day.exercises if pex.custom_name
+                    pex.custom_name.strip().lower()
+                    for pex in plan_exercises
+                    if pex.custom_name
                 }
                 extra = sorted(
                     {
                         (matched[ex.name].name if eid else cn)
                         for eid, cn, ex in checked
                         if (eid is not None and eid not in planned_lib_ids)
-                        or (cn is not None and cn not in planned_custom_names)
+                        or (
+                            cn is not None
+                            and cn.strip().lower() not in planned_custom_names
+                        )
                     }
                 )
                 plan_feedback = {

@@ -22,6 +22,7 @@ from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.user import User
 from src.fitme.services.checkin_service import CheckinService
 from utils.exceptions import NotFoundException
+from utils.timeutil import today as tz_today
 
 
 class WeeklyStats(TypedDict):
@@ -95,7 +96,7 @@ class StatsService:
         week_start: Optional[date] = None,
     ) -> WeeklyStats:
         if week_start is None:
-            today = date.today()
+            today = tz_today()
             week_start = today - timedelta(days=today.weekday())
 
         week_end = week_start + timedelta(days=6)
@@ -155,7 +156,7 @@ class StatsService:
         year: Optional[int] = None,
         month: Optional[int] = None,
     ) -> MonthlyStats:
-        today = date.today()
+        today = tz_today()
         if year is None:
             year = today.year
         if month is None:
@@ -315,9 +316,9 @@ class StatsService:
         end: Optional[date] = None,
     ) -> List[DietTrendItem]:
         if start is None:
-            start = date.today() - timedelta(days=7)
+            start = tz_today() - timedelta(days=7)
         if end is None:
-            end = date.today()
+            end = tz_today()
 
         result = await db.execute(
             select(DailyDietSummary)

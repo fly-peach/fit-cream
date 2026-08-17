@@ -20,6 +20,7 @@ class UserGoalsOut(BaseModel):
     target_weight_kg: Optional[float] = None
     target_body_fat_pct: Optional[float] = None
     weekly_training_goal: int = 5
+    weekly_duration_goal_min: int = 300
     calorie_goal: int = 2000
     protein_goal_g: int = 150
     carbs_goal_g: int = 250
@@ -37,6 +38,7 @@ class UserGoalsUpdate(BaseModel):
     target_weight_kg: Optional[float] = Field(default=None, gt=0, le=500)
     target_body_fat_pct: Optional[float] = Field(default=None, ge=0, le=100)
     weekly_training_goal: Optional[int] = Field(default=None, ge=1, le=14)
+    weekly_duration_goal_min: Optional[int] = Field(default=None, ge=60, le=3000)
     calorie_goal: Optional[int] = Field(default=None, ge=500, le=10000)
     protein_goal_g: Optional[int] = Field(default=None, ge=0, le=500)
     carbs_goal_g: Optional[int] = Field(default=None, ge=0, le=1000)

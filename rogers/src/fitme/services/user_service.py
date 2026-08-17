@@ -23,6 +23,7 @@ from src.fitme.schemas.user import (
     UserUpdate,
 )
 from utils.exceptions import NotFoundException
+from utils.timeutil import today as tz_today
 
 
 def compute_bmi(
@@ -51,7 +52,7 @@ def compute_age(birth_date: Optional[date]) -> Optional[int]:
     """
     if not birth_date:
         return None
-    today = date.today()
+    today = tz_today()
     return today.year - birth_date.year - (
         (today.month, today.day) < (birth_date.month, birth_date.day)
     )
@@ -301,7 +302,7 @@ class UserService:
                 db,
                 user_id,
                 HealthMetricCreate(
-                    measure_date=date.today(),
+                    measure_date=tz_today(),
                     height_cm=resolved_height,
                     weight_kg=resolved_weight,
                 ),

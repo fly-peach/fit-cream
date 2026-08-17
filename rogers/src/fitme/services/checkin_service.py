@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 
 from sqlalchemy import Integer, cast, delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.checkin import Checkin, CheckinExercise
@@ -26,6 +27,7 @@ from utils.exceptions import (
     ForbiddenException,
     NotFoundException,
 )
+from utils.timeutil import today as tz_today
 
 
 class CheckinService:
@@ -43,8 +45,8 @@ class CheckinService:
                 ErrorCode.CHECKIN_ALREADY_EXISTS, "该日期已打卡，不能重复打卡"
             )
 
-        # 检查日期不能是未来
-        if data.date > date_type.today():
+        # 检查日期不能是未来（按 APP_TZ 时区的今天，避免 UTC 容器在 CST 凌晨误拒）
+        if data.date > tz_today():
             raise BusinessException(
                 ErrorCode.INVALID_DATE, "打卡日期不能是未来日期"
             )
@@ -77,7 +79,15 @@ class CheckinService:
             note=data.note,
         )
         db.add(checkin)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError:
+            # 并发竞态双写：唯一约束（user_id, date）兜底，直接转业务异常。
+            # flush 失败后 session 已 failed，禁止再做查询；rollback 由外层
+            # session_scope（工具路径）/ get_db（HTTP 路径）兜底。
+            raise BusinessException(
+                ErrorCode.CHECKIN_ALREADY_EXISTS, "该日期已打卡，不能重复打卡"
+            ) from None
 
         # 创建打卡动作记录
         for ex_data in data.exercises:
@@ -306,7 +316,7 @@ class CheckinService:
             }
 
         # 查询最近 100 天的打卡日期用于计算当前连续天数（有界查询）
-        today = date_type.today()
+        today = tz_today()
         lookback = today - timedelta(days=100)
         recent_result = await db.execute(
             select(Checkin.date)
@@ -326,6 +336,9 @@ class CheckinService:
             if d == check_date:
                 current_streak += 1
                 check_date -= timedelta(days=1)
+            elif d > check_date:
+                # 脏数据防御：晚于当前检查日的日期（如未来日期）直接跳过
+                continue
             elif d < check_date:
                 break
 

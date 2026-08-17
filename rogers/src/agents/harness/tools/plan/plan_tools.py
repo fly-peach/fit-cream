@@ -562,6 +562,9 @@ async def add_plan_day_tool(
     使用场景：
     - 用户说"加一个周五的训练日" -> day_of_week=5
     - 用户说"周一改成推日" -> day_of_week=1, focus="胸+肩+三头"
+
+    注意：同星期已存在训练日时，会与该训练日并存（打卡 plan_match 会合并比对）。
+    若用户意图是覆盖而非新增，应先与用户确认是否重复，避免同星期出现多个训练日。
     """
     user_id = extract_user_id(config)
     if not user_id:

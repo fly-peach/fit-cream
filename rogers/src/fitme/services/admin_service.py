@@ -38,6 +38,7 @@ from src.knowledge_base.models.document import KBDocument
 from src.knowledge_base.models.knowledge_base import KnowledgeBase
 from src.fitme.services.usage_service import UsageService
 from utils.exceptions import ForbiddenException, NotFoundException
+from utils.timeutil import today as tz_today
 
 
 class AdminService:
@@ -257,7 +258,7 @@ class AdminService:
     async def get_overview_stats(db: AsyncSession) -> AdminOverviewStats:
         now = datetime.now(timezone.utc)
         since_7d = now - timedelta(days=7)
-        today = date.today()
+        today = tz_today()
         since_7d_date = today - timedelta(days=7)
         since_30d_date = today - timedelta(days=30)
 
@@ -367,7 +368,7 @@ class AdminService:
 
     @staticmethod
     async def get_trends(db: AsyncSession, days: int = 30) -> AdminTrends:
-        today = date.today()
+        today = tz_today()
         start_date = today - timedelta(days=days - 1)
         start_dt = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         series = [start_date + timedelta(days=i) for i in range(days)]
