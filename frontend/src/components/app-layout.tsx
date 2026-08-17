@@ -183,29 +183,31 @@ export function AppLayout({ children, sidebarExtra }: AppLayoutProps) {
           </Button>
         </div>
 
-        {/* 移动端抽屉内导航 */}
+        {/* 移动端抽屉内导航：仅保留底部 Tab 栏没有的项（如管理后台），避免导航冗余 */}
         <nav className="space-y-1 px-2 pt-3">
-          {navItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.to);
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                onClick={closeMobileMenu}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-emerald-100/80 text-emerald-800"
-                    : "text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800"
-                )}
-              >
-                <item.icon
-                  className={cn("size-4 shrink-0", isActive && "text-emerald-500")}
-                />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+          {navItems
+            .filter((item) => !bottomNavItems.some((b) => b.to === item.to))
+            .map((item) => {
+              const isActive = location.pathname.startsWith(item.to);
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={closeMobileMenu}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-emerald-100/80 text-emerald-800"
+                      : "text-emerald-700/70 hover:bg-emerald-100/60 hover:text-emerald-800"
+                  )}
+                >
+                  <item.icon
+                    className={cn("size-4 shrink-0", isActive && "text-emerald-500")}
+                  />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
         </nav>
 
         {/* 抽屉内额外内容（如对话历史） */}

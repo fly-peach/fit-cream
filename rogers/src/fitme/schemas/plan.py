@@ -57,6 +57,7 @@ class PlanExerciseCreate(BaseModel):
 
 class PlanExerciseUpdate(BaseModel):
     """计划中动作更新（均可选，允许 strength/cardio 切换）"""
+    exercise_id: Optional[UUID] = Field(default=None, description="关联动作库动作 ID（更换动作）")
     exercise_type: Optional[str] = Field(
         default=None, pattern="^(strength|cardio)$", description="动作类型"
     )

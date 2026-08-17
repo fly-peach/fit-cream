@@ -492,7 +492,7 @@ function StreamSteps({
         </div>
       )}
       {isStreaming && (
-        <span className="inline-block h-4 w-1.5 animate-pulse bg-muted-foreground/40" />
+        <span className="inline-block h-3 w-1 animate-pulse bg-muted-foreground/40" />
       )}
     </div>
   );

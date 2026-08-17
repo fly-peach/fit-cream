@@ -78,7 +78,7 @@ export function CheckinCalendar({
             <CalendarDays className="size-4 text-emerald-500" />
             {isExercise ? "锻炼日历" : "饮食日历"}
           </CardTitle>
-          <div className="flex items-center gap-1 rounded-lg bg-emerald-50 p-0.5">
+          <div className="hidden items-center gap-1 rounded-lg bg-emerald-50 p-0.5 lg:flex">
             <button
               type="button"
               onClick={() => onModeChange("exercise")}

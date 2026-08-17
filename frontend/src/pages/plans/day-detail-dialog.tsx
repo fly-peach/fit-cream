@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { MetadataEditor, MetadataPreview } from "@/components/metadata-editor";
 import { toMetaRows, toMetaDict, type MetaRow } from "@/lib/meta-utils";
 import { Button } from "@/components/ui/button";
@@ -12,12 +13,13 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, ExternalLink, Loader2, Plus } from "lucide-react";
+import { Trash2, Pencil, Shuffle, ArrowRight, Loader2, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/toast";
 import { muscleGroupLabels, equipmentLabels, exerciseDescription } from "@/lib/exercise-labels";
 import { useLanguage } from "@/lib/language-context";
 import { AddExerciseDialog } from "./add-exercise-dialog";
+import { SwapExerciseDialog } from "./swap-exercise-dialog";
 import { dayNames, type PlanDay, type PlanDetail, type PlanExercise } from "./types";
 
 export function DayDetailDialog({
@@ -34,6 +36,7 @@ export function DayDetailDialog({
   onPlanUpdated: (plan: PlanDetail) => void;
 }) {
   const { isZh } = useLanguage();
+  const navigate = useNavigate();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditType] = useState<"strength" | "cardio">("strength");
   const [editSets, setEditSets] = useState(3);
@@ -53,6 +56,8 @@ export function DayDetailDialog({
   const [dayMeta, setDayMeta] = useState<MetaRow[]>([]);
   const [dayInfoSaving, setDayInfoSaving] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [swapTargetId, setSwapTargetId] = useState<string | null>(null);
+  const [swapDialogOpen, setSwapDialogOpen] = useState(false);
 
   if (!open && dayInfoSync !== null) {
     setDayInfoSync(null);
@@ -444,17 +449,32 @@ export function DayDetailDialog({
                         </div>
                         <div className="flex shrink-0 flex-col gap-1">
                           {ex.exercise_id && (
-                            <a
-                              href={`/exercises/${ex.exercise_id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-emerald-400 hover:text-emerald-600"
                               title="查看动作详情"
-                              className="flex size-7 items-center justify-center rounded-md text-emerald-400 hover:bg-emerald-50 hover:text-emerald-600"
-                              onClick={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/exercises/${ex.exercise_id}`);
+                              }}
                             >
-                              <ExternalLink className="size-3.5" />
-                            </a>
+                              <ArrowRight className="size-3.5" />
+                            </Button>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7 text-emerald-400 hover:text-emerald-600"
+                            title="更换动作"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSwapTargetId(ex.id);
+                              setSwapDialogOpen(true);
+                            }}
+                          >
+                            <Shuffle className="size-3.5" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -501,6 +521,13 @@ export function DayDetailDialog({
         day={day}
         open={addDialogOpen}
         onClose={() => setAddDialogOpen(false)}
+        onPlanUpdated={onPlanUpdated}
+      />
+
+      <SwapExerciseDialog
+        planExerciseId={swapTargetId}
+        open={swapDialogOpen}
+        onClose={() => setSwapDialogOpen(false)}
         onPlanUpdated={onPlanUpdated}
       />
     </Dialog>

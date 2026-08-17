@@ -32,6 +32,7 @@ import {
   CheckCircle,
   RefreshCw,
   UtensilsCrossed,
+  ArrowRight,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/toast";
@@ -510,6 +511,19 @@ export default function PlansPage() {
                           >
                             {ex.exercise_name ?? "未知动作"}
                           </span>
+                          {ex.exercise_id && (
+                            <button
+                              type="button"
+                              title="查看动作详情"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/exercises/${ex.exercise_id}`);
+                              }}
+                              className="flex size-5 shrink-0 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-emerald-100 hover:text-emerald-600"
+                            >
+                              <ArrowRight className="size-3" />
+                            </button>
+                          )}
                         </div>
                         <span className="shrink-0 tabular-nums text-emerald-600/70">
                           {isCardio
@@ -626,6 +640,16 @@ export default function PlansPage() {
                     </>
                   ) : (
                     <>
+                      <CheckinCalendar
+                        mode="diet"
+                        onModeChange={setCalMode}
+                        selectedDate={dietDate}
+                        onPickDate={pickDietDate}
+                        checkinDates={checkinDates}
+                        streak={streak}
+                        dietDayCalories={dietDayCalories}
+                        dietTargetCalories={dietPlan?.target_calories ?? null}
+                      />
                       <NutritionOverview
                         meals={dietDay?.meals ?? []}
                         settings={settings}
