@@ -293,14 +293,14 @@ export default function ProfilePage() {
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-6 p-6" style={{ zoom: 0.6 }}>
-          <header className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
-              <User className="size-5 text-emerald-600" />
+        <div className="mx-auto max-w-3xl space-y-6 p-6">
+          <header className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex size-7 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
+              <User className="size-3 text-emerald-600 sm:size-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-emerald-950">个人中心</h1>
-              <p className="text-sm text-emerald-600/60">管理你的身体数据与健身目标</p>
+              <h1 className="text-[12px] font-bold text-emerald-950 sm:text-xl">个人中心</h1>
+              <p className="text-[8px] text-emerald-600/60 sm:text-sm">管理你的身体数据与健身目标</p>
             </div>
           </header>
 

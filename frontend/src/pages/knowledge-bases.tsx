@@ -151,14 +151,14 @@ export default function KnowledgeBasesPage() {
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-5xl space-y-2.5 p-2 sm:space-y-6 sm:p-6">
           <header className="flex items-center gap-1.5 sm:gap-3">
-            <div className="flex size-[18px] shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
-              <BookOpenIcon className="size-2 text-emerald-600 sm:size-5" />
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
+              <BookOpenIcon className="size-3 text-emerald-600 sm:size-5" />
             </div>
             <div>
-              <h1 className="text-[8px] font-bold text-emerald-950 sm:text-xl">
+              <h1 className="text-[12px] font-bold text-emerald-950 sm:text-xl">
                 知识库
               </h1>
-              <p className="text-[6px] text-emerald-600/60 sm:text-sm">
+              <p className="text-[8px] text-emerald-600/60 sm:text-sm">
                 订阅知识库后即可浏览其文档，AI 教练也会在对话中检索已订阅的知识库
               </p>
             </div>

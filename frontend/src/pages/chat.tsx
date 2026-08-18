@@ -1325,7 +1325,7 @@ export default function ChatPage() {
             </div>
             <div className="min-w-0 leading-tight">
               <div className="flex items-center gap-2">
-                <h1 className="truncate text-base font-bold text-emerald-950">AI 教练</h1>
+                <h1 className="truncate text-[12px] font-bold text-emerald-950 sm:text-xl">AI 教练</h1>
                 {isPlanDesignThread && (
                   <span className="hidden shrink-0 items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 sm:inline-flex">
                     <DumbbellIcon className="size-2.5" />
