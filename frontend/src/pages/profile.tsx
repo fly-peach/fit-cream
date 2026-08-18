@@ -1,20 +1,4 @@
 import { useEffect, useState } from "react";
-import {
-  format,
-  subDays,
-  startOfMonth,
-  startOfDay,
-  eachDayOfInterval,
-} from "date-fns";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { AppLayout } from "@/components/app-layout";
 import { ApiKeyPanel } from "@/components/api-key-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,14 +20,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  User,
-  Save,
-  Loader2,
-  CheckCircle2,
-  Smartphone,
   AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Save,
+  Smartphone,
   Trash2,
-  Dumbbell,
+  User,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -95,193 +80,6 @@ function maskPhone(p: string | null | undefined): string {
   return p && p.length >= 7 ? `${p.slice(0, 3)}****${p.slice(-4)}` : p ?? "";
 }
 
-// ============ 训练记录卡片 ============
-
-interface TrainingCheckin {
-  id: string;
-  date: string;
-  duration_min: number | null;
-}
-
-type RecordRange = "7d" | "30d" | "90d" | "month";
-
-const recordRangeOptions: { value: RecordRange; label: string }[] = [
-  { value: "7d", label: "近7天" },
-  { value: "30d", label: "近30天" },
-  { value: "90d", label: "近90天" },
-  { value: "month", label: "本月" },
-];
-
-function computeRecordRange(range: RecordRange): { start: Date; end: Date } {
-  const today = new Date();
-  if (range === "7d") return { start: subDays(today, 6), end: today };
-  if (range === "30d") return { start: subDays(today, 29), end: today };
-  if (range === "90d") return { start: subDays(today, 89), end: today };
-  return { start: startOfMonth(today), end: today };
-}
-
-function formatMin(min: number): string {
-  if (min >= 60) {
-    const h = Math.floor(min / 60);
-    const m = min % 60;
-    return m > 0 ? `${h}小时${m}分` : `${h}小时`;
-  }
-  return `${min}分钟`;
-}
-
-function TrainingRecordCard() {
-  const [range, setRange] = useState<RecordRange>("30d");
-  const [data, setData] = useState<{ day: string; minutes: number }[]>([]);
-  const [summary, setSummary] = useState({ workouts: 0, minutes: 0 });
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    const { start, end } = computeRecordRange(range);
-    api
-      .get<{ items: TrainingCheckin[] }>(
-        `/checkins?start=${format(start, "yyyy-MM-dd")}&end=${format(end, "yyyy-MM-dd")}&size=100`,
-      )
-      .then((res) => {
-        if (cancelled) return;
-        const items = res?.items ?? [];
-        const byDate = new Map<string, number>();
-        let workouts = 0;
-        let minutes = 0;
-        for (const c of items) {
-          workouts += 1;
-          if (c.duration_min != null) {
-            minutes += c.duration_min;
-            byDate.set(c.date, (byDate.get(c.date) ?? 0) + c.duration_min);
-          }
-        }
-        const days = eachDayOfInterval({
-          start: startOfDay(start),
-          end: startOfDay(end),
-        });
-        let bars: { day: string; minutes: number }[];
-        if (range !== "90d" && range !== "month") {
-          bars = days.map((d) => ({
-            day: format(d, "M/d"),
-            minutes: byDate.get(format(d, "yyyy-MM-dd")) ?? 0,
-          }));
-        } else {
-          bars = [];
-          for (let i = 0; i < days.length; i += 7) {
-            const week = days.slice(i, i + 7);
-            const sum = week.reduce(
-              (acc, d) => acc + (byDate.get(format(d, "yyyy-MM-dd")) ?? 0),
-              0,
-            );
-            bars.push({ day: format(week[0], "M/d"), minutes: sum });
-          }
-        }
-        setSummary({ workouts, minutes });
-        setData(bars);
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [range]);
-
-  return (
-    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-emerald-950">
-            <Dumbbell className="size-4 text-emerald-500" />
-            训练记录
-          </CardTitle>
-          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-emerald-50 p-0.5">
-            {recordRangeOptions.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => setRange(o.value)}
-                className={
-                  range === o.value
-                    ? "rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 shadow-sm sm:px-2 sm:text-xs"
-                    : "rounded-md px-1.5 py-0.5 text-[10px] font-medium text-emerald-600/60 transition-colors hover:text-emerald-700 sm:px-2 sm:text-xs"
-                }
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-xl bg-emerald-50/60 py-3 text-center">
-            <p className="text-xs text-emerald-600/60">训练次数</p>
-            <p className="text-xl font-bold tabular-nums text-emerald-950">
-              {summary.workouts} 次
-            </p>
-          </div>
-          <div className="rounded-xl bg-emerald-50/60 py-3 text-center">
-            <p className="text-xs text-emerald-600/60">总时长</p>
-            <p className="text-xl font-bold tabular-nums text-emerald-950">
-              {formatMin(summary.minutes)}
-            </p>
-          </div>
-        </div>
-        {loading ? (
-          <div className="flex h-24 items-center justify-center">
-            <Loader2 className="size-5 animate-spin text-emerald-500" />
-          </div>
-        ) : summary.workouts === 0 ? (
-          <p className="py-4 text-center text-xs text-emerald-600/50">
-            该时间段暂无训练记录
-          </p>
-        ) : (
-          <div className="h-24">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  tick={{ fill: "#6ee7b7", fontSize: 9 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  width={24}
-                  tick={{ fill: "#6ee7b7", fontSize: 9 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#ffffff",
-                    border: "1px solid #d1fae5",
-                    borderRadius: "12px",
-                    fontSize: "12px",
-                    boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
-                  }}
-                  labelStyle={{ color: "#065f46" }}
-                  cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
-                />
-                <Bar
-                  dataKey="minutes"
-                  name="时长 (分钟)"
-                  fill="#10b981"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={24}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [form, setForm] = useState({
@@ -319,6 +117,9 @@ export default function ProfilePage() {
   const [sendingDeact, setSendingDeact] = useState(false);
   const [deactSubmitting, setDeactSubmitting] = useState(false);
   const deactCountdown = useCountdown();
+
+  // 账号与安全 —— 折叠展开（默认收起）
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -444,6 +245,15 @@ export default function ProfilePage() {
     }
   };
 
+  const cancelChange = () => {
+    setChangeStep(0);
+    setOldCode("");
+    setNewPhone("");
+    setNewCode("");
+    setChangeMsg("");
+    setChangeError("");
+  };
+
   const sendDeactCode = async () => {
     setDeactError("");
     setSendingDeact(true);
@@ -483,7 +293,7 @@ export default function ProfilePage() {
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-3xl space-y-6 p-6">
+        <div className="mx-auto max-w-3xl space-y-6 p-6" style={{ zoom: 0.6 }}>
           <header className="flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
               <User className="size-5 text-emerald-600" />
@@ -636,8 +446,6 @@ export default function ProfilePage() {
                 </CardContent>
               </Card>
 
-              <TrainingRecordCard />
-
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold text-emerald-950">
@@ -693,10 +501,26 @@ export default function ProfilePage() {
 
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>
-                  <CardTitle className="text-base font-semibold text-emerald-950">
-                    账号与安全
-                  </CardTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base font-semibold text-emerald-950">
+                      账号与安全
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-emerald-600/70"
+                      onClick={() => setSecurityOpen((v) => !v)}
+                      title={securityOpen ? "收起" : "展开"}
+                    >
+                      {securityOpen ? (
+                        <ChevronUp className="size-4" />
+                      ) : (
+                        <ChevronDown className="size-4" />
+                      )}
+                    </Button>
+                  </div>
                 </CardHeader>
+                {securityOpen && (
                 <CardContent className="space-y-5">
                   {/* ---------- 换绑手机号 ---------- */}
                   <div className="space-y-3">
@@ -761,6 +585,13 @@ export default function ProfilePage() {
                             >
                               下一步
                             </Button>
+                            <Button
+                              onClick={cancelChange}
+                              variant="ghost"
+                              className="w-full text-emerald-600/70 hover:bg-emerald-100/60 hover:text-emerald-700"
+                            >
+                              取消
+                            </Button>
                           </>
                         ) : (
                           <>
@@ -814,6 +645,13 @@ export default function ProfilePage() {
                                 上一步
                               </Button>
                               <Button
+                                onClick={cancelChange}
+                                variant="outline"
+                                className="border-emerald-200 text-emerald-700"
+                              >
+                                取消
+                              </Button>
+                              <Button
                                 onClick={submitChangePhone}
                                 disabled={changeSubmitting || newCode.length !== 4}
                                 className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500"
@@ -861,6 +699,7 @@ export default function ProfilePage() {
                     </Button>
                   </div>
                 </CardContent>
+                )}
               </Card>
 
               <Dialog open={deactOpen} onOpenChange={setDeactOpen}>

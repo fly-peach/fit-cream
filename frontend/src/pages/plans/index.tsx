@@ -300,10 +300,10 @@ export default function PlansPage() {
       <CardHeader>
         <div className="flex items-start justify-between">
           <div>
-            <CardTitle className="text-lg font-semibold text-emerald-950">
+            <CardTitle className="text-[11px] font-semibold text-emerald-950 sm:text-lg">
               当日训练
             </CardTitle>
-            <p className="mt-1 text-xs text-emerald-600/70">
+            <p className="mt-0.5 text-[7px] text-emerald-600/70 sm:mt-1 sm:text-xs">
               {exDateLabel}
               {activePlan ? ` · ${activePlan.name}` : ""}
             </p>
@@ -313,10 +313,10 @@ export default function PlansPage() {
               variant="ghost"
               size="icon"
               title="编辑训练日"
-              className="text-emerald-400 hover:text-emerald-600"
+              className="size-5 text-emerald-400 hover:text-emerald-600 sm:size-8"
               onClick={() => openDayDetail(exDay)}
             >
-              <Pencil className="size-4" />
+              <Pencil className="size-3 sm:size-4" />
             </Button>
           )}
         </div>
@@ -590,13 +590,17 @@ export default function PlansPage() {
     <AppLayout>
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-7xl space-y-6 p-6">
-          <header className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
-              <Dumbbell className="size-5 text-emerald-600" />
+          <header className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex size-7 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
+              <Dumbbell className="size-3 text-emerald-600 sm:size-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-emerald-950">训练与饮食计划</h1>
-              <p className="text-sm text-emerald-600/60">按日期查看与管理你的训练和饮食安排</p>
+              <h1 className="text-[12px] font-bold text-emerald-950 sm:text-xl">
+                训练与饮食计划
+              </h1>
+              <p className="text-[8px] text-emerald-600/60 sm:text-sm">
+                按日期查看与管理你的训练和饮食安排
+              </p>
             </div>
           </header>
 

@@ -389,15 +389,15 @@ export default function ExercisesPage() {
       <div className="h-full overflow-y-auto">
         <div className="mx-auto max-w-7xl space-y-5 p-3 sm:p-6">
           <header className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100">
-                <Dumbbell className="size-5 text-emerald-600" />
+            <div className="flex min-w-0 items-center gap-1 sm:gap-3">
+              <div className="flex size-[18px] shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
+                <Dumbbell className="size-2 text-emerald-600 sm:size-5" />
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-xl font-bold text-emerald-950">
+                <h1 className="truncate text-[8px] font-bold text-emerald-950 sm:text-xl">
                   {isZh ? "动作库" : "Exercise Library"}
                 </h1>
-                <p className="truncate text-sm text-emerald-600/60">
+                <p className="truncate text-[6px] text-emerald-600/60 sm:text-sm">
                   {isZh
                     ? "1324 个动作 · 搜索/筛选并查看动图演示"
                     : "1,324 exercises · search, filter & preview GIF demos"}

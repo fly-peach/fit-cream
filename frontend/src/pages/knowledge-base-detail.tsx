@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeftIcon,
   FileTextIcon,
+  InfoIcon,
   Loader2,
   SearchIcon,
   Share2Icon,
@@ -156,6 +157,11 @@ export default function KnowledgeBaseDetailPage() {
                 {kb?.description || "暂无描述"}
               </p>
             </div>
+          </div>
+
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-700">
+            <InfoIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+            <span>知识库内容仅代表博主个人观点，提供一定专业见解；详细内容请以对应视频为准。</span>
           </div>
 
           {error && (

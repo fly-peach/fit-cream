@@ -49,7 +49,7 @@ export function CheckinCalendar({
 }) {
   const [currentMonth, setCurrentMonth] = useState(selectedDate);
   const [syncMode, setSyncMode] = useState(mode);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   if (mode !== syncMode) {
     setSyncMode(mode);
@@ -75,7 +75,7 @@ export function CheckinCalendar({
 
   return (
     <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-1 lg:pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
             <CalendarDays className="size-4 text-emerald-500" />
@@ -87,37 +87,41 @@ export function CheckinCalendar({
                 type="button"
                 onClick={() => onModeChange("exercise")}
                 className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  "flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors lg:px-2.5 lg:py-1",
                   isExercise
                     ? "bg-white text-emerald-700 shadow-sm"
                     : "text-emerald-600/60 hover:text-emerald-700",
                 )}
               >
-                <Dumbbell className="size-3.5" />
+                <Dumbbell className="size-2.5 lg:size-3.5" />
                 锻炼
               </button>
               <button
                 type="button"
                 onClick={() => onModeChange("diet")}
                 className={cn(
-                  "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  "flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium transition-colors lg:px-2.5 lg:py-1",
                   !isExercise
                     ? "bg-white text-orange-700 shadow-sm"
                     : "text-orange-600/60 hover:text-orange-700",
                 )}
               >
-                <UtensilsCrossed className="size-3.5" />
+                <UtensilsCrossed className="size-2.5 lg:size-3.5" />
                 饮食
               </button>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-emerald-600/70"
+              className="size-5 text-emerald-600/70 lg:size-7"
               onClick={() => setCollapsed((v) => !v)}
               title={collapsed ? "展开" : "折叠"}
             >
-              {collapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+              {collapsed ? (
+                <ChevronDown className="size-3 lg:size-4" />
+              ) : (
+                <ChevronUp className="size-3 lg:size-4" />
+              )}
             </Button>
           </div>
         </div>
@@ -130,21 +134,21 @@ export function CheckinCalendar({
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 text-emerald-700 hover:bg-emerald-100"
+                className="size-5 text-emerald-700 hover:bg-emerald-100 lg:size-7"
                 onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
               >
-                <ChevronLeft className="size-4" />
+                <ChevronLeft className="size-3 lg:size-4" />
               </Button>
-              <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
+              <span className="min-w-14 text-center text-sm font-medium text-emerald-900 lg:min-w-20">
                 {format(currentMonth, "yyyy年M月", { locale: zhCN })}
               </span>
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 text-emerald-700 hover:bg-emerald-100"
+                className="size-5 text-emerald-700 hover:bg-emerald-100 lg:size-7"
                 onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
               >
-                <ChevronRight className="size-4" />
+                <ChevronRight className="size-3 lg:size-4" />
               </Button>
             </div>
           </div>
@@ -154,12 +158,12 @@ export function CheckinCalendar({
         <CardContent>
         <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-emerald-600/60">
           {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
-            <div key={d} className="py-1">
+            <div key={d} className="py-0.5 lg:py-1">
               {d}
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-0.5 lg:gap-1">
           {calendarDays.map((day) => {
             const dateStr = format(day, "yyyy-MM-dd");
             const checked = checkinDates.has(dateStr);
@@ -171,7 +175,7 @@ export function CheckinCalendar({
                 key={dateStr}
                 onClick={() => onPickDate(day)}
                 className={cn(
-                  "relative flex size-9 items-center justify-center rounded-lg text-sm transition-all duration-150",
+                  "relative flex size-[25px] items-center justify-center rounded-lg text-sm transition-all duration-150 lg:size-9",
                   !inMonth && "text-emerald-200",
                   inMonth && !isSelected && "text-emerald-800 hover:bg-emerald-50",
                   isExercise && checked && "bg-emerald-100 font-medium text-emerald-700 hover:bg-emerald-200",
@@ -181,16 +185,16 @@ export function CheckinCalendar({
               >
                 {format(day, "d")}
                 {isExercise && checked && (
-                  <span className="absolute bottom-1 size-1 rounded-full bg-emerald-500" />
+                  <span className="absolute bottom-0.5 size-[3px] rounded-full bg-emerald-500 lg:bottom-1 lg:size-1" />
                 )}
               </button>
             );
           })}
         </div>
-        <div className="mt-4 space-y-2">
+        <div className="mt-2 space-y-1 lg:mt-4 lg:space-y-2">
           {isExercise ? (
             <>
-              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-2 py-1 lg:px-3 lg:py-2">
                 <span className="text-xs text-emerald-700">
                   {format(selectedDate, "M月d日", { locale: zhCN })}
                   {selectedChecked ? (
@@ -203,7 +207,7 @@ export function CheckinCalendar({
                   本月 <span className="font-semibold text-emerald-600">{monthCheckins}</span> 天
                 </span>
               </div>
-              <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+              <div className="flex items-center justify-between rounded-lg bg-orange-50 px-2 py-1 lg:px-3 lg:py-2">
                 <span className="flex items-center gap-1.5 text-xs text-orange-600">
                   <Flame className="size-3.5 text-orange-500" />
                   当前连续打卡
@@ -215,7 +219,7 @@ export function CheckinCalendar({
               </div>
             </>
           ) : (
-            <div className="flex items-center justify-between rounded-lg bg-orange-50 px-3 py-2">
+            <div className="flex items-center justify-between rounded-lg bg-orange-50 px-2 py-1 lg:px-3 lg:py-2">
               <span className="flex items-center gap-1.5 text-xs text-orange-600">
                 <Flame className="size-3.5 text-orange-500" />
                 当日热量

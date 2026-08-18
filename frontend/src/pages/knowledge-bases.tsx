@@ -75,45 +75,45 @@ export default function KnowledgeBasesPage() {
     const filtered = filterKbs(list);
     if (filtered.length === 0) {
       return (
-        <div className="flex flex-col items-center gap-2 py-16 text-center text-emerald-600/50">
-          <BookOpenIcon className="size-8" />
-          <p className="text-sm">
+        <div className="flex flex-col items-center gap-1 py-6 text-center text-emerald-600/50 sm:gap-2 sm:py-16">
+          <BookOpenIcon className="size-3 sm:size-8" />
+          <p className="text-[6px] sm:text-sm">
             {tab === "mine" ? "还没有订阅任何知识库" : "暂无知识库"}
           </p>
         </div>
       );
     }
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-3 gap-1 sm:gap-2">
         {filtered.map((kb) => (
           <Card
             key={kb.id}
             className="flex flex-col border-emerald-100 bg-white/80 transition-shadow hover:shadow-md"
           >
-            <CardContent className="flex flex-1 flex-col gap-3 p-5">
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="line-clamp-1 font-semibold text-emerald-950">
+            <CardContent className="flex flex-1 flex-col gap-[2px] p-1 sm:gap-1.5 sm:p-2.5">
+              <div className="flex items-start justify-between gap-1">
+                <h3 className="line-clamp-1 text-[6px] font-semibold text-emerald-950 sm:text-sm">
                   {kb.name}
                 </h3>
                 {kb.subscribed && (
-                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-1 py-0.5 text-[4px] font-medium text-emerald-700 sm:px-1.5 sm:text-[10px]">
                     已订阅
                   </span>
                 )}
               </div>
-              <p className="line-clamp-2 flex-1 text-sm text-emerald-700/70">
+              <p className="line-clamp-1 flex-1 text-[5px] text-emerald-700/70 sm:text-xs">
                 {kb.description || "暂无描述"}
               </p>
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-[2px] pt-0.5 sm:gap-1">
                 <Link
                   to={`/knowledge-bases/${kb.id}`}
                   className={cn(
-                    buttonVariants({ variant: "ghost", size: "sm" }),
-                    "text-emerald-700"
+                    buttonVariants({ variant: "ghost", size: "icon" }),
+                    "size-3 text-emerald-700 sm:size-8"
                   )}
+                  title="查看"
                 >
-                  查看
-                  <ArrowRightIcon className="size-3.5" />
+                  <ArrowRightIcon className="size-[5px] sm:size-3.5" />
                 </Link>
                 <Button
                   variant={kb.subscribed ? "outline" : "default"}
@@ -121,19 +121,20 @@ export default function KnowledgeBasesPage() {
                   disabled={busyId === kb.id}
                   onClick={() => toggleSubscribe(kb)}
                   className={cn(
+                    "h-3 flex-1 px-1 text-[5px] sm:h-7 sm:px-2.5 sm:text-[0.8rem]",
                     kb.subscribed
                       ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                       : "bg-emerald-600 text-white hover:bg-emerald-500"
                   )}
                 >
                   {busyId === kb.id ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Loader2 className="size-[6px] animate-spin sm:size-3.5" />
                   ) : kb.subscribed ? (
-                    <CheckIcon className="size-3.5" />
+                    <CheckIcon className="size-[6px] sm:size-3.5" />
                   ) : (
-                    <PlusIcon className="size-3.5" />
+                    <PlusIcon className="size-[6px] sm:size-3.5" />
                   )}
-                  {kb.subscribed ? "已订阅" : "订阅"}
+                  <span className="ml-1">{kb.subscribed ? "已订阅" : "订阅"}</span>
                 </Button>
               </div>
             </CardContent>
@@ -148,25 +149,27 @@ export default function KnowledgeBasesPage() {
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-6 p-6">
-          <header className="flex items-center gap-3">
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-emerald-100">
-              <BookOpenIcon className="size-5 text-emerald-600" />
+        <div className="mx-auto max-w-5xl space-y-2.5 p-2 sm:space-y-6 sm:p-6">
+          <header className="flex items-center gap-1.5 sm:gap-3">
+            <div className="flex size-[18px] shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
+              <BookOpenIcon className="size-2 text-emerald-600 sm:size-5" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-emerald-950">知识库</h1>
-              <p className="text-sm text-emerald-600/60">
+              <h1 className="text-[8px] font-bold text-emerald-950 sm:text-xl">
+                知识库
+              </h1>
+              <p className="text-[6px] text-emerald-600/60 sm:text-sm">
                 订阅知识库后即可浏览其文档，AI 教练也会在对话中检索已订阅的知识库
               </p>
             </div>
           </header>
 
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-xl bg-emerald-50 p-1">
+          <div className="flex items-center gap-1 sm:gap-2">
+            <div className="flex rounded-lg bg-emerald-50 p-0.5 sm:rounded-xl sm:p-1">
               <button
                 onClick={() => setTab("all")}
                 className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "rounded-md px-1.5 py-1 text-[6px] font-medium transition-colors sm:rounded-lg sm:px-3 sm:py-1.5 sm:text-sm",
                   tab === "all"
                     ? "bg-white text-emerald-700 shadow-sm"
                     : "text-emerald-600/60 hover:text-emerald-700"
@@ -177,7 +180,7 @@ export default function KnowledgeBasesPage() {
               <button
                 onClick={() => setTab("mine")}
                 className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "rounded-md px-1.5 py-1 text-[6px] font-medium transition-colors sm:rounded-lg sm:px-3 sm:py-1.5 sm:text-sm",
                   tab === "mine"
                     ? "bg-white text-emerald-700 shadow-sm"
                     : "text-emerald-600/60 hover:text-emerald-700"
@@ -189,24 +192,24 @@ export default function KnowledgeBasesPage() {
           </div>
 
           <div className="relative">
-            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-emerald-400" />
+            <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-2 -translate-y-1/2 text-emerald-400 sm:left-3 sm:size-4" />
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索知识库名称或描述"
-              className="rounded-xl border-emerald-200 bg-white/70 pl-9"
+              className="h-3 pl-5 text-[6px] sm:h-8 sm:pl-9 sm:text-sm"
             />
           </div>
 
           {error && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[6px] text-red-600 sm:rounded-xl sm:px-4 sm:py-3 sm:text-sm">
               {error}
             </div>
           )}
 
           {loading ? (
-            <div className="flex items-center justify-center py-20 text-emerald-500">
-              <Loader2 className="size-6 animate-spin" />
+            <div className="flex items-center justify-center py-8 text-emerald-500 sm:py-20">
+              <Loader2 className="size-3 animate-spin sm:size-6" />
             </div>
           ) : (
             renderGrid(currentList)
