@@ -1,5 +1,12 @@
 import { useState, useMemo, useEffect, useRef, type ReactNode } from "react";
-import { format, parseISO } from "date-fns";
+import {
+  format,
+  parseISO,
+  subDays,
+  startOfMonth,
+  startOfDay,
+  eachDayOfInterval,
+} from "date-fns";
 import { zhCN } from "date-fns/locale";
 import {
   XAxis,
@@ -16,6 +23,15 @@ import {
   PolarAngleAxis,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AppLayout } from "@/components/app-layout";
 import { TodayOverviewBar } from "@/components/today-overview-bar";
 import {
@@ -44,7 +60,7 @@ interface UserSettings {
   protein_goal_g: number;
   carbs_goal_g: number;
   fat_goal_g: number;
-  weekly_duration_goal_min: number;
+  weekly_training_goal: number;
 }
 
 interface OverviewStats {
@@ -92,6 +108,60 @@ interface CheckinItem {
 }
 
 const moodEmojis = ["😫", "😕", "😐", "🙂", "🤩"];
+
+interface MoodLogItem {
+  id: string;
+  date: string;
+  mood: number;
+  note: string | null;
+}
+
+type VolumeRange = "7d" | "30d" | "90d" | "month";
+
+const volumeRangeOptions: { value: VolumeRange; label: string }[] = [
+  { value: "7d", label: "近7天" },
+  { value: "30d", label: "近30天" },
+  { value: "90d", label: "近90天" },
+  { value: "month", label: "本月" },
+];
+
+function computeVolumeRange(range: VolumeRange): { start: Date; end: Date } {
+  const today = new Date();
+  if (range === "7d") return { start: subDays(today, 6), end: today };
+  if (range === "30d") return { start: subDays(today, 29), end: today };
+  if (range === "90d") return { start: subDays(today, 89), end: today };
+  return { start: startOfMonth(today), end: today };
+}
+
+function aggregateVolume(
+  items: CheckinItem[],
+  range: VolumeRange,
+): { day: string; minutes: number }[] {
+  const { start, end } = computeVolumeRange(range);
+  const byDate = new Map<string, number>();
+  for (const c of items) {
+    if (c.duration_min != null) {
+      byDate.set(c.date, (byDate.get(c.date) ?? 0) + c.duration_min);
+    }
+  }
+  const days = eachDayOfInterval({ start: startOfDay(start), end: startOfDay(end) });
+  if (range !== "90d" && range !== "month") {
+    return days.map((d) => ({
+      day: format(d, "M/d"),
+      minutes: byDate.get(format(d, "yyyy-MM-dd")) ?? 0,
+    }));
+  }
+  const out: { day: string; minutes: number }[] = [];
+  for (let i = 0; i < days.length; i += 7) {
+    const week = days.slice(i, i + 7);
+    const sum = week.reduce(
+      (acc, d) => acc + (byDate.get(format(d, "yyyy-MM-dd")) ?? 0),
+      0,
+    );
+    out.push({ day: format(week[0], "M/d"), minutes: sum });
+  }
+  return out;
+}
 
 function formatDuration(min: number): string {
   if (min >= 60) {
@@ -203,15 +273,11 @@ function TodayTraining({ checkin }: { checkin: CheckinItem | null }) {
 function WeeklyGoalCard({
   weekly,
   goalPercent,
-  weeklyTotal,
-  avgDuration,
   goal,
   onGoalChange,
 }: {
   weekly: WeeklyStats | null;
   goalPercent: number;
-  weeklyTotal: number;
-  avgDuration: number;
   goal: number;
   onGoalChange: (goal: number) => void;
 }) {
@@ -219,6 +285,8 @@ function WeeklyGoalCard({
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  const totalWorkouts = weekly?.total_workouts ?? 0;
 
   useEffect(() => {
     if (editing && editInputRef.current) {
@@ -239,17 +307,17 @@ function WeeklyGoalCard({
 
   const saveEdit = async () => {
     const num = parseInt(editValue, 10);
-    if (isNaN(num) || num < 60 || num > 3000) {
+    if (isNaN(num) || num < 1 || num > 14) {
       cancelEdit();
       return;
     }
     setSaving(true);
     try {
       const updated = await api.put<UserSettings>("/users/settings", {
-        weekly_duration_goal_min: num,
+        weekly_training_goal: num,
       });
-      if (updated?.weekly_duration_goal_min != null) {
-        onGoalChange(updated.weekly_duration_goal_min);
+      if (updated?.weekly_training_goal != null) {
+        onGoalChange(updated.weekly_training_goal);
       }
     } catch {
       // silent
@@ -280,13 +348,13 @@ function WeeklyGoalCard({
           </span>
           {editing ? (
             <span className="flex items-center gap-0.5">
-              <span className="text-[10px] tabular-nums text-emerald-600/70">{weeklyTotal}/</span>
+              <span className="text-[10px] tabular-nums text-emerald-600/70">{totalWorkouts}/</span>
               <input
                 ref={editInputRef}
                 type="number"
-                min={60}
-                max={3000}
-                step={5}
+                min={1}
+                max={14}
+                step={1}
                 value={editValue}
                 onChange={(e) => setEditValue(e.target.value)}
                 onKeyDown={(e) => {
@@ -300,7 +368,7 @@ function WeeklyGoalCard({
                 disabled={saving}
                 className="h-4 w-11 rounded border border-emerald-200 bg-white px-1 text-right text-[10px] tabular-nums text-emerald-800 outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-200"
               />
-              <span className="text-[10px] text-emerald-600/70">分钟</span>
+              <span className="text-[10px] text-emerald-600/70">次</span>
               <button
                 type="button"
                 onClick={saveEdit}
@@ -327,7 +395,7 @@ function WeeklyGoalCard({
               title="点击编辑周目标"
             >
               <span className="tabular-nums">
-                {weeklyTotal}/{goal} 分钟
+                {totalWorkouts}/{goal} 次
               </span>
               <Pencil className="size-2.5 text-emerald-300 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/target:opacity-100" />
             </button>
@@ -343,83 +411,231 @@ function WeeklyGoalCard({
           <span className="text-emerald-600/60">完成组数</span>
           <span className="font-medium text-emerald-950">{weekly?.total_sets ?? 0} 组</span>
         </div>
-        <div className="flex justify-between text-[11px] sm:text-sm">
-          <span className="text-emerald-600/60">平均时长</span>
-          <span className="font-medium text-emerald-950">{avgDuration} 分钟/次</span>
-        </div>
       </div>
     </DashCard>
   );
 }
 
-// ============ 本周训练量图表卡片 ============
+// ============ 训练量图表卡片（可切换时间区间） ============
 
-function WeeklyVolumeCard({ data }: { data: { day: string; minutes: number }[] }) {
+function WeeklyVolumeCard() {
+  const [range, setRange] = useState<VolumeRange>("7d");
+  const [data, setData] = useState<{ day: string; minutes: number }[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const { start, end } = computeVolumeRange(range);
+    api
+      .get<{ items: CheckinItem[] }>(
+        `/checkins?start=${format(start, "yyyy-MM-dd")}&end=${format(end, "yyyy-MM-dd")}&size=100`,
+      )
+      .then((res) => {
+        if (!cancelled) setData(aggregateVolume(res?.items ?? [], range));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
+
   return (
-    <DashCard icon={<BarChart3 className="size-4 text-emerald-500" />} title="本周训练量">
-      <div className="h-32 sm:h-44">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 4, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
-            <XAxis
-              dataKey="day"
-              tick={{ fill: "#6ee7b7", fontSize: 10 }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis width={28} tick={{ fill: "#6ee7b7", fontSize: 10 }} axisLine={false} tickLine={false} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "#ffffff",
-                border: "1px solid #d1fae5",
-                borderRadius: "12px",
-                fontSize: "12px",
-                boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
-              }}
-              labelStyle={{ color: "#065f46" }}
-              cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
-            />
-            <Bar dataKey="minutes" name="时长 (分钟)" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+    <DashCard
+      icon={<BarChart3 className="size-4 text-emerald-500" />}
+      title="训练量"
+      action={
+        <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-emerald-50 p-0.5">
+          {volumeRangeOptions.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => setRange(o.value)}
+              className={cn(
+                "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors sm:px-2 sm:text-xs",
+                range === o.value
+                  ? "bg-white text-emerald-700 shadow-sm"
+                  : "text-emerald-600/60 hover:text-emerald-700",
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {loading ? (
+        <div className="flex h-32 items-center justify-center sm:h-44">
+          <Loader2 className="size-5 animate-spin text-emerald-500" />
+        </div>
+      ) : (
+        <div className="h-32 sm:h-44">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 10, right: 4, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
+              <XAxis
+                dataKey="day"
+                tick={{ fill: "#6ee7b7", fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis width={28} tick={{ fill: "#6ee7b7", fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#ffffff",
+                  border: "1px solid #d1fae5",
+                  borderRadius: "12px",
+                  fontSize: "12px",
+                  boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
+                }}
+                labelStyle={{ color: "#065f46" }}
+                cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
+              />
+              <Bar dataKey="minutes" name="时长 (分钟)" fill="#10b981" radius={[6, 6, 0, 0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </DashCard>
+  );
+}
+
+// ============ 心情记录对话框 ============
+
+function MoodRecordDialog({
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) setSelected(null);
+  }, [open]);
+
+  const save = async () => {
+    if (selected == null) return;
+    setSaving(true);
+    try {
+      await api.put("/moods", {
+        date: format(new Date(), "yyyy-MM-dd"),
+        mood: selected,
+      });
+      onSaved();
+      onOpenChange(false);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>记录今天的心情</DialogTitle>
+          <DialogDescription>选择最符合你现在感受的表情</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-center gap-2 py-2">
+          {moodEmojis.map((emoji, i) => (
+            <button
+              key={emoji}
+              type="button"
+              onClick={() => setSelected(i + 1)}
+              className={cn(
+                "flex size-11 items-center justify-center rounded-full text-2xl transition-all",
+                selected === i + 1
+                  ? "scale-110 bg-amber-100 ring-2 ring-amber-400"
+                  : "hover:bg-emerald-50",
+              )}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            取消
+          </Button>
+          <Button onClick={save} disabled={selected == null || saving}>
+            {saving && <Loader2 className="mr-1 size-3.5 animate-spin" />}
+            保存
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ============ 心情趋势图表卡片 ============
 
 function MoodTrendCard({ checkins }: { checkins: CheckinItem[] }) {
-  const moodData = useMemo(
-    () =>
-      checkins
-        .filter((c) => c.mood != null)
-        .slice(0, 10)
-        .reverse()
-        .map((c) => ({
-          label: format(parseISO(c.date), "M/d"),
-          mood: c.mood as number,
-        })),
-    [checkins],
-  );
+  const [moods, setMoods] = useState<MoodLogItem[]>([]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const loadMoods = () => {
+    const start = format(subDays(new Date(), 29), "yyyy-MM-dd");
+    const end = format(new Date(), "yyyy-MM-dd");
+    api
+      .get<MoodLogItem[]>(`/moods?start=${start}&end=${end}`)
+      .then((res) => setMoods(res ?? []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadMoods();
+  }, []);
+
+  const moodData = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const c of checkins) {
+      if (c.mood != null) byDate.set(c.date, c.mood);
+    }
+    for (const m of moods) {
+      byDate.set(m.date, m.mood);
+    }
+    return [...byDate.entries()]
+      .map(([date, mood]) => ({ date, mood }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-10)
+      .map(({ date, mood }) => ({
+        label: format(parseISO(date), "M/d"),
+        mood,
+      }));
+  }, [checkins, moods]);
 
   return (
     <DashCard
       icon={<Smile className="size-4 text-amber-500" />}
       title="心情趋势"
       action={
-        moodData.length > 0 ? (
-          <span className="hidden shrink-0 text-xs font-normal text-emerald-600/60 sm:inline">
-            最近 {moodData.length} 次打卡
-          </span>
-        ) : undefined
+        <Button
+          variant="ghost"
+          size="sm"
+          className="shrink-0 px-2 text-emerald-600 hover:bg-emerald-50"
+          onClick={() => setDialogOpen(true)}
+        >
+          <Smile className="mr-1 size-3.5" />
+          记录心情
+        </Button>
       }
     >
       {moodData.length === 0 ? (
         <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 py-4 text-center sm:min-h-44">
           <span className="text-3xl">😐</span>
           <p className="text-xs text-emerald-600/60 sm:text-sm">还没有心情记录</p>
-          <p className="text-[11px] text-emerald-500/50 sm:text-xs">训练打卡时记录一下当天心情吧</p>
+          <p className="text-[11px] text-emerald-500/50 sm:text-xs">
+            点右上角「记录心情」记录今天的心情吧
+          </p>
         </div>
       ) : (
         <div className="h-32 sm:h-44">
@@ -490,6 +706,11 @@ function MoodTrendCard({ checkins }: { checkins: CheckinItem[] }) {
           </ResponsiveContainer>
         </div>
       )}
+      <MoodRecordDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onSaved={loadMoods}
+      />
     </DashCard>
   );
 }
@@ -570,14 +791,9 @@ export default function DashboardPage() {
     [checkins, todayStr]
   );
 
-  const weeklyTotal = weekly?.total_duration_min ?? 0;
-  const weeklyGoal = settings?.weekly_duration_goal_min ?? 300;
-  const goalPercent = Math.min(100, Math.round((weeklyTotal / weeklyGoal) * 100));
-
-  const trainingData = (weekly?.daily_breakdown ?? []).map((d) => ({
-    day: format(parseISO(d.date), "E", { locale: zhCN }),
-    minutes: d.duration_min,
-  }));
+  const weeklyWorkouts = weekly?.total_workouts ?? 0;
+  const weeklyGoal = settings?.weekly_training_goal ?? 5;
+  const goalPercent = Math.min(100, Math.round((weeklyWorkouts / weeklyGoal) * 100));
 
   const stats = [
     {
@@ -610,11 +826,6 @@ export default function DashboardPage() {
     },
   ];
 
-  const avgDuration =
-    weekly && weekly.total_workouts > 0
-      ? Math.round(weekly.total_duration_min / weekly.total_workouts)
-      : 0;
-
   return (
     <AppLayout>
       <div className="flex h-full flex-col overflow-hidden">
@@ -632,7 +843,7 @@ export default function DashboardPage() {
             <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 sm:gap-2 sm:px-4 sm:py-2">
               <Zap className="size-3.5 text-emerald-500 sm:size-4" />
               <span className="whitespace-nowrap text-xs font-medium text-emerald-700 sm:text-sm">
-                本周训练 {weeklyTotal} 分钟
+                本周训练 {weeklyWorkouts} 次
               </span>
             </div>
           </div>
@@ -653,19 +864,19 @@ export default function DashboardPage() {
               />
 
               {/* 第一行：统计小卡片 */}
-              <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+              <div className="grid grid-cols-4 gap-2 sm:gap-4">
                 {stats.map((stat) => (
                   <Card
                     key={stat.label}
                     className="group border-emerald-100 bg-white/80 shadow-sm backdrop-blur transition-all duration-200 hover:border-emerald-200 hover:shadow-md"
                   >
-                    <CardContent className="flex items-center gap-3 p-3 sm:p-4">
-                      <div className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110 sm:size-10", stat.bg)}>
+                    <CardContent className="flex items-center gap-1.5 p-2.5 sm:gap-3 sm:p-4">
+                      <div className={cn("flex size-7 shrink-0 items-center justify-center rounded-xl transition-transform duration-200 group-hover:scale-110 sm:size-10", stat.bg)}>
                         <stat.icon className={cn("size-4 sm:size-5", stat.color)} />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-xs text-emerald-600/60">{stat.label}</p>
-                        <p className="truncate text-base font-bold tabular-nums text-emerald-950 sm:text-lg">{stat.value}</p>
+                        <p className="truncate text-[10px] text-emerald-600/60 sm:text-xs">{stat.label}</p>
+                        <p className="truncate text-sm font-bold tabular-nums text-emerald-950 sm:text-lg">{stat.value}</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -678,21 +889,19 @@ export default function DashboardPage() {
                 <WeeklyGoalCard
                   weekly={weekly}
                   goalPercent={goalPercent}
-                  weeklyTotal={weeklyTotal}
-                  avgDuration={avgDuration}
                   goal={weeklyGoal}
                   onGoalChange={(g) =>
                     setSettings((s) =>
-                      s ? { ...s, weekly_duration_goal_min: g } : s
+                      s ? { ...s, weekly_training_goal: g } : s
                     )
                   }
                 />
                 <BodyStatsCard body={body} longestStreak={overview?.longest_streak ?? 0} />
               </div>
 
-              {/* 图表卡行：本周训练量 / 心情趋势，移动端全宽 */}
+              {/* 图表卡行：训练量 / 心情趋势，移动端全宽 */}
               <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 lg:gap-5">
-                <WeeklyVolumeCard data={trainingData} />
+                <WeeklyVolumeCard />
                 <MoodTrendCard checkins={checkins} />
               </div>
             </div>

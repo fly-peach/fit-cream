@@ -1,4 +1,20 @@
 import { useEffect, useState } from "react";
+import {
+  format,
+  subDays,
+  startOfMonth,
+  startOfDay,
+  eachDayOfInterval,
+} from "date-fns";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { AppLayout } from "@/components/app-layout";
 import { ApiKeyPanel } from "@/components/api-key-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,8 +27,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User, Save, Loader2, CheckCircle2 } from "lucide-react";
-import { api } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  User,
+  Save,
+  Loader2,
+  CheckCircle2,
+  Smartphone,
+  AlertTriangle,
+  Trash2,
+  Dumbbell,
+} from "lucide-react";
+import { api, ApiError } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth-store";
+import { useCountdown } from "@/hooks/use-countdown";
 
 interface UserProfile {
   id: string;
@@ -55,6 +90,198 @@ const sourceLabels: Record<string, string> = {
   embedding: "向量化",
 };
 
+/** 手机号脱敏：前 3 位 + **** + 后 4 位 */
+function maskPhone(p: string | null | undefined): string {
+  return p && p.length >= 7 ? `${p.slice(0, 3)}****${p.slice(-4)}` : p ?? "";
+}
+
+// ============ 训练记录卡片 ============
+
+interface TrainingCheckin {
+  id: string;
+  date: string;
+  duration_min: number | null;
+}
+
+type RecordRange = "7d" | "30d" | "90d" | "month";
+
+const recordRangeOptions: { value: RecordRange; label: string }[] = [
+  { value: "7d", label: "近7天" },
+  { value: "30d", label: "近30天" },
+  { value: "90d", label: "近90天" },
+  { value: "month", label: "本月" },
+];
+
+function computeRecordRange(range: RecordRange): { start: Date; end: Date } {
+  const today = new Date();
+  if (range === "7d") return { start: subDays(today, 6), end: today };
+  if (range === "30d") return { start: subDays(today, 29), end: today };
+  if (range === "90d") return { start: subDays(today, 89), end: today };
+  return { start: startOfMonth(today), end: today };
+}
+
+function formatMin(min: number): string {
+  if (min >= 60) {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return m > 0 ? `${h}小时${m}分` : `${h}小时`;
+  }
+  return `${min}分钟`;
+}
+
+function TrainingRecordCard() {
+  const [range, setRange] = useState<RecordRange>("30d");
+  const [data, setData] = useState<{ day: string; minutes: number }[]>([]);
+  const [summary, setSummary] = useState({ workouts: 0, minutes: 0 });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const { start, end } = computeRecordRange(range);
+    api
+      .get<{ items: TrainingCheckin[] }>(
+        `/checkins?start=${format(start, "yyyy-MM-dd")}&end=${format(end, "yyyy-MM-dd")}&size=100`,
+      )
+      .then((res) => {
+        if (cancelled) return;
+        const items = res?.items ?? [];
+        const byDate = new Map<string, number>();
+        let workouts = 0;
+        let minutes = 0;
+        for (const c of items) {
+          workouts += 1;
+          if (c.duration_min != null) {
+            minutes += c.duration_min;
+            byDate.set(c.date, (byDate.get(c.date) ?? 0) + c.duration_min);
+          }
+        }
+        const days = eachDayOfInterval({
+          start: startOfDay(start),
+          end: startOfDay(end),
+        });
+        let bars: { day: string; minutes: number }[];
+        if (range !== "90d" && range !== "month") {
+          bars = days.map((d) => ({
+            day: format(d, "M/d"),
+            minutes: byDate.get(format(d, "yyyy-MM-dd")) ?? 0,
+          }));
+        } else {
+          bars = [];
+          for (let i = 0; i < days.length; i += 7) {
+            const week = days.slice(i, i + 7);
+            const sum = week.reduce(
+              (acc, d) => acc + (byDate.get(format(d, "yyyy-MM-dd")) ?? 0),
+              0,
+            );
+            bars.push({ day: format(week[0], "M/d"), minutes: sum });
+          }
+        }
+        setSummary({ workouts, minutes });
+        setData(bars);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [range]);
+
+  return (
+    <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-1.5 text-base font-semibold text-emerald-950">
+            <Dumbbell className="size-4 text-emerald-500" />
+            训练记录
+          </CardTitle>
+          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-emerald-50 p-0.5">
+            {recordRangeOptions.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => setRange(o.value)}
+                className={
+                  range === o.value
+                    ? "rounded-md bg-white px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 shadow-sm sm:px-2 sm:text-xs"
+                    : "rounded-md px-1.5 py-0.5 text-[10px] font-medium text-emerald-600/60 transition-colors hover:text-emerald-700 sm:px-2 sm:text-xs"
+                }
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-emerald-50/60 py-3 text-center">
+            <p className="text-xs text-emerald-600/60">训练次数</p>
+            <p className="text-xl font-bold tabular-nums text-emerald-950">
+              {summary.workouts} 次
+            </p>
+          </div>
+          <div className="rounded-xl bg-emerald-50/60 py-3 text-center">
+            <p className="text-xs text-emerald-600/60">总时长</p>
+            <p className="text-xl font-bold tabular-nums text-emerald-950">
+              {formatMin(summary.minutes)}
+            </p>
+          </div>
+        </div>
+        {loading ? (
+          <div className="flex h-24 items-center justify-center">
+            <Loader2 className="size-5 animate-spin text-emerald-500" />
+          </div>
+        ) : summary.workouts === 0 ? (
+          <p className="py-4 text-center text-xs text-emerald-600/50">
+            该时间段暂无训练记录
+          </p>
+        ) : (
+          <div className="h-24">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#d1fae5" vertical={false} />
+                <XAxis
+                  dataKey="day"
+                  tick={{ fill: "#6ee7b7", fontSize: 9 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  width={24}
+                  tick={{ fill: "#6ee7b7", fontSize: 9 }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#ffffff",
+                    border: "1px solid #d1fae5",
+                    borderRadius: "12px",
+                    fontSize: "12px",
+                    boxShadow: "0 4px 12px rgba(16,185,129,0.1)",
+                  }}
+                  labelStyle={{ color: "#065f46" }}
+                  cursor={{ fill: "#ecfdf5", opacity: 0.8 }}
+                />
+                <Bar
+                  dataKey="minutes"
+                  name="时长 (分钟)"
+                  fill="#10b981"
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={24}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [form, setForm] = useState({
@@ -70,6 +297,28 @@ export default function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [usage, setUsage] = useState<TokenUsage | null>(null);
+
+  // 账号与安全 —— 换绑手机号（两步：验证旧号 → 绑定新号）
+  const [changeStep, setChangeStep] = useState(0);
+  const [oldCode, setOldCode] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newCode, setNewCode] = useState("");
+  const [sendingOld, setSendingOld] = useState(false);
+  const [sendingNew, setSendingNew] = useState(false);
+  const [changeSubmitting, setChangeSubmitting] = useState(false);
+  const [changeMsg, setChangeMsg] = useState("");
+  const [changeError, setChangeError] = useState("");
+  const oldCountdown = useCountdown();
+  const newCountdown = useCountdown();
+
+  // 账号与安全 —— 注销（密码 + 短信验证码双因素）
+  const [deactOpen, setDeactOpen] = useState(false);
+  const [deactPassword, setDeactPassword] = useState("");
+  const [deactCode, setDeactCode] = useState("");
+  const [deactError, setDeactError] = useState("");
+  const [sendingDeact, setSendingDeact] = useState(false);
+  const [deactSubmitting, setDeactSubmitting] = useState(false);
+  const deactCountdown = useCountdown();
 
   useEffect(() => {
     api
@@ -126,6 +375,111 @@ export default function ProfilePage() {
       ? (profile.weight_kg / Math.pow(profile.height_cm / 100, 2)).toFixed(1)
       : null;
 
+  const sendOldCode = async () => {
+    setChangeError("");
+    setChangeMsg("");
+    setSendingOld(true);
+    try {
+      await api.post("/auth/send-verification-code", {
+        phone: profile?.phone,
+        code_type: "change_phone_old",
+      });
+      oldCountdown.start(60);
+      setChangeMsg("验证码已发送至当前手机号");
+    } catch (e) {
+      setChangeError(e instanceof Error ? e.message : "发送失败");
+    } finally {
+      setSendingOld(false);
+    }
+  };
+
+  const sendNewCode = async () => {
+    setChangeError("");
+    setChangeMsg("");
+    if (!/^\d{11}$/.test(newPhone)) {
+      setChangeError("请输入 11 位新手机号");
+      return;
+    }
+    setSendingNew(true);
+    try {
+      await api.post("/auth/send-verification-code", {
+        phone: newPhone,
+        code_type: "change_phone_new",
+      });
+      newCountdown.start(60);
+      setChangeMsg("验证码已发送至新手机号");
+    } catch (e) {
+      setChangeError(e instanceof Error ? e.message : "发送失败");
+    } finally {
+      setSendingNew(false);
+    }
+  };
+
+  const submitChangePhone = async () => {
+    setChangeError("");
+    setChangeMsg("");
+    if (!/^\d{11}$/.test(newPhone)) {
+      setChangeError("请输入 11 位新手机号");
+      return;
+    }
+    setChangeSubmitting(true);
+    try {
+      await api.post("/auth/change-phone", {
+        new_phone: newPhone,
+        old_code: oldCode,
+        new_code: newCode,
+      });
+      if (profile) setProfile({ ...profile, phone: newPhone });
+      const st = useAuthStore.getState();
+      if (st.user) st.setAuth({ ...st.user, phone: newPhone });
+      setChangeStep(0);
+      setOldCode("");
+      setNewPhone("");
+      setNewCode("");
+      setChangeMsg("手机号更换成功");
+    } catch (e) {
+      setChangeError(e instanceof Error ? e.message : "换绑失败");
+    } finally {
+      setChangeSubmitting(false);
+    }
+  };
+
+  const sendDeactCode = async () => {
+    setDeactError("");
+    setSendingDeact(true);
+    try {
+      await api.post("/auth/send-verification-code", {
+        phone: profile?.phone,
+        code_type: "deactivate",
+      });
+      deactCountdown.start(60);
+    } catch (e) {
+      setDeactError(e instanceof Error ? e.message : "发送失败");
+    } finally {
+      setSendingDeact(false);
+    }
+  };
+
+  const submitDeactivate = async () => {
+    setDeactError("");
+    setDeactSubmitting(true);
+    try {
+      await api.post("/auth/deactivate", {
+        password: deactPassword,
+        verification_code: deactCode,
+      });
+      useAuthStore.getState().logout("账号已注销");
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 40300) {
+        setDeactError("管理员账号需由其他管理员处理");
+      } else {
+        setDeactError(e instanceof Error ? e.message : "注销失败");
+      }
+    } finally {
+      setDeactSubmitting(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="h-full overflow-y-auto">
@@ -180,52 +534,52 @@ export default function ProfilePage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">昵称</label>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">昵称</label>
                       <Input
                         value={form.name}
                         onChange={(e) => setForm({ ...form, name: e.target.value })}
                         placeholder="请输入昵称"
-                        className="border-emerald-200 focus-visible:ring-emerald-400"
+                        className="h-9 border-emerald-200 focus-visible:ring-emerald-400"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">出生日期</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">出生日期</label>
                       <Input
                         type="date"
                         value={form.birth_date}
                         onChange={(e) => setForm({ ...form, birth_date: e.target.value })}
-                        className="border-emerald-200 focus-visible:ring-emerald-400"
+                        className="h-9 border-emerald-200 focus-visible:ring-emerald-400"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">身高 (cm)</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">身高 (cm)</label>
                       <Input
                         type="number"
                         value={form.height_cm}
                         onChange={(e) => setForm({ ...form, height_cm: e.target.value })}
                         placeholder="请输入身高"
-                        className="border-emerald-200 focus-visible:ring-emerald-400"
+                        className="h-9 border-emerald-200 focus-visible:ring-emerald-400"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">体重 (kg)</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">体重 (kg)</label>
                       <Input
                         type="number"
                         value={form.weight_kg}
                         onChange={(e) => setForm({ ...form, weight_kg: e.target.value })}
                         placeholder="请输入体重"
-                        className="border-emerald-200 focus-visible:ring-emerald-400"
+                        className="h-9 border-emerald-200 focus-visible:ring-emerald-400"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">性别</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">性别</label>
                       <Select
                         value={form.gender}
                         onValueChange={(v) => setForm({ ...form, gender: v ?? "" })}
                       >
-                        <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
+                        <SelectTrigger className="h-9 border-emerald-200 focus:ring-emerald-400">
                           <SelectValue placeholder="请选择性别">
                             {genderOptions.find((o) => o.value === form.gender)?.label}
                           </SelectValue>
@@ -239,13 +593,13 @@ export default function ProfilePage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-emerald-800">健身目标</label>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-emerald-800">健身目标</label>
                       <Select
                         value={form.goal}
                         onValueChange={(v) => setForm({ ...form, goal: v ?? "" })}
                       >
-                        <SelectTrigger className="border-emerald-200 focus:ring-emerald-400">
+                        <SelectTrigger className="h-9 border-emerald-200 focus:ring-emerald-400">
                           <SelectValue placeholder="请选择目标">
                             {goalOptions.find((o) => o.value === form.goal)?.label}
                           </SelectValue>
@@ -281,6 +635,8 @@ export default function ProfilePage() {
                   </div>
                 </CardContent>
               </Card>
+
+              <TrainingRecordCard />
 
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>
@@ -334,6 +690,247 @@ export default function ProfilePage() {
                   )}
                 </CardContent>
               </Card>
+
+              <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                <CardHeader>
+                  <CardTitle className="text-base font-semibold text-emerald-950">
+                    账号与安全
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  {/* ---------- 换绑手机号 ---------- */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-emerald-800">手机号</p>
+                        <p className="text-xs text-emerald-600/60">
+                          {maskPhone(profile?.phone)}
+                        </p>
+                      </div>
+                      {changeStep === 0 && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setChangeError("");
+                            setChangeMsg("");
+                            setChangeStep(1);
+                          }}
+                          className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <Smartphone className="mr-1 size-4" />
+                          换绑手机号
+                        </Button>
+                      )}
+                    </div>
+
+                    {changeStep > 0 && (
+                      <div className="space-y-3 rounded-xl bg-emerald-50/40 p-3">
+                        {changeStep === 1 ? (
+                          <>
+                            <p className="text-xs text-emerald-700/70">
+                              第 1 步：验证旧手机号（{maskPhone(profile?.phone)}）
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={oldCode}
+                                onChange={(e) =>
+                                  setOldCode(e.target.value.replace(/\D/g, ""))
+                                }
+                                placeholder="旧号短信验证码"
+                                maxLength={4}
+                                inputMode="numeric"
+                                className="border-emerald-200"
+                              />
+                              <Button
+                                onClick={sendOldCode}
+                                disabled={oldCountdown.countdown > 0 || sendingOld}
+                                variant="outline"
+                                className="shrink-0 border-emerald-200 text-emerald-700"
+                              >
+                                {sendingOld
+                                  ? "发送中…"
+                                  : oldCountdown.countdown > 0
+                                    ? `${oldCountdown.countdown}s 后重发`
+                                    : "获取验证码"}
+                              </Button>
+                            </div>
+                            <Button
+                              onClick={() => setChangeStep(2)}
+                              disabled={oldCode.length !== 4}
+                              className="w-full bg-emerald-600 text-white hover:bg-emerald-500"
+                            >
+                              下一步
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs text-emerald-700/70">
+                              第 2 步：绑定新手机号
+                            </p>
+                            <Input
+                              value={newPhone}
+                              onChange={(e) =>
+                                setNewPhone(e.target.value.replace(/\D/g, ""))
+                              }
+                              placeholder="请输入 11 位新手机号"
+                              maxLength={11}
+                              inputMode="numeric"
+                              className="border-emerald-200"
+                            />
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={newCode}
+                                onChange={(e) =>
+                                  setNewCode(e.target.value.replace(/\D/g, ""))
+                                }
+                                placeholder="新号短信验证码"
+                                maxLength={4}
+                                inputMode="numeric"
+                                className="border-emerald-200"
+                              />
+                              <Button
+                                onClick={sendNewCode}
+                                disabled={
+                                  newCountdown.countdown > 0 ||
+                                  sendingNew ||
+                                  newPhone.length !== 11
+                                }
+                                variant="outline"
+                                className="shrink-0 border-emerald-200 text-emerald-700"
+                              >
+                                {sendingNew
+                                  ? "发送中…"
+                                  : newCountdown.countdown > 0
+                                    ? `${newCountdown.countdown}s 后重发`
+                                    : "获取验证码"}
+                              </Button>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                onClick={() => setChangeStep(1)}
+                                variant="outline"
+                                className="border-emerald-200 text-emerald-700"
+                              >
+                                上一步
+                              </Button>
+                              <Button
+                                onClick={submitChangePhone}
+                                disabled={changeSubmitting || newCode.length !== 4}
+                                className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500"
+                              >
+                                {changeSubmitting && (
+                                  <Loader2 className="mr-2 size-4 animate-spin" />
+                                )}
+                                确认换绑
+                              </Button>
+                            </div>
+                          </>
+                        )}
+                        {changeError && (
+                          <p className="text-sm text-red-500">{changeError}</p>
+                        )}
+                        {changeMsg && (
+                          <p className="text-sm text-emerald-600">{changeMsg}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="h-px bg-emerald-100" />
+
+                  {/* ---------- 注销账号（危险区） ---------- */}
+                  <div className="rounded-xl border border-red-200 bg-red-50/60 p-4">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="size-4 text-red-500" />
+                      <p className="text-sm font-semibold text-red-700">危险操作</p>
+                    </div>
+                    <p className="mt-1 text-xs text-red-600/80">
+                      注销账号将立即删除你的全部个人数据（计划、打卡、饮食、身体指标、对话、记忆等），不可恢复。
+                    </p>
+                    <Button
+                      onClick={() => {
+                        setDeactError("");
+                        setDeactPassword("");
+                        setDeactCode("");
+                        setDeactOpen(true);
+                      }}
+                      className="mt-3 bg-red-600 text-white hover:bg-red-500"
+                    >
+                      <Trash2 className="mr-1 size-4" />
+                      注销账号
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Dialog open={deactOpen} onOpenChange={setDeactOpen}>
+                <DialogContent className="border-red-200 sm:max-w-sm">
+                  <DialogHeader>
+                    <DialogTitle className="text-red-700">确认注销账号？</DialogTitle>
+                    <DialogDescription asChild>
+                      <div className="space-y-2 text-sm">
+                        <p>
+                          此操作将<b className="text-red-600">立即删除</b>
+                          你的全部个人数据，不可恢复。请输入密码并完成短信验证以确认。
+                        </p>
+                      </div>
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3">
+                    <Input
+                      type="password"
+                      value={deactPassword}
+                      onChange={(e) => setDeactPassword(e.target.value)}
+                      placeholder="登录密码"
+                      className="border-red-200"
+                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={deactCode}
+                        onChange={(e) =>
+                          setDeactCode(e.target.value.replace(/\D/g, ""))
+                        }
+                        placeholder={`短信验证码（发至 ${maskPhone(profile?.phone)}）`}
+                        maxLength={4}
+                        inputMode="numeric"
+                        className="border-red-200"
+                      />
+                      <Button
+                        onClick={sendDeactCode}
+                        disabled={deactCountdown.countdown > 0 || sendingDeact}
+                        variant="outline"
+                        className="shrink-0 border-red-200 text-red-600 hover:bg-red-50"
+                      >
+                        {sendingDeact
+                          ? "发送中…"
+                          : deactCountdown.countdown > 0
+                            ? `${deactCountdown.countdown}s 后重发`
+                            : "获取验证码"}
+                      </Button>
+                    </div>
+                    {deactError && (
+                      <p className="text-sm text-red-500">{deactError}</p>
+                    )}
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setDeactOpen(false)}>
+                      取消
+                    </Button>
+                    <Button
+                      onClick={submitDeactivate}
+                      disabled={
+                        deactSubmitting || !deactPassword || deactCode.length !== 4
+                      }
+                      className="bg-red-600 text-white hover:bg-red-500"
+                    >
+                      {deactSubmitting && (
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                      )}
+                      确认注销
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
 
               <ApiKeyPanel />
             </>

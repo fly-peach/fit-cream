@@ -189,8 +189,15 @@ export default function AdminOverviewPage() {
       checkins: toRows("checkins"),
       conversations: toRows("conversations"),
       activeUsers: toRows("active_users"),
+      tokens: toRows("tokens"),
     };
   }, [trends]);
+
+  const compact = (v: number) => {
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
+    if (v >= 1_000) return `${(v / 1_000).toFixed(1)}k`;
+    return String(v);
+  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -199,7 +206,7 @@ export default function AdminOverviewPage() {
           <div>
             <h1 className="text-xl font-bold text-emerald-950">总览</h1>
             <p className="text-sm text-emerald-600/60">
-              用户 · 训练 · 知识库 · 对话 四维度运营数据
+              用户 · 训练 · 知识库 · 对话 · Token 五维度运营数据
             </p>
           </div>
           <Link
@@ -225,8 +232,8 @@ export default function AdminOverviewPage() {
           </div>
         ) : (
           <>
-            {/* ============ KPI 四维度 ============ */}
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {/* ============ KPI 五维度 ============ */}
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <KpiGroup icon={<UsersIcon className="size-4 text-emerald-500" />} title="用户">
                 <StatCard
                   icon={<UsersIcon className="size-4" />}
@@ -299,6 +306,19 @@ export default function AdminOverviewPage() {
                   value={stats.conversation.threads_7d}
                 />
               </KpiGroup>
+
+              <KpiGroup icon={<ZapIcon className="size-4 text-amber-500" />} title="Token 用量">
+                <StatCard
+                  icon={<ZapIcon className="size-4" />}
+                  label="累计消耗"
+                  value={compact(stats.tokens.total_tokens)}
+                />
+                <StatCard
+                  icon={<TrendingUpIcon className="size-4" />}
+                  label="近 7 天消耗"
+                  value={compact(stats.tokens.tokens_7d)}
+                />
+              </KpiGroup>
             </div>
 
             {/* ============ 近 30 天趋势图 ============ */}
@@ -328,6 +348,13 @@ export default function AdminOverviewPage() {
                     data={series.activeUsers}
                     dataKey="active_users"
                     color="#f59e0b"
+                  />
+                  <TrendChart
+                    title="近 30 天 Token 消耗趋势"
+                    data={series.tokens}
+                    dataKey="tokens"
+                    color="#d946ef"
+                    formatter={compact}
                   />
                 </>
               )}

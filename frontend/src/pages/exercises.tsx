@@ -144,8 +144,8 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
       onClick={() => navigate(`/exercises/${ex.id}`)}
       className="group cursor-pointer overflow-hidden border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-md"
     >
-      <CardContent className="flex flex-col gap-2 p-3">
-        <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-emerald-50">
+      <CardContent className="flex flex-col gap-2 p-2">
+        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-emerald-50">
           {resolveStaticUrl(ex.image) || resolveStaticUrl(ex.gif_url) ? (
             <>
               {ex.image && (
@@ -153,7 +153,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
                   src={resolveStaticUrl(ex.image)}
                   alt={ex.name}
                   loading="lazy"
-                  className="absolute inset-0 size-full object-contain transition-opacity duration-200 group-hover:opacity-0"
+                  className="absolute inset-0 size-full object-contain p-1 transition-opacity duration-200 group-hover:opacity-0"
                 />
               )}
               {ex.gif_url && (
@@ -161,7 +161,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
                   src={resolveStaticUrl(ex.gif_url)}
                   alt={ex.name}
                   loading="lazy"
-                  className="absolute inset-0 size-full object-contain opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                  className="absolute inset-0 size-full object-contain p-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                 />
               )}
             </>
@@ -184,7 +184,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
         </div>
 
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold text-emerald-950">
+          <h3 className="truncate text-xs font-semibold text-emerald-950">
             {primaryName}
           </h3>
           {secondaryName && secondaryName !== primaryName && (
@@ -192,7 +192,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
           )}
         </div>
 
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1">
           {ex.muscle_group && (
             <Badge variant="outline" className="border-emerald-200 text-emerald-600">
               {label(muscleGroupLabels, ex.muscle_group)}
@@ -211,7 +211,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
         </div>
 
         {description && (
-          <p className="line-clamp-2 text-xs text-emerald-700/70">{description}</p>
+          <p className="line-clamp-1 text-xs text-emerald-700/70">{description}</p>
         )}
         {ex.calories_per_min != null && (
           <p className="flex items-center gap-1 text-xs text-orange-600/80">
@@ -589,7 +589,7 @@ export default function ExercisesPage() {
                   ? `共 ${displayItems.length} 个动作，点击卡片查看详情`
                   : `${displayItems.length} exercises loaded · tap a card for details`}
               </p>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                 {displayItems.map((ex) => (
                   <ExerciseCard key={ex.id} ex={ex} favorited={favIds.has(ex.id)} onToggleFav={toggleFav} />
                 ))}

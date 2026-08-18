@@ -208,9 +208,9 @@ async def change_phone(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """换绑手机号（验证码发送至新手机号）"""
+    """换绑手机号（双验证：旧号 + 新号验证码）"""
     await AuthService.change_phone(
-        db, user, data.new_phone, data.code,
+        db, user, data.new_phone, data.old_code, data.new_code,
         ip=_get_client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
@@ -226,8 +226,11 @@ async def deactivate_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """注销当前账号（软删 + 清理对话/记忆/checkpoint）"""
-    await AuthService.confirm_deactivate(
+    """注销当前账号（普通用户：双因素确认后立即硬删全部个人数据，不可逆）
+
+    管理员账号被拦截（须由其他管理员在管理端停用）。
+    """
+    await AuthService.hard_delete_user(
         db, user, data.password, data.verification_code,
         ip=_get_client_ip(request),
         user_agent=request.headers.get("user-agent"),

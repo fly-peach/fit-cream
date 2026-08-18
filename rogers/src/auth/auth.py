@@ -51,7 +51,7 @@ class SmsLoginRequest(BaseModel):
 class SendVerificationCodeRequest(BaseModel):
     """发送验证码请求"""
     phone: str = Field(min_length=11, max_length=20)
-    code_type: str = Field(default="register", pattern="^(register|login|reset_password|change_phone|deactivate)$")
+    code_type: str = Field(default="register", pattern="^(register|login|reset_password|change_phone_old|change_phone_new|deactivate)$")
 
 
 class VerifyCodeRequest(BaseModel):
@@ -122,14 +122,15 @@ class SmsLoginResult:
 
 
 class ChangePhoneRequest(BaseModel):
-    """换绑手机号请求（验证码发送到新手机号）"""
+    """换绑手机号请求（双验证：旧号 + 新号验证码）"""
 
     new_phone: str = Field(min_length=11, max_length=20)
-    code: str = Field(min_length=4, max_length=10)
+    old_code: str = Field(min_length=4, max_length=10, description="旧手机号验证码")
+    new_code: str = Field(min_length=4, max_length=10, description="新手机号验证码")
 
 
 class DeactivateRequest(BaseModel):
-    """注销账号请求（密码或短信验证码二选一二次确认）"""
+    """注销账号请求（双因素确认不可逆操作：密码 + 短信验证码均必填）"""
 
-    password: str | None = Field(default=None, max_length=128)
-    verification_code: str | None = Field(default=None, min_length=4, max_length=10)
+    password: str = Field(min_length=1, max_length=128)
+    verification_code: str = Field(min_length=4, max_length=10)

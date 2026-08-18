@@ -19,7 +19,7 @@ interface UserSettings {
   protein_goal_g: number;
   carbs_goal_g: number;
   fat_goal_g: number;
-  weekly_duration_goal_min: number;
+  weekly_training_goal: number;
 }
 
 interface DietMealRecord {
@@ -61,6 +61,9 @@ export function TodayOverviewBar({
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const [editingCalorie, setEditingCalorie] = useState(false);
+  const [calorieEditValue, setCalorieEditValue] = useState("");
+  const calorieInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const today = format(new Date(), "yyyy-MM-dd");
@@ -95,6 +98,13 @@ export function TodayOverviewBar({
     }
   }, [editingKey]);
 
+  useEffect(() => {
+    if (editingCalorie && calorieInputRef.current) {
+      calorieInputRef.current.focus();
+      calorieInputRef.current.select();
+    }
+  }, [editingCalorie]);
+
   const startEdit = (key: MacroKey, currentVal: number) => {
     setEditingKey(key);
     setEditValue(String(currentVal));
@@ -120,6 +130,34 @@ export function TodayOverviewBar({
     } finally {
       setSaving(false);
       setEditingKey(null);
+    }
+  };
+
+  const startCalorieEdit = () => {
+    setEditingCalorie(true);
+    setCalorieEditValue(String(targetCalories));
+  };
+
+  const cancelCalorieEdit = () => {
+    setEditingCalorie(false);
+    setCalorieEditValue("");
+  };
+
+  const saveCalorieEdit = async () => {
+    const num = parseInt(calorieEditValue, 10);
+    if (isNaN(num) || num < 500 || num > 10000) {
+      cancelCalorieEdit();
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await api.put<UserSettings>("/users/settings", { calorie_goal: num });
+      if (updated) setSettings(updated);
+    } catch {
+      // silent
+    } finally {
+      setSaving(false);
+      setEditingCalorie(false);
     }
   };
 
@@ -181,10 +219,66 @@ export function TodayOverviewBar({
                 </RadialBarChart>
               </ResponsiveContainer>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-base font-bold tabular-nums text-emerald-950 sm:text-lg">
-                  {consumed}
-                </span>
-                <span className="text-[10px] text-emerald-600/60">/ {targetCalories}</span>
+                {editingCalorie ? (
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-sm font-bold tabular-nums text-emerald-950">
+                      {consumed}
+                    </span>
+                    <div className="flex items-center gap-0.5">
+                      <input
+                        ref={calorieInputRef}
+                        type="number"
+                        min={500}
+                        max={10000}
+                        step={50}
+                        value={calorieEditValue}
+                        onChange={(e) => setCalorieEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            saveCalorieEdit();
+                          } else if (e.key === "Escape") {
+                            cancelCalorieEdit();
+                          }
+                        }}
+                        disabled={saving}
+                        className="h-4 w-12 rounded border border-amber-200 bg-white px-1 text-right text-[10px] tabular-nums text-emerald-800 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={saveCalorieEdit}
+                        disabled={saving}
+                        className="flex size-4 items-center justify-center rounded text-emerald-600 transition-colors hover:bg-emerald-100"
+                        title="保存"
+                      >
+                        <Check className="size-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelCalorieEdit}
+                        className="flex size-4 items-center justify-center rounded text-emerald-400 transition-colors hover:bg-red-50 hover:text-red-500"
+                        title="取消"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startCalorieEdit}
+                    className="group/cal flex flex-col items-center justify-center rounded"
+                    title="点击编辑目标热量"
+                  >
+                    <span className="text-base font-bold tabular-nums text-emerald-950 sm:text-lg">
+                      {consumed}
+                    </span>
+                    <span className="flex items-center gap-0.5 text-[10px] text-emerald-600/60">
+                      / {targetCalories}
+                      <Pencil className="size-2.5 text-emerald-300 opacity-100 transition-opacity sm:opacity-0 sm:group-hover/cal:opacity-100" />
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
             <div className="min-w-0">

@@ -2,7 +2,7 @@
 用户级 Token 用量模型
 
 按 user_id + usage_date + source 聚合，upsert 累加，
-统计用户整体对话与记忆处理（提取/整合/embedding）的 token 消耗。
+统计用户整体对话与记忆处理（提取/整合）的 token 消耗（embedding 不统计）。
 与 thread_usages 的「覆盖式」语义区分：此表为累加消费。
 """
 from datetime import date, datetime

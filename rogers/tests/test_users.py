@@ -26,7 +26,6 @@ async def test_update_me_invalid_gender(user_client):
 async def test_get_settings_defaults(user_client):
     data = unwrap(await user_client.get("/api/users/settings"))
     assert data["weekly_training_goal"] == 5
-    assert data["weekly_duration_goal_min"] == 300
     assert data["calorie_goal"] == 2000
 
 
@@ -37,13 +36,13 @@ async def test_update_settings(user_client):
             json={
                 "calorie_goal": 2500,
                 "goal": "lose_fat",
-                "weekly_duration_goal_min": 360,
+                "weekly_training_goal": 6,
             },
         )
     )
     assert data["calorie_goal"] == 2500
     assert data["goal"] == "lose_fat"
-    assert data["weekly_duration_goal_min"] == 360
+    assert data["weekly_training_goal"] == 6
 
 
 async def test_health_metrics_crud(user_client):

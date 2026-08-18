@@ -20,6 +20,8 @@ import {
   CalendarDays,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Flame,
   UtensilsCrossed,
 } from "lucide-react";
@@ -47,6 +49,7 @@ export function CheckinCalendar({
 }) {
   const [currentMonth, setCurrentMonth] = useState(selectedDate);
   const [syncMode, setSyncMode] = useState(mode);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (mode !== syncMode) {
     setSyncMode(mode);
@@ -78,63 +81,77 @@ export function CheckinCalendar({
             <CalendarDays className="size-4 text-emerald-500" />
             {isExercise ? "锻炼日历" : "饮食日历"}
           </CardTitle>
-          <div className="hidden items-center gap-1 rounded-lg bg-emerald-50 p-0.5 lg:flex">
-            <button
-              type="button"
-              onClick={() => onModeChange("exercise")}
-              className={cn(
-                "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                isExercise
-                  ? "bg-white text-emerald-700 shadow-sm"
-                  : "text-emerald-600/60 hover:text-emerald-700",
-              )}
-            >
-              <Dumbbell className="size-3.5" />
-              锻炼
-            </button>
-            <button
-              type="button"
-              onClick={() => onModeChange("diet")}
-              className={cn(
-                "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                !isExercise
-                  ? "bg-white text-orange-700 shadow-sm"
-                  : "text-orange-600/60 hover:text-orange-700",
-              )}
-            >
-              <UtensilsCrossed className="size-3.5" />
-              饮食
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-emerald-600/70">
-            选中 {format(selectedDate, "yyyy年M月d日", { locale: zhCN })}
-          </span>
           <div className="flex items-center gap-1">
+            <div className="hidden items-center gap-1 rounded-lg bg-emerald-50 p-0.5 lg:flex">
+              <button
+                type="button"
+                onClick={() => onModeChange("exercise")}
+                className={cn(
+                  "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  isExercise
+                    ? "bg-white text-emerald-700 shadow-sm"
+                    : "text-emerald-600/60 hover:text-emerald-700",
+                )}
+              >
+                <Dumbbell className="size-3.5" />
+                锻炼
+              </button>
+              <button
+                type="button"
+                onClick={() => onModeChange("diet")}
+                className={cn(
+                  "flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                  !isExercise
+                    ? "bg-white text-orange-700 shadow-sm"
+                    : "text-orange-600/60 hover:text-orange-700",
+                )}
+              >
+                <UtensilsCrossed className="size-3.5" />
+                饮食
+              </button>
+            </div>
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-emerald-700 hover:bg-emerald-100"
-              onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+              className="size-7 text-emerald-600/70"
+              onClick={() => setCollapsed((v) => !v)}
+              title={collapsed ? "展开" : "折叠"}
             >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
-              {format(currentMonth, "yyyy年M月", { locale: zhCN })}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-emerald-700 hover:bg-emerald-100"
-              onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
-            >
-              <ChevronRight className="size-4" />
+              {collapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </Button>
           </div>
         </div>
+        {!collapsed && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-emerald-600/70">
+              选中 {format(selectedDate, "yyyy年M月d日", { locale: zhCN })}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-emerald-700 hover:bg-emerald-100"
+                onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="min-w-20 text-center text-sm font-medium text-emerald-900">
+                {format(currentMonth, "yyyy年M月", { locale: zhCN })}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-emerald-700 hover:bg-emerald-100"
+                onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardHeader>
-      <CardContent>
+      {!collapsed && (
+        <CardContent>
         <div className="mb-2 grid grid-cols-7 text-center text-xs font-medium text-emerald-600/60">
           {["一", "二", "三", "四", "五", "六", "日"].map((d) => (
             <div key={d} className="py-1">
@@ -213,6 +230,7 @@ export function CheckinCalendar({
           )}
         </div>
       </CardContent>
+      )}
     </Card>
   );
 }

@@ -27,7 +27,6 @@ from utils.timeutil import today
 SOURCE_CHAT = "chat"
 SOURCE_MEMORY_EXTRACTION = "memory_extraction"
 SOURCE_MEMORY_CONSOLIDATION = "memory_consolidation"
-SOURCE_EMBEDDING = "embedding"
 
 
 class UsageService:

@@ -30,6 +30,7 @@ from app.routers.diet_plans import router as diet_plans_router
 from app.routers.exercises import router as exercises_router
 from app.routers.knowledge_bases import router as knowledge_bases_router
 from app.routers.memory import router as memory_router
+from app.routers.moods import router as moods_router
 from app.routers.plans import router as plans_router
 from app.routers.stats import router as stats_router
 from app.routers.users import router as users_router
@@ -42,6 +43,7 @@ api_router.include_router(plans_router)
 api_router.include_router(diet_plans_router)
 api_router.include_router(diet_meals_router)
 api_router.include_router(checkins_router)
+api_router.include_router(moods_router)
 api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
 api_router.include_router(knowledge_bases_router)

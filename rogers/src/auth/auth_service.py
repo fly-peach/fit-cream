@@ -8,7 +8,7 @@ import secrets
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -26,7 +26,7 @@ from src.fitme.models.auth_models import (
 )
 from src.auth.auth import SmsLoginResult, TokenPair
 from src.fitme.services.sms_service import SmsService
-from utils.exceptions import BusinessException, ErrorCode
+from utils.exceptions import BusinessException, ErrorCode, ForbiddenException
 from utils.security import (
     create_access_token,
     create_password_setup_token,
@@ -205,20 +205,33 @@ class AuthService:
         db: AsyncSession,
         user: User,
         new_phone: str,
-        code: str,
+        old_code: str,
+        new_code: str,
         ip: str | None = None,
         user_agent: str | None = None,
     ) -> User:
-        """换绑手机号：验证码验证新号后替换旧号（新号须未被占用）。"""
+        """换绑手机号（双验证防盗接）：旧号验证码校验所有权 + 新号验证码校验可接收。
+
+        两者任一失败则不修改 phone（旧号验证码校验的是当前登录手机号，防账号接管）。
+        """
+        await AuthService.verify_code(db, user.phone, old_code, "change_phone_old")
+        await AuthService.verify_code(db, new_phone, new_code, "change_phone_new")
+
         existing = await db.execute(select(User).where(User.phone == new_phone))
         if existing.scalar_one_or_none():
             raise BusinessException(ErrorCode.EMAIL_ALREADY_EXISTS, "该手机号已被注册")
 
-        await AuthService.verify_code(db, new_phone, code, "change_phone")
-
+        old_masked = AuthService._mask_phone(user.phone)
         user.phone = new_phone
         await db.flush()
-        await AuthService._log_audit(db, user.id, "change_phone", ip, user_agent)
+        await AuthService._log_audit(
+            db,
+            user.id,
+            "change_phone",
+            ip,
+            user_agent,
+            detail=f"{old_masked} → {AuthService._mask_phone(new_phone)}",
+        )
         return user
 
     @staticmethod
@@ -231,24 +244,75 @@ class AuthService:
         return temp
 
     @staticmethod
-    async def confirm_deactivate(
+    async def hard_delete_user(
         db: AsyncSession,
         user: User,
-        password: str | None = None,
-        verification_code: str | None = None,
+        password: str,
+        verification_code: str,
         ip: str | None = None,
         user_agent: str | None = None,
     ) -> None:
-        """本人注销：密码或短信验证码（deactivate）二选一校验后注销。"""
-        if password is not None:
-            if not verify_password(password, user.password_hash):
-                raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "密码错误")
-        elif verification_code is not None:
-            await AuthService.verify_code(db, user.phone, verification_code, "deactivate")
-        else:
-            raise BusinessException(ErrorCode.BAD_REQUEST, "请提供密码或短信验证码")
+        """本人注销：双因素（密码 + 短信验证码）校验后立即硬删全部个人数据（不可逆）。
 
-        await AuthService.deactivate_user(db, user, ip=ip, user_agent=user_agent)
+        仅普通用户可用；管理员账号禁止走此接口（须由其他管理员在管理端停用，
+        从而绕开知识库 owner_id / KBDocument.created_by 的级联与外键冲突）。
+
+        清理顺序：记忆（独立引擎，无 DB 外键）→ LangGraph checkpoint →
+        按 phone 清 SET NULL 关联表（不随 users 级联删除）→ 最后硬删 users 行
+        （依赖 DB CASCADE 清全部 app-Base 个人数据）。每步 best-effort，
+        仅日志告警；硬删 users 为最后一步、必须成功。
+        """
+        if user.role == "admin":
+            raise ForbiddenException("管理员账号需由其他管理员处理")
+
+        if not verify_password(password, user.password_hash):
+            raise BusinessException(ErrorCode.INVALID_CREDENTIALS, "密码错误")
+
+        await AuthService.verify_code(db, user.phone, verification_code, "deactivate")
+
+        # 收集 thread_ids（checkpoint 清理用）与 phone（SET NULL 关联表按 phone 清理）
+        thread_ids: set[str] = set()
+        for model in (Conversation, ThreadUsage, ThreadMeta):
+            rows = (
+                await db.execute(
+                    select(model.thread_id).where(
+                        model.user_id == user.id,
+                        model.thread_id.isnot(None),
+                    )
+                )
+            ).scalars().all()
+            thread_ids.update(t for t in rows if t)
+        phone = user.phone
+
+        try:
+            from src.agents.harness.runtime.memory.store import get_memory_store
+            await get_memory_store().delete_all_user(str(user.id))
+        except Exception as e:
+            logger.warning(f"hard_delete: 清空记忆数据失败: {e}")
+
+        try:
+            from src.agents.agent_graph import delete_user_checkpoints
+            await delete_user_checkpoints(list(thread_ids))
+        except Exception as e:
+            logger.warning(f"hard_delete: 清理 checkpoint 失败: {e}")
+
+        try:
+            await db.execute(
+                text("DELETE FROM verification_codes WHERE phone = :phone"),
+                {"phone": phone},
+            )
+            await db.execute(
+                text("DELETE FROM login_attempts WHERE phone = :phone"),
+                {"phone": phone},
+            )
+        except Exception as e:
+            logger.warning(f"hard_delete: 清理验证码/登录记录失败: {e}")
+
+        result = await db.execute(
+            text("DELETE FROM users WHERE id = :id"), {"id": user.id}
+        )
+        if result.rowcount == 0:
+            raise BusinessException(ErrorCode.USER_NOT_FOUND, "用户不存在")
 
     @staticmethod
     async def deactivate_user(
@@ -257,7 +321,11 @@ class AuthService:
         ip: str | None = None,
         user_agent: str | None = None,
     ) -> None:
-        """注销用户（软删）：置 deleted_at 并清理关联数据（best-effort）。"""
+        """停用账号（管理端用，软删）：置 deleted_at + is_active=False，不硬删数据。
+
+        管理员停用普通用户/管理员均走此路径（登录被 _load_active_user 拦截），
+        与用户本人注销（hard_delete_user 硬删）区分。
+        """
         if user.deleted_at:
             raise BusinessException(ErrorCode.USER_NOT_FOUND, "用户不存在")
 
@@ -265,49 +333,7 @@ class AuthService:
         user.is_active = False
         await db.flush()
 
-        await AuthService._cleanup_user_data(db, user.id)
         await AuthService._log_audit(db, user.id, "deactivate", ip, user_agent)
-
-    @staticmethod
-    async def _cleanup_user_data(db: AsyncSession, user_id: UUID) -> None:
-        """注销后清理对话/线程用量/记忆/checkpoint（单点失败仅告警不阻断注销）。"""
-        thread_ids: set[str] = set()
-
-        conv_rows = (await db.execute(
-            select(Conversation.thread_id).where(
-                Conversation.user_id == user_id,
-                Conversation.thread_id.isnot(None),
-            )
-        )).scalars().all()
-        thread_ids.update(t for t in conv_rows if t)
-        usage_rows = (await db.execute(
-            select(ThreadUsage.thread_id).where(ThreadUsage.user_id == user_id)
-        )).scalars().all()
-        thread_ids.update(t for t in usage_rows if t)
-        meta_rows = (await db.execute(
-            select(ThreadMeta.thread_id).where(ThreadMeta.user_id == user_id)
-        )).scalars().all()
-        thread_ids.update(t for t in meta_rows if t)
-
-        try:
-            await db.execute(delete(Conversation).where(Conversation.user_id == user_id))
-            await db.execute(delete(ThreadUsage).where(ThreadUsage.user_id == user_id))
-            await db.execute(delete(ThreadMeta).where(ThreadMeta.user_id == user_id))
-            await db.commit()
-        except Exception as e:
-            logger.warning(f"deactivate: 清空对话/线程数据失败: {e}")
-
-        try:
-            from src.agents.harness.runtime.memory.store import get_memory_store
-            await get_memory_store().delete_all_user(str(user_id))
-        except Exception as e:
-            logger.warning(f"deactivate: 清空记忆数据失败: {e}")
-
-        try:
-            from src.agents.agent_graph import delete_user_checkpoints
-            await delete_user_checkpoints(list(thread_ids))
-        except Exception as e:
-            logger.warning(f"deactivate: 清理 checkpoint 失败: {e}")
 
     @staticmethod
     async def change_password(
@@ -590,11 +616,20 @@ class AuthService:
         action: str,
         ip: str | None = None,
         user_agent: str | None = None,
+        detail: str | None = None,
     ) -> None:
         log_entry = UserAuditLog(
             user_id=user_id,
             action=action,
             ip=ip,
             user_agent=user_agent,
+            detail=detail,
         )
         db.add(log_entry)
+
+    @staticmethod
+    def _mask_phone(phone: str) -> str:
+        """手机号脱敏：前 3 位 + **** + 后 4 位（长度不足时原样返回）。"""
+        if len(phone) >= 7:
+            return f"{phone[:3]}****{phone[-4:]}"
+        return phone

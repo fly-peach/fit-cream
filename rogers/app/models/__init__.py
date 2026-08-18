@@ -21,6 +21,7 @@ from src.fitme.models.diet_meal import CustomFoodItem, DailyDietSummary, DietMea
 from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from src.fitme.models.exercise import Exercise, UserExerciseFavorite
 from src.fitme.models.health_metric import HealthMetric
+from src.fitme.models.mood_log import MoodLog
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
@@ -53,6 +54,7 @@ from src.fitme.services.checkin_service import CheckinService
 from src.fitme.services.diet_meal_service import CustomFoodItemService, DietMealService
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.exercise_service import ExerciseService
+from src.fitme.services.mood_service import MoodService
 from src.fitme.services.plan_service import PlanService
 from src.fitme.services.sms_service import SmsService
 from src.fitme.services.stats_service import StatsService
@@ -68,6 +70,7 @@ __all__ = [
     "UserGoals",
     "UserSettings",
     "HealthMetric",
+    "MoodLog",
     "Plan",
     "PlanDay",
     "PlanDayExercise",
@@ -109,6 +112,7 @@ __all__ = [
     "UserService",
     "PlanService",
     "CheckinService",
+    "MoodService",
     "ExerciseService",
     "StatsService",
     "DietPlanService",

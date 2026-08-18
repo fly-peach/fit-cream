@@ -35,7 +35,6 @@ class UserGoals(Base):
 
     # 训练目标
     weekly_training_goal: Mapped[int] = mapped_column(Integer, default=5)
-    weekly_duration_goal_min: Mapped[int] = mapped_column(Integer, default=300)
 
     # 营养目标
     calorie_goal: Mapped[int] = mapped_column(Integer, default=2000)

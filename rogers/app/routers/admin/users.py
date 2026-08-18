@@ -131,7 +131,11 @@ async def admin_delete_user(
     admin: User = Depends(get_admin_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """注销用户（软删 + 数据清理，admin，含自保护）"""
+    """停用账号（软删：置 deleted_at + is_active=False，不硬删数据，admin，含自保护）
+
+    与用户本人注销（/auth/deactivate 立即硬删）区分：管理员停用走软删，
+    从而绕开知识库 owner_id / KBDocument.created_by 的级联与外键冲突。
+    """
     await AdminService.deactivate_user(db, user_id, admin)
     await db.commit()
     return ResponseModel(message="已注销该用户")
