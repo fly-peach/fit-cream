@@ -2,82 +2,99 @@
 意图识别中间件（渐进式提示词注入）
 
 基于 LangChain AgentMiddleware 的 before_model hook：
-1. 检测最新用户消息的意图（关键词匹配 + 图片检测）
-2. 注入对应的意图专项提示词（SystemMessage）
+1. 检测最新用户消息的意图（关键词多意图匹配 + 图片检测 + 可选 LLM 兜底）
+2. 注入命中的所有意图专项提示词（按优先级拼接，SystemMessage）
 3. 实现"渐进式披露"——仅注入与当前意图相关的规则
 
 架构：
     用户消息 -> IntentMiddleware.before_model
                     |
                     v
-              detect_intent(message)
+              detect_intents(message)
                     |
-            ┌───────┴────────┐
-            |  图片检测       |  关键词匹配
-            v                v
-      meal_image_analysis /  plan_creation / checkin / ...
+            ┌───────┴──────────────┐
+            |  图片检测   |  多意图关键词匹配  |  LLM 兜底（默认关）
+            v            v                  v
+      meal_image /  [plan_creation, checkin, ...]
       image_analysis
                     |
                     v
-          注入 INTENT_PROMPTS[intent]
+          注入 INTENT_PROMPTS[intent_1] + INTENT_PROMPTS[intent_2] + ...
           (SystemMessage -> messages)
 
 效果：
 - 基础提示词始终存在（身份、能力概览、核心规则）
 - 意图专项规则按需注入（减少 token，模型更聚焦）
 - 每次用户新消息时重新检测意图
+- 多意图按 INTENT_KEYWORDS 顺序（优先级）拼接注入，解决 plan_creation 的
+  「计划」与 diet_record 的「饮食计划」等歧义——都命中就都注入，让模型自行取舍
+
+知识库耦合：knowledge_query 意图的注入需 KB 开关开启（configurable.kb_enabled），
+该判断统一走 runtime/config_flags.get_config_flag，不再 import kb_gate_middleware
+（消除中间件之间的跨模块耦合）。
+
+LLM 兜底：默认关闭。仅当 configurable.intent_classify_llm 为真且关键词无任何
+命中时才调用轻量分类模型，避免每轮用户消息都多一次 LLM 调用（延迟 + token）。
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.messages import HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
 from src.agents.harness.orchestration.prompts.system import (
+    INTENT_CLASSIFY_PROMPT,
     INTENT_KEYWORDS,
+    INTENT_NEGATIVE_KEYWORDS,
     INTENT_PROMPTS,
     MEAL_IMAGE_KEYWORDS,
 )
+from src.agents.harness.runtime.config_flags import get_config_flag
 
 logger = logging.getLogger("fitcream.agent")
 
+# 单轮最多注入的意图提示词数量（防止多个意图叠加失控）
+MAX_INTENTS = 3
 
-def detect_intent(message: HumanMessage) -> str:
+
+def _extract_text(content: Any) -> str:
+    """从 HumanMessage.content 提取纯文本（支持 str / list 多模态块）。"""
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return str(content) if content else ""
+
+
+def detect_intents(message: HumanMessage) -> list[str]:
     """
-    从用户消息中检测意图。
+    检测用户消息的有序意图列表（按优先级从高到低，最多 MAX_INTENTS 个）。
 
-    检测策略（按优先级）：
-    1. 图片检测：content 含 image_url 块 -> 伴随文本命中饮食关键词则 meal_image_analysis，
-       否则 image_analysis
-    2. 关键词匹配：按 INTENT_KEYWORDS 表匹配最高优先级意图
-    3. 默认：general_chat
+    检测策略：
+    1. 图片检测：content 含 image_url 块 -> 伴随文本命中饮食关键词则
+       meal_image_analysis，否则 image_analysis（图片意图独占）
+    2. 多意图关键词匹配：遍历 INTENT_KEYWORDS，命中即加入（应用
+       INTENT_NEGATIVE_KEYWORDS 负向关键词否决）
+    3. 无命中：返回 ["general_chat"]
 
     Args:
         message: 用户消息（HumanMessage）
 
     Returns:
-        意图字符串（如 "plan_creation", "image_analysis", "meal_image_analysis", "general_chat"）
+        意图名列表，如 ["plan_creation", "diet_record"] 或 ["image_analysis"]
 
     Example:
         >>> msg = HumanMessage(content="帮我制定减脂计划")
-        >>> detect_intent(msg)
-        'plan_creation'
+        >>> detect_intents(msg)
+        ['plan_creation']
 
-        >>> msg = HumanMessage(content=[
-        ...     {"type": "text", "text": "分析一下我的深蹲动作"},
-        ...     {"type": "image_url", "image_url": {"url": "data:..."}},
-        ... ])
-        >>> detect_intent(msg)
-        'image_analysis'
-
-        >>> msg = HumanMessage(content=[
-        ...     {"type": "text", "text": "帮我看看这餐吃了多少热量"},
-        ...     {"type": "image_url", "image_url": {"url": "data:..."}},
-        ... ])
-        >>> detect_intent(msg)
-        'meal_image_analysis'
+        >>> msg = HumanMessage(content="帮我记录饮食计划")
+        >>> detect_intents(msg)
+        ['plan_creation', 'diet_record']
     """
     content = message.content
 
@@ -88,52 +105,81 @@ def detect_intent(message: HumanMessage) -> str:
             for block in content
         )
         if has_image:
-            text = " ".join(
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
+            text = _extract_text(content)
             # 伴随文本含饮食关键词 -> 饮食热量识别专项流程
             if any(kw in text for kw in MEAL_IMAGE_KEYWORDS):
-                return "meal_image_analysis"
-            return "image_analysis"
+                return ["meal_image_analysis"]
+            return ["image_analysis"]
 
-    # 2. 提取文本内容
-    if isinstance(content, list):
-        text = " ".join(
-            block.get("text", "")
-            for block in content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-    else:
-        text = str(content) if content else ""
-
-    # 3. 关键词匹配（按 INTENT_KEYWORDS 顺序，先匹配优先返回）
+    # 2/3. 多意图关键词匹配 + 默认
+    text = _extract_text(content)
+    matched: list[str] = []
     for intent, keywords in INTENT_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            return intent
+        if not any(kw in text for kw in keywords):
+            continue
+        negatives = INTENT_NEGATIVE_KEYWORDS.get(intent, ())
+        if any(nk in text for nk in negatives):
+            continue
+        matched.append(intent)
+        if len(matched) >= MAX_INTENTS:
+            break
 
-    # 4. 默认
-    return "general_chat"
+    return matched if matched else ["general_chat"]
+
+
+def detect_intent(message: HumanMessage) -> str:
+    """向后兼容：返回最高优先级意图（detect_intents 的首个）。"""
+    return detect_intents(message)[0]
 
 
 class IntentMiddleware(AgentMiddleware):
     """
-    意图识别中间件 - 渐进式提示词注入。
+    意图识别中间件 - 渐进式提示词注入（多意图）。
 
     在 before_model 阶段：
     1. 检查最新消息是否为用户消息（HumanMessage）
-    2. 检测用户意图（关键词匹配 + 图片检测）
-    3. 注入意图专项提示词（SystemMessage）
-
-    渐进式披露：只有与当前意图相关的规则被注入，减少 token 消耗，
-    让模型更聚焦于当前任务。
+    2. 检测用户意图（图片检测 + 多意图关键词匹配 + 可选 LLM 兜底）
+    3. 注入命中的全部意图专项提示词（按优先级拼接）
 
     注入时机：仅在最新消息为 HumanMessage 时注入（即用户刚发送新消息时）。
     后续 model 调用（tool 执行后）不会重复注入，因为最新消息为 ToolMessage。
 
+    Args:
+        llm_classifier: 可选 LLM 兜底分类器（BaseChatModel 或 ``callable(text)->str``）。
+            为 None 时即使 configurable.intent_classify_llm 开启也仅打日志跳过
+            （不自动构造模型，避免默认引入额外调用开销）。
+
     无实例级可变状态：中间件被编译进共享 graph，并发运行互不影响。
     """
+
+    def __init__(self, llm_classifier: Optional[Any] = None):
+        super().__init__()
+        self.llm_classifier = llm_classifier
+
+    def _classify_with_llm(self, text: str) -> Optional[str]:
+        """用轻量分类模型兜底判断意图（仅关键词无命中且开关开启时调用）。"""
+        classifier = self.llm_classifier
+        if classifier is None:
+            logger.info(
+                "[Intent] intent_classify_llm 已开启但未配置 llm_classifier，跳过兜底"
+            )
+            return None
+
+        try:
+            if callable(classifier) and not hasattr(classifier, "ainvoke"):
+                label = classifier(text)
+            else:
+                response = classifier.invoke(
+                    INTENT_CLASSIFY_PROMPT.format(text=text[:2000])
+                )
+                label = response.text.strip() if hasattr(response, "text") else str(response)
+            label = (label or "").strip().lower()
+            if label in INTENT_KEYWORDS:
+                return label
+            logger.info("[Intent] LLM 兜底分类结果不可识别: %r", label)
+        except Exception as e:
+            logger.warning("[Intent] LLM 兜底分类失败: %s", e)
+        return None
 
     def before_model(
         self, state: AgentState, runtime: Runtime
@@ -155,25 +201,29 @@ class IntentMiddleware(AgentMiddleware):
             return None
 
         # 检测意图
-        intent = detect_intent(last_msg)
+        intents = detect_intents(last_msg)
 
-        # 获取意图专项提示词
-        intent_prompt = INTENT_PROMPTS.get(intent)
-        if not intent_prompt:
-            return None
+        # LLM 兜底：默认关闭；仅当关键词无命中且开关开启时尝试分类
+        if intents == ["general_chat"] and get_config_flag("intent_classify_llm", False):
+            fallback = self._classify_with_llm(_extract_text(last_msg.content))
+            if fallback:
+                intents = [fallback]
 
         # knowledge_query 意图注入「优先知识库检索」引导，与 KB 工具门控矛盾：
-        # 开关关闭（configurable.kb_enabled falsy）时跳过注入，避免模型想调不可见的 KB 工具
-        if intent == "knowledge_query":
-            from src.agents.harness.runtime.middleware.kb_gate_middleware import (
-                kb_enabled_from_config,
-            )
-
-            if not kb_enabled_from_config():
+        # 开关关闭（configurable.kb_enabled falsy）时跳过注入，避免模型想调不可见的 KB 工具。
+        # 该判断经 runtime/config_flags.get_config_flag 统一读取，不跨中间件 import。
+        if "knowledge_query" in intents and not get_config_flag("kb_enabled", False):
+            intents = [i for i in intents if i != "knowledge_query"]
+            if not intents:
                 logger.info("[Intent] Detected: knowledge_query (skipped: KB disabled)")
                 return None
 
-        logger.info(f"[Intent] Detected: {intent}")
+        # 拼接所有命中意图的专项提示词（按优先级顺序）
+        prompts = [INTENT_PROMPTS[i] for i in intents if INTENT_PROMPTS.get(i)]
+        if not prompts:
+            return None
 
-        # 注入意图专项 SystemMessage
-        return {"messages": [SystemMessage(content=intent_prompt)]}
+        logger.info(f"[Intent] Detected: {intents}")
+
+        # 注入意图专项 SystemMessage（多意图拼接为一个 SystemMessage，避免多条）
+        return {"messages": [SystemMessage(content="\n\n".join(prompts))]}

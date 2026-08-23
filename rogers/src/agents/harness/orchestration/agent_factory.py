@@ -28,6 +28,10 @@ from langgraph.graph.state import CompiledStateGraph
 from src.agents.harness.orchestration.model_factory import create_chat_dashscope, ChatDashScope
 from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT, build_system_prompt
 
+import logging
+
+logger = logging.getLogger("fitcream.agent")
+
 
 def get_default_model(
     model: Optional[str] = None,
@@ -115,7 +119,16 @@ def create_fitcream_agent(
 
     # 3. 系统提示词（默认使用 system.py 中的完整 SYSTEM_PROMPT + skills catalog）
     if system_prompt is None:
-        from src.agents.harness.skills.skills_loader import get_catalog_prompt
+        from src.agents.harness.skills.skills_loader import (
+            get_catalog_prompt,
+            get_skill_diagnostics,
+        )
+
+        for diag in get_skill_diagnostics():
+            if diag.get("level") == "error":
+                logger.error("[Skills] %s: %s", diag.get("skill"), diag.get("message"))
+            else:
+                logger.warning("[Skills] %s: %s", diag.get("skill"), diag.get("message"))
 
         catalog = get_catalog_prompt()
         system_prompt = SYSTEM_PROMPT + (f"\n\n{catalog}" if catalog else "")
@@ -235,7 +248,6 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     - 对话结束（after_agent）兜底触发一次
     - 异步提取分层记忆（情景/语义/程序性），不阻塞对话
     """
-    from langchain.agents.middleware import SummarizationMiddleware
     from src.agents.harness.runtime.middleware.logging_middleware import AgentLoggingMiddleware
     from src.agents.harness.runtime.middleware.rate_limit import create_rate_limit_middleware
     from src.agents.harness.runtime.middleware.callbacks import TokenUsageMiddleware
@@ -244,6 +256,16 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
     from src.agents.harness.runtime.middleware.plan_queue_middleware import PlanQueueMiddleware
     from src.agents.harness.runtime.middleware.kb_gate_middleware import KBGateMiddleware
+    from src.agents.harness.runtime.middleware.context_message_gate import (
+        ContextMessageGateMiddleware,
+    )
+    from src.agents.harness.runtime.middleware.terminal_tool import (
+        TERMINAL_TOOLS,
+        TerminalToolMiddleware,
+    )
+    from src.agents.harness.runtime.middleware.structured_summarization import (
+        StructuredSummarizationMiddleware,
+    )
 
     # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
     summary_model = create_chat_dashscope(
@@ -259,6 +281,10 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         # 知识库回答开关：kb_enabled falsy 时过滤 KB 工具，truthy 时注入 KB 优先提示词；
         # 注册在意图之后（KB 提示词可叠加意图规则），HITL 之前（不涉及中断）
         KBGateMiddleware(),
+        # 模型视图级裁剪：把历史中队列工具的完整快照入参替换为轻量占位（仅影响
+        # 模型请求，不落 checkpoint / 不改前端契约）。放在 PlanQueue 注入之后、
+        # 日志 / 限流之前。
+        ContextMessageGateMiddleware(),
     ]
 
     # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
@@ -283,10 +309,15 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         AgentLoggingMiddleware(),
         *create_rate_limit_middleware(),
         TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
-        SummarizationMiddleware(
+        # 终结工具：白名单工具批全部成功后结束 run，跳过后续自动 LLM 总结。
+        # 默认白名单为空（保守起步），按 3.3 与产品对齐后逐工具灰度启用。
+        TerminalToolMiddleware(terminal_tools=TERMINAL_TOOLS, enabled=bool(TERMINAL_TOOLS)),
+        # 结构化增量压缩（替换内置 SummarizationMiddleware）：健身域结构化 markdown
+        # 摘要 + 跨 run 增量更新（conversation_summary 持久化通道），防上下文溢出。
+        StructuredSummarizationMiddleware(
             model=summary_model,
-            trigger=("tokens", SUMMARIZE_TRIGGER_TOKENS),
-            keep=("messages", SUMMARIZE_KEEP_MESSAGES),
+            trigger_tokens=SUMMARIZE_TRIGGER_TOKENS,
+            keep_messages=SUMMARIZE_KEEP_MESSAGES,
         ),
         # 记忆更新：共享实例，user_id 运行时从 configurable 解析（见 memory_update.py）
         MemoryUpdateMiddleware(trigger_tokens=MEMORY_UPDATE_TRIGGER_TOKENS),

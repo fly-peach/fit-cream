@@ -22,10 +22,9 @@ from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.messages import HumanMessage, SystemMessage
 from langgraph.runtime import Runtime
 
-logger = logging.getLogger("fitcream.agent")
+from src.agents.harness.tools.plan.plan_queue_tools import QUEUE_TOOLS
 
-# 这两个工具的入参携带完整队列快照（前端/中间件重建的来源）
-_QUEUE_TOOLS = ("present_plan_queue_tool", "update_plan_queue_item_tool")
+logger = logging.getLogger("fitcream.agent")
 
 
 def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
@@ -45,26 +44,24 @@ def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
 
 
 def _reconstruct_queue(messages: list) -> dict | None:
-    """扫描消息历史，返回最新的队列快照。
+    """从后向前扫到第一个队列工具调用即停，返回最新队列快照。
 
-    遍历所有 AIMessage.tool_calls，找最后一个 present_plan_queue_tool 或
-    update_plan_queue_item_tool 调用，取其队列入参。update 携带全量更新后快照，
-    故「最新一次」即当前真实状态。
+    只找「最新一份」快照：update 携带全量更新后快照，故从后向前遇到的第一个
+    队列工具调用即当前真实状态，无需全量遍历（旧实现 O(N) 深拷贝优化）。
     """
-    latest: dict | None = None
-    for msg in messages:
+    for msg in reversed(messages):
         tool_calls = getattr(msg, "tool_calls", None) or []
         if not tool_calls:
             continue
-        for tc in tool_calls:
+        for tc in reversed(tool_calls):
             name = tc.get("name") if isinstance(tc, dict) else None
-            if name not in _QUEUE_TOOLS:
+            if name not in QUEUE_TOOLS:
                 continue
             args = tc.get("args") if isinstance(tc, dict) else None
             q = _extract_queue_from_tool_call(name, args or {})
             if q:
-                latest = q
-    return latest
+                return q
+    return None
 
 
 def _render_snapshot(queue: dict) -> str:

@@ -21,7 +21,7 @@ from langchain.agents.middleware import (
     ModelCallLimitMiddleware,
     ToolCallLimitMiddleware,
 )
-from langchain.agents.middleware.types import PrivateStateAttr, hook_config
+from langchain.agents.middleware.types import PrivateStateAttr
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.runtime import Runtime
@@ -43,9 +43,11 @@ class SameToolLimitMiddleware(AgentMiddleware):
     内置 ToolCallLimitMiddleware 只支持全局或按 tool_name 的 thread/run 限制，
     此类补充"同一 tool 调用次数上限"的检测。
 
-    计数与拦截在 after_model 完成（读取最新 AIMessage 的 tool_calls，与内置
-    ToolCallLimitMiddleware 一致），通过注入错误 ToolMessage 阻断超额调用--
-    agent 路由会跳过已有 ToolMessage 的 tool_call，不会真正执行。
+    计数在 after_model 完成（读取最新 AIMessage 的 tool_calls，与内置
+    ToolCallLimitMiddleware 一致）；拦截改在 wrap_tool_call / awrap_tool_call：
+    工具真正执行前若本轮调用次数已超限，则短路返回错误 ToolMessage——
+    不执行工具（无副作用），也不再像旧实现那样在 after_model 注入与工具轮次
+    不匹配的伪造 ToolMessage 污染消息历史。
     """
 
     state_schema = SameToolLimitState  # type: ignore[assignment]
@@ -61,8 +63,12 @@ class SameToolLimitMiddleware(AgentMiddleware):
         # 计数由 UntrackedValue 保证随 run 重置，无需显式清零
         return None
 
-    @hook_config(can_jump_to=["end"])
     def after_model(self, state: SameToolLimitState, runtime: Runtime) -> dict[str, Any] | None:
+        """读取最新 AIMessage 的 tool_calls 累加计数（不注入拦截消息）。
+
+        真正拦截由 wrap_tool_call 在工具执行前完成：after_model 只管计数，
+        wrap_tool_call 根据计数短路，二者配合使"第 max+1 次调用"不被执行。
+        """
         messages = state.get("messages", [])
         if not messages:
             return None
@@ -78,46 +84,62 @@ class SameToolLimitMiddleware(AgentMiddleware):
             return None
 
         counts = dict(state.get("same_tool_counts", {}))
-        blocked: list[ToolMessage] = []
 
         for tool_call in last_ai_message.tool_calls:
             tool_name = tool_call["name"]
             counts[tool_name] = counts.get(tool_name, 0) + 1
-            current = counts[tool_name]
 
             logger.info(
                 f"[RateLimit] Tool call check | tool={tool_name} | "
-                f"count={current}/{self.max_same_tool_calls}"
+                f"count={counts[tool_name]}/{self.max_same_tool_calls}"
             )
 
-            if current > self.max_same_tool_calls:
-                logger.warning(
-                    f"[RateLimit] Same tool limit exceeded: "
-                    f"{tool_name} called {current} times "
-                    f"(max {self.max_same_tool_calls})"
-                )
-                blocked.append(
-                    ToolMessage(
-                        content=(
-                            f"Error: Tool '{tool_name}' has been called "
-                            f"{self.max_same_tool_calls} times already. "
-                            f"Please try a different approach."
-                        ),
-                        tool_call_id=tool_call["id"],
-                        status="error",
-                    )
-                )
-
-        if blocked:
-            # 注入错误 ToolMessage 阻断超额调用（路由会跳过已有结果的 tool_call）
-            return {"same_tool_counts": counts, "messages": blocked}
         return {"same_tool_counts": counts}
 
-    @hook_config(can_jump_to=["end"])
-    async def aafter_model(
-        self, state: SameToolLimitState, runtime: Runtime
-    ) -> dict[str, Any] | None:
-        return self.after_model(state, runtime)
+    def _is_over_limit(self, state: Any, tool_name: str) -> bool:
+        """按 state 中已累计计数判断是否超过同一工具调用上限。"""
+        counts = (state or {}).get("same_tool_counts", {}) or {}
+        return counts.get(tool_name, 0) > self.max_same_tool_calls
+
+    def wrap_tool_call(self, request, handler):
+        """工具执行前拦截：超限则短路，不执行工具。"""
+        tool_name = request.tool_call["name"]
+        if self._is_over_limit(request.state, tool_name):
+            logger.warning(
+                f"[RateLimit] Same tool limit exceeded, blocked before execution: "
+                f"{tool_name} (max {self.max_same_tool_calls})"
+            )
+            return ToolMessage(
+                content=(
+                    f"Error: Tool '{tool_name}' has been called "
+                    f"{self.max_same_tool_calls} times already. "
+                    f"Please try a different approach."
+                ),
+                tool_call_id=request.tool_call["id"],
+                name=tool_name,
+                status="error",
+            )
+        return handler(request)
+
+    async def awrap_tool_call(self, request, handler):
+        """异步工具执行前拦截：超限则短路，不执行工具。"""
+        tool_name = request.tool_call["name"]
+        if self._is_over_limit(request.state, tool_name):
+            logger.warning(
+                f"[RateLimit] Same tool limit exceeded, blocked before execution: "
+                f"{tool_name} (max {self.max_same_tool_calls})"
+            )
+            return ToolMessage(
+                content=(
+                    f"Error: Tool '{tool_name}' has been called "
+                    f"{self.max_same_tool_calls} times already. "
+                    f"Please try a different approach."
+                ),
+                tool_call_id=request.tool_call["id"],
+                name=tool_name,
+                status="error",
+            )
+        return await handler(request)
 
 
 def create_rate_limit_middleware(

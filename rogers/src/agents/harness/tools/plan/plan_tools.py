@@ -10,8 +10,10 @@ from uuid import UUID
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from src.fitme.models.exercise import Exercise
 from src.fitme.schemas.diet_plan import DietDayCreate, DietPlanCreate
 from src.fitme.schemas.plan import (
     PlanCreate,
@@ -24,10 +26,30 @@ from src.fitme.schemas.plan import (
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.plan_service import PlanService
 from src.fitme.services.user_service import UserService
-from utils.exceptions import NotFoundException
+from utils.exceptions import BusinessException, ErrorCode, NotFoundException
 
 
 _WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+async def _ensure_exercise_ids_exist(db, exercises) -> None:
+    """批量校验各 exercise_id 均存在于动作库；缺失则抛友好业务异常。
+
+    只卡 exercise_id 指向库中不存在动作的情况（避免 commit 时裸 IntegrityError）；
+    custom_name 动作不校验存在性（保留「用户点名库外动作」能力），仅由服务层打标 source。
+    """
+    ids = list(dict.fromkeys(ex.exercise_id for ex in exercises if ex.exercise_id))
+    if not ids:
+        return
+    result = await db.execute(select(Exercise.id).where(Exercise.id.in_(ids)))
+    found = {row[0] for row in result.all()}
+    missing = [str(uid) for uid in ids if uid not in found]
+    if missing:
+        raise BusinessException(
+            ErrorCode.BAD_REQUEST,
+            f"以下动作在动作库中不存在，请重新调用 get_exercises_tool 检索后再设计："
+            f"{', '.join(missing)}",
+        )
 
 
 async def _resolve_plan_id(db, user_id: UUID, plan_id: Optional[str]) -> UUID:
@@ -172,6 +194,9 @@ async def create_plan_tool(
         async with session_scope() as db:
             if days:
                 # 队列流程：按 agent 逐日协同设计的结构直接落库，跳过后端模板生成
+                await _ensure_exercise_ids_exist(
+                    db, [ex for day in days for ex in day.exercises]
+                )
                 plan_name = name or f"{goal}计划 - 每周{days_per_week}天"
                 created = await PlanService.create_plan(
                     db,
@@ -573,6 +598,8 @@ async def add_plan_day_tool(
     try:
         async with session_scope() as db:
             pid = await _resolve_plan_id(db, user_id, plan_id)
+            if exercises:
+                await _ensure_exercise_ids_exist(db, exercises)
             data = PlanDayCreate(
                 day_of_week=day_of_week,
                 focus=focus,
@@ -757,6 +784,7 @@ async def add_exercise_tool(
                 calories_per_min=calories_per_min,
                 notes=notes,
             )
+            await _ensure_exercise_ids_exist(db, [data])
             await PlanService.add_exercise_to_day(db, UUID(plan_day_id), user_id, data)
             return {
                 "success": True,

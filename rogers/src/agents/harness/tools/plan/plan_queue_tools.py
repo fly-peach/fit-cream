@@ -23,6 +23,11 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 
+# 携带完整队列快照入参的工具名（前端待办面板 / PlanQueueMiddleware / 模型视图
+# 裁剪 ContextMessageGateMiddleware 共同依赖的锚点，定义在此作为契约来源）
+QUEUE_TOOLS = ("present_plan_queue_tool", "update_plan_queue_item_tool")
+
+
 # ===== 单日方案（present_day_design_tool 用，内联渲染，不进待办面板）=====
 
 

@@ -27,6 +27,11 @@
 - 减脂目标：加入有氧运动，控制训练间歇
 - 增肌目标：以力量训练为主，渐进超负荷
 
+## 动作来源硬性规则（重要）
+- 每个 `DayExerciseDesign.exercise_id` **必须来自本流程中 `get_exercises_tool` 的返回结果**，禁止凭空编造动作名或 ID
+- 每设计一个训练日，**必须先调 `get_exercises_tool` 拿候选**，从候选中挑选，不得跳过检索直接写动作
+- `custom_name` **仅当用户明确点名了动作库中不存在的动作/器械**时才使用，且须在 `rationale`/`notes` 注明；否则一律用 `exercise_id`
+
 ## 执行流程
 1. get_user_summary_tool 查已有数据与缺失字段
 2. present_form_tool 逐卡补全（已有数据不重复问）

@@ -22,6 +22,7 @@ SKILL.md 格式：
 """
 
 import logging
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -29,6 +30,24 @@ from typing import Optional
 logger = logging.getLogger("fitcream.skills")
 
 _SKILLS_DIR = Path(__file__).parent
+
+# 最近一次技能加载的诊断信息（警告 / 错误），供 agent_factory 启动时打印
+_skill_diagnostics: list[dict] = []
+
+# skill 命名规范：小写字母 / 数字 / 连字符（对齐工具名风格）
+_SKILL_NAME_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def _xml_escape(text: str) -> str:
+    """对技能元数据做 XML 转义，防止特殊字符破坏提示词 / 注入。"""
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+    )
 
 
 def _parse_frontmatter(raw: str) -> tuple[str, str, str]:
@@ -75,12 +94,18 @@ def _parse_frontmatter(raw: str) -> tuple[str, str, str]:
 def _load_skills() -> dict[str, dict]:
     """扫描并加载所有 skill 元数据 + 正文。
 
+    加载过程中的警告 / 错误写入模块级 ``_skill_diagnostics``，
+    供 ``get_skill_diagnostics()`` 在 agent_factory 启动时打印。
+
     Returns:
         ``{skill_name: {"description": str, "body": str, "dir": Path}}``
     """
+    global _skill_diagnostics
     skills: dict[str, dict] = {}
+    diagnostics: list[dict] = []
 
     if not _SKILLS_DIR.is_dir():
+        _skill_diagnostics = diagnostics
         return skills
 
     for entry in sorted(_SKILLS_DIR.iterdir()):
@@ -96,6 +121,24 @@ def _load_skills() -> dict[str, dict]:
             name, description, body = _parse_frontmatter(raw)
             if not name:
                 name = entry.name
+            if not _SKILL_NAME_RE.match(name):
+                diagnostics.append(
+                    {
+                        "skill": entry.name,
+                        "level": "warning",
+                        "message": f"skill 名 '{name}' 不符合命名规范 ^[a-z0-9-]+$",
+                    }
+                )
+                logger.warning("Skill name '%s' violates ^[a-z0-9-]+$", name)
+            if not description:
+                diagnostics.append(
+                    {
+                        "skill": name,
+                        "level": "warning",
+                        "message": "skill 缺少 description，catalog 中标为（无描述）",
+                    }
+                )
+                logger.warning("Skill %s missing description, catalog marked as (无描述)", name)
             skills[name] = {
                 "description": description,
                 "body": body,
@@ -103,8 +146,16 @@ def _load_skills() -> dict[str, dict]:
             }
             logger.debug("Loaded skill: %s", name)
         except Exception as e:
+            diagnostics.append(
+                {
+                    "skill": entry.name,
+                    "level": "error",
+                    "message": f"加载失败: {e}",
+                }
+            )
             logger.warning("Failed to load skill %s: %s", entry.name, e)
 
+    _skill_diagnostics = diagnostics
     logger.info("Skills loaded: %d skill(s)", len(skills))
     return skills
 
@@ -112,6 +163,16 @@ def _load_skills() -> dict[str, dict]:
 def reload_skills() -> None:
     """清除缓存，重新扫描技能目录（开发调试用）。"""
     _load_skills.cache_clear()
+
+
+def get_skill_diagnostics() -> list[dict]:
+    """返回最近一次技能加载的诊断列表（skill / level / message），供启动时打印。
+
+    确保先触发一次加载（首次或 reload_skills 清缓存后），返回该次扫描的诊断。
+    无诊断返回空列表；调用方可直接 ``logger.warning`` 逐条输出。
+    """
+    _load_skills()
+    return list(_skill_diagnostics)
 
 
 def get_skill_catalog() -> list[dict[str, str]]:
@@ -130,6 +191,9 @@ def get_skill_catalog() -> list[dict[str, str]]:
 def get_catalog_prompt() -> str:
     """构建「可用技能」系统提示词段（仅 name+description，控制 <500 token）。
 
+    输出为 XML ``<available_skills>`` 块，name/description 均做 XML 转义，
+    防止技能描述中的特殊字符破坏提示词或造成注入。
+
     无技能时返回空字符串。
     """
     catalog = get_skill_catalog()
@@ -140,10 +204,13 @@ def get_catalog_prompt() -> str:
         "# 可用技能",
         "",
         "以下是可按需加载的技能。需要某个技能的完整指令时，调用 skill_load_tool 加载。",
+        "<available_skills>",
     ]
     for skill in catalog:
-        desc = skill["description"] or "（无描述）"
-        lines.append(f"- **{skill['name']}**：{desc}")
+        name = _xml_escape(skill["name"])
+        desc = _xml_escape(skill["description"] or "（无描述）")
+        lines.append(f"  <skill><name>{name}</name><description>{desc}</description></skill>")
+    lines.append("</available_skills>")
     return "\n".join(lines)
 
 

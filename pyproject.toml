@@ -68,4 +68,4 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["rogers/tests"]
+testpaths = ["rogers/tests", "rogers/tests_offline"]

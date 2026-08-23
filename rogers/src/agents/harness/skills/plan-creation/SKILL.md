@@ -159,11 +159,15 @@ todos:
 
 对每个 `design-day-N`，**一日一轮**（禁止批量设计多日）：
 
+> **动作来源硬性规则（务必遵守）：**
+> 1. 每个 `DayExerciseDesign.exercise_id` **必须来自本流程中 `get_exercises_tool` 的返回结果**（`id` 字段），禁止凭空编造动作名或动作 ID。
+> 2. 每设计一个训练日，**必须先调 `get_exercises_tool` 拿候选**，从候选中挑选；不得跳过检索直接写动作。按当日 focus 传 `muscle_group`/`equipment`/`difficulty` 筛选，伤病场景用 `semantic_query`（如「不刺激膝盖的腿部动作」）。
+> 3. `custom_name` **仅当用户明确点名了动作库中不存在的动作/器械**时才使用，且必须在 `rationale`/`notes` 中注明；否则一律用 `exercise_id`。
+
 1. update 标记 in_progress
 2. `get_exercises_tool(muscle_group=..., equipment=..., difficulty=..., semantic_query=...)` 检索候选
-   （伤病场景用语义检索，如「不刺激膝盖的腿部动作」）
-3. 按 3.6 分层 + 3.5 安全约束挑动作设计组次/重量/休息，给 `rationale`；
-   用户指定或库无匹配用 `custom_name` 自定义动作
+3. 按 3.6 分层 + 3.5 安全约束从**检索返回的候选**中挑动作设计组次/重量/休息，给 `rationale`；
+   仅当用户点名库外动作/器械时用 `custom_name` 并在 notes 注明
 4. `present_day_design_tool(item_id, day_design, rationale)` 在对话内渲染当日方案卡
    （动作表格 + 设计依据 + 确认按钮）
 5. 用户点确认 -> 收到「`[确认当日设计: <item_id>]`」-> update 打勾 completed -> 下一日
