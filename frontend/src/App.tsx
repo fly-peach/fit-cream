@@ -22,6 +22,7 @@ import AdminUsersPage from "@/pages/admin/users";
 import AdminUserDetailPage from "@/pages/admin/user-detail";
 import KbManagementPage from "@/pages/admin/kb-management";
 import KbDetailPage from "@/pages/admin/kb-detail";
+import AdminSearchQualityPage from "@/pages/admin/search-quality";
 
 /** 需要登录才能访问的路由守卫 */
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -214,6 +215,16 @@ export function App() {
             <AdminRoute>
               <AdminLayout>
                 <KbDetailPage />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/search-quality"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminSearchQualityPage />
               </AdminLayout>
             </AdminRoute>
           }

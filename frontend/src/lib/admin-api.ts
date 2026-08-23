@@ -166,6 +166,63 @@ export interface AdminListKbsParams {
   keyword?: string;
 }
 
+// ============ 检索质量（动作库搜索评估 / embedding 回填） ============
+
+/** 单模式聚合指标（filter 派生给 precision/hit_rate，手挑给 recall/mrr） */
+export interface SearchQualityModeAgg {
+  queries: number;
+  average_precision_at_k?: number | null;
+  average_hit_rate_at_10?: number | null;
+  average_recall_at_k?: number | null;
+  average_mrr_at_k?: number | null;
+}
+
+export interface SearchQualityAggregates {
+  filter_derived: {
+    queries: number;
+    by_mode: Record<string, SearchQualityModeAgg | null>;
+  };
+  hand_picked: {
+    queries: number;
+    by_mode: Record<string, SearchQualityModeAgg | null>;
+  };
+}
+
+/** 单条黄金查询明细（per_mode 按 kind 给不同指标；hit_counts 为各模式命中数） */
+export interface SearchQualityDetail {
+  query: string;
+  kind: "filter_derived" | "hand_picked";
+  relevant_count: number;
+  relevant_filter: Record<string, unknown> | null;
+  keyword_terms: string[] | null;
+  per_mode: Record<string, Record<string, number | null> | null>;
+  hit_counts: Record<string, number | null>;
+  vector_rerank_top10: string[] | null;
+}
+
+export interface SearchQualityEval {
+  schema_version: number;
+  k: number;
+  total_queries: number;
+  zero_hit_queries: { query: string; kind: string }[];
+  aggregates: SearchQualityAggregates;
+  details: SearchQualityDetail[];
+}
+
+export interface BackfillResult {
+  ok?: number;
+  failed?: number;
+  total?: number;
+  message: string;
+}
+
+export interface BackfillStatus {
+  running: boolean;
+  started_at: number | null;
+  finished_at: number | null;
+  result: BackfillResult | null;
+}
+
 function withQuery(path: string, params: Record<string, unknown>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -201,4 +258,14 @@ export const adminApi = {
     api.get<Paginated<AdminKbListItem>>(
       withQuery("/admin/knowledge-bases", params as Record<string, unknown>)
     ),
+
+  // ---------- 检索质量（动作库搜索评估 / embedding 回填） ----------
+  runSearchQualityEval: (k = 20) =>
+    api.post<SearchQualityEval>(`/admin/search-quality/eval?k=${k}`),
+  triggerSearchBackfill: (force = false) =>
+    api.post<{ started: boolean; running: boolean; message: string }>(
+      `/admin/search-quality/backfill?force=${force}`
+    ),
+  getSearchBackfillStatus: () =>
+    api.get<BackfillStatus>("/admin/search-quality/backfill/status"),
 };

@@ -30,6 +30,31 @@ _DIFFICULTY_KEYWORDS_ADVANCED = ("advanced", "one arm", "weighted", "explosive",
 _DIFFICULTY_KEYWORDS_BEGINNER = ("assisted", "beginner")
 
 
+def infer_difficulty(
+    name: str, equipment: str | None = None, category: str | None = None
+) -> str:
+    """按名称关键词 + 器械/分类启发式推断动作难度（幂等规则，种子与回填脚本复用）。
+
+    优先级：名称关键词（beginner > advanced）-> 器械/分类启发式 -> 默认 intermediate。
+    目标分布：beginner 从 2% 提升到 ~15-25%（器械/弹力带孤立动作、自重孤立非拉伸入门友好）。
+    """
+    name_lower = (name or "").lower()
+    if any(k in name_lower for k in _DIFFICULTY_KEYWORDS_BEGINNER):
+        return "beginner"
+    if any(k in name_lower for k in _DIFFICULTY_KEYWORDS_ADVANCED):
+        return "advanced"
+    if category == "isolation":
+        if equipment in ("machine", "band"):
+            return "beginner"
+        if equipment == "bodyweight" and not any(
+            k in name_lower for k in ("stretch", "拉伸")
+        ):
+            return "beginner"
+    if equipment == "barbell" and category == "compound":
+        return "intermediate"
+    return "intermediate"
+
+
 def _rewrite_media(path: str | None) -> str | None:
     """dataset 'images/0001-X.jpg' -> '/static/exercises/images/0001-X.jpg'"""
     if not path:
@@ -63,13 +88,6 @@ def transform_record(raw: dict[str, Any]) -> dict[str, Any]:
     # name 是 {"en": ..., "zh": ...} 对象
     name_en = _get_lang_value(raw.get("name"), "en") or ""
     name_zh = _get_lang_value(raw.get("name"), "zh") or name_en
-    name_lower = name_en.lower()
-    if any(k in name_lower for k in _DIFFICULTY_KEYWORDS_BEGINNER):
-        difficulty = "beginner"
-    elif any(k in name_lower for k in _DIFFICULTY_KEYWORDS_ADVANCED):
-        difficulty = "advanced"
-    else:
-        difficulty = "intermediate"
 
     instructions_obj = raw.get("instructions") or {}
     steps_obj = raw.get("instruction_steps") or {}
@@ -91,6 +109,7 @@ def transform_record(raw: dict[str, Any]) -> dict[str, Any]:
 
     # equipment 粗化为 8 类稳定值（equipment_zh 保留原中文标签）
     equipment = EQUIPMENT_COARSENING.get(equipment_en, "other") if equipment_en else None
+    difficulty = infer_difficulty(name_en, equipment=equipment, category=category)
 
     return {
         "name": name_zh,

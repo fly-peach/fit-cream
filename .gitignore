@@ -150,3 +150,21 @@ ehthumbs.db
 Desktop.ini
 uv.lock
 .playwright-mcp/
+
+# ========================
+# backups
+# ========================
+
+backups/
+
+# ========================
+# local ops scripts (未入库，含服务器连接逻辑)
+# ========================
+
+scripts/backup_server.py
+
+# ========================
+# local docker override (仅本地使用，服务器会自动加载 override，提交会翻转生产 DEBUG)
+# ========================
+
+docker-compose.override.yml

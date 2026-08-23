@@ -110,3 +110,95 @@ def get_embedding_model() -> DashScopeEmbedding:
 def get_embedding_dimension() -> int:
     """获取当前 embedding 模型的向量维度"""
     return EMBEDDING_DIMENSION
+
+
+# ============================================================
+# 通用 rerank（DashScope gte-rerank-v2）
+# ============================================================
+
+# rerank 后处理器（进程级缓存，懒加载；未启用/加载失败为 None）
+_reranker = None
+
+
+def _rerank_enabled() -> bool:
+    try:
+        from app.config import get_settings
+
+        return bool(getattr(get_settings(), "RERANK_ENABLED", True))
+    except Exception:
+        return _get_setting("RERANK_ENABLED", "true").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+
+def _rerank_model() -> str:
+    try:
+        from app.config import get_settings
+
+        return str(getattr(get_settings(), "RERANK_MODEL", "gte-rerank-v2"))
+    except Exception:
+        return _get_setting("RERANK_MODEL", "gte-rerank-v2")
+
+
+def _load_reranker():
+    """懒加载 DashScopeRerank 后处理器；未启用/缺失依赖时返回 None（进程内只加载一次）。"""
+    global _reranker
+    if _reranker is not None:
+        return _reranker
+    if not _rerank_enabled():
+        return None
+    try:
+        from llama_index.postprocessor.dashscope_rerank import DashScopeRerank
+
+        _reranker = DashScopeRerank(
+            model=_rerank_model(),
+            top_n=int(_get_setting("RERANK_TOP_N", "20")),
+        )
+        return _reranker
+    except Exception as e:
+        logger = __import__("logging").getLogger("fitcream")
+        logger.warning("rerank 后处理器加载失败（回退原序）: %s", e)
+        return None
+
+
+async def rerank_texts(
+    query: str, texts: list[str], top_n: int | None = None
+) -> list[int]:
+    """对候选文本按 query 相关度重排，返回重排后的索引列表。
+
+    - 未启用 / 依赖缺失 / 执行异常：回退原序 ``list(range(len(texts)))``。
+    - ``top_n`` 缺省时返回全量重排结果。
+    """
+    if not texts:
+        return []
+    postprocessor = _load_reranker()
+    if postprocessor is None:
+        return list(range(len(texts)))
+
+    from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
+
+    try:
+        query_bundle = QueryBundle(query_str=query)
+        nodes = [
+            NodeWithScore(
+                node=TextNode(text=t, metadata={"index": i}), score=0.0
+            )
+            for i, t in enumerate(texts)
+        ]
+        reranked = postprocessor.postprocess_nodes(nodes, query_bundle)
+
+        ordered: list[int] = []
+        for n in reranked:
+            node = getattr(n, "node", n)
+            metadata = getattr(node, "metadata", {}) or {}
+            idx = metadata.get("index", None)
+            if not isinstance(idx, int) or not (0 <= idx < len(texts)):
+                return list(range(len(texts)))
+            ordered.append(idx)
+        chosen = set(ordered)
+        ordered.extend(i for i in range(len(texts)) if i not in chosen)
+        return ordered[:top_n] if top_n is not None else ordered
+    except Exception:
+        return list(range(len(texts)))

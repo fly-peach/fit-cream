@@ -14,9 +14,22 @@ from typing import Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.agents.harness.runtime.memory.embeddings import get_embedding_model
 from src.agents.harness.tools._common import error_response, session_scope
 from src.fitme.services.exercise_service import ExerciseService
+
+
+def _first_sentence(text: Optional[str], max_len: int = 80) -> str:
+    """取描述首句并截断（工具返回只给设计所需摘要，完整步骤走详情页）。"""
+    if not text:
+        return ""
+    text = text.strip()
+    for sep in ("。", "！", "？", ".", "!", "?"):
+        idx = text.find(sep)
+        if idx != -1:
+            text = text[: idx + 1]
+            break
+    text = text.strip()
+    return text[:max_len] + ("…" if len(text) > max_len else "")
 
 
 class GetExercisesInput(BaseModel):
@@ -40,7 +53,7 @@ class GetExercisesInput(BaseModel):
     )
     keyword: Optional[str] = Field(
         default=None,
-        description="搜索关键词，匹配动作名称或描述。例如'深蹲'、'卧推'。",
+        description="搜索关键词，匹配动作名称或描述。传动作名词项（如'深蹲'、'卧推'），勿传整句。",
     )
     semantic_query: Optional[str] = Field(
         default=None,
@@ -75,9 +88,18 @@ async def get_exercises_tool(
     - 用户问"有什么不伤膝盖的腿部动作"→ semantic_query="适合膝盖不适人群的腿部训练"
     - 用户问"练核心稳定性的动作"→ semantic_query="核心稳定性训练"
 
-    semantic_query 走语义向量检索，结果按相似度排序并附 similarity 分数；
-    keyword 走名称/描述关键词匹配。两者同时提供时优先 semantic_query；
+    semantic_query 走混合检索（向量 + 可选 keyword 词项 RRF 融合 + rerank 精排），
+    结果按相关度排序并附 similarity 分数；keyword 走名称/描述词项匹配。
+    两者同时提供时优先 semantic_query（keyword 作为 RRF 融合词项）；
     语义检索不可用（未装 pgvector / 未回填向量）或无命中时自动回退关键词检索。
+    带筛选条件的语义检索零命中时，自动去掉筛选条件重试一次，并在返回中置
+    filter_relaxed=true 提示模型结果已放宽筛选。
+
+    返回字段为设计所需白名单（精简，降低逐日设计轮 token 载荷）：
+    id/url/name/name_en/muscle_group/target_zh/muscle_subgroup_zh/equipment_zh/
+    difficulty/category/is_compound/description（首句摘要）；语义模式附 similarity。
+    image/gif_url/instruction_steps 等完整字段不进本返回，详情走 /exercises/<id>。
+    每个返回动作的 exercise_id 即设计落库用的动作 ID。
 
     回复用户时，若涉及具体动作，须用返回的 `url` 以 markdown 链接形式
     附上站内详情链接（如 `[卧推动作详解](/exercises/<id>)`），
@@ -89,23 +111,36 @@ async def get_exercises_tool(
     async with session_scope() as db:
         try:
             similarity_map = {}
+            filter_relaxed = False
             used_semantic = False
             if semantic_query and await ExerciseService.semantic_available(db):
-                query_embedding = await get_embedding_model().aget_text_embedding(
-                    semantic_query
-                )
-                scored = await ExerciseService.semantic_search(
+                keyword_terms = [keyword] if keyword else None
+                scored = await ExerciseService.hybrid_search(
                     db,
-                    query_embedding,
+                    semantic_query,
                     muscle_group=muscle_group,
                     equipment=equipment,
                     difficulty=difficulty,
+                    keyword_terms=keyword_terms,
                     limit=20,
                 )
                 if scored:
                     exercises = [ex for ex, _ in scored]
                     similarity_map = {ex.id: round(sim, 3) for ex, sim in scored}
                     used_semantic = True
+                elif muscle_group or equipment or difficulty:
+                    # 带 filter 的语义检索零命中：去 filter 重试一次，附提示模型
+                    relaxed = await ExerciseService.hybrid_search(
+                        db,
+                        semantic_query,
+                        keyword_terms=keyword_terms,
+                        limit=20,
+                    )
+                    if relaxed:
+                        exercises = [ex for ex, _ in relaxed]
+                        similarity_map = {ex.id: round(sim, 3) for ex, sim in relaxed}
+                        used_semantic = True
+                        filter_relaxed = True
 
             if not used_semantic:
                 # 语义检索不可用（pgvector 缺失/未回填）或无命中时，回退关键词检索；
@@ -127,17 +162,13 @@ async def get_exercises_tool(
                     "name": ex.name,
                     "name_en": ex.name_en,
                     "muscle_group": ex.muscle_group,
-                    "target": ex.target,
                     "target_zh": ex.target_zh,
-                    "equipment": ex.equipment,
+                    "muscle_subgroup_zh": ex.muscle_subgroup_zh,
                     "equipment_zh": ex.equipment_zh,
                     "difficulty": ex.difficulty,
                     "category": ex.category,
                     "is_compound": ex.is_compound,
-                    "description": ex.description,
-                    "instruction_steps": ex.instruction_steps,
-                    "image": ex.image,
-                    "gif_url": ex.gif_url,
+                    "description": _first_sentence(ex.description),
                 }
                 if used_semantic:
                     item["similarity"] = similarity_map.get(ex.id)
@@ -151,6 +182,7 @@ async def get_exercises_tool(
             return {
                 "success": True,
                 "count": len(exercise_list),
+                "filter_relaxed": filter_relaxed,
                 "exercises": exercise_list,
                 "recommendation": recommendation,
             }

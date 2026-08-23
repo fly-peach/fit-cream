@@ -113,6 +113,10 @@ class PlanService:
         db.add(plan_day)
 
         for i, ex_data in enumerate(data.exercises):
+            # custom_name 动作（无动作库 ID）打标 source=custom，便于审计召回与统计
+            ex_metadata = dict(ex_data.metadata_ or {})
+            if ex_data.custom_name and not ex_data.exercise_id:
+                ex_metadata.setdefault("source", "custom")
             plan_exercise = PlanDayExercise(
                 id=uuid4(),
                 plan_day_id=day_id,
@@ -127,7 +131,7 @@ class PlanService:
                 calories_per_min=ex_data.calories_per_min,
                 sort_order=ex_data.sort_order or i,
                 notes=ex_data.notes,
-                metadata_=ex_data.metadata_ or {},
+                metadata_=ex_metadata,
             )
             db.add(plan_exercise)
 
@@ -525,6 +529,10 @@ class PlanService:
         """为训练日添加动作，返回 (plan_exercise, plan)"""
         _, plan = await PlanService._verify_plan_day_ownership(db, plan_day_id, user_id)
 
+        # custom_name 动作（无动作库 ID）打标 source=custom，便于审计召回与统计
+        metadata = dict(data.metadata_ or {})
+        if data.custom_name and not data.exercise_id:
+            metadata.setdefault("source", "custom")
         plan_exercise = PlanDayExercise(
             id=uuid4(),
             plan_day_id=plan_day_id,
@@ -539,7 +547,7 @@ class PlanService:
             calories_per_min=data.calories_per_min,
             sort_order=data.sort_order,
             notes=data.notes,
-            metadata_=data.metadata_ or {},
+            metadata_=metadata,
         )
         db.add(plan_exercise)
         await db.flush()

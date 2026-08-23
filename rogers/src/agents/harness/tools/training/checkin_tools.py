@@ -17,7 +17,6 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.agents.harness.runtime.memory.embeddings import get_embedding_model
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.schemas.checkin import CheckinCreate, CheckinExerciseCreate
 from src.fitme.services.checkin_service import CheckinService
@@ -27,10 +26,12 @@ from utils.timeutil import today as tz_today
 
 
 async def _semantic_candidates(db, name: str, limit: int = 5) -> list:
-    """关键词检索未命中时，按语义向量召回近似动作（尽力而为，失败返回空列表）。"""
+    """关键词检索未命中时，按混合检索（向量 + rerank 精排，与 get_exercises_tool 同链路）召回近似动作。
+
+    尽力而为：失败返回空列表。此前为纯向量 top-K，排序未吃到 rerank 收益。
+    """
     try:
-        query_embedding = await get_embedding_model().aget_text_embedding(name)
-        scored = await ExerciseService.semantic_search(db, query_embedding, limit=limit)
+        scored = await ExerciseService.hybrid_search(db, name, limit=limit)
         return [ex for ex, _ in scored]
     except Exception:
         return []

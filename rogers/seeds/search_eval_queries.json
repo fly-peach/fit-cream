@@ -1,0 +1,231 @@
+[
+  {
+    "query": "练胸复合动作",
+    "semantic_query": "胸大肌复合推举动作",
+    "relevant_filter": {
+      "muscle_group": "chest",
+      "category": "compound"
+    },
+    "keyword_terms": ["bench press", "卧推"]
+  },
+  {
+    "query": "哑铃练胸",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "chest",
+      "equipment": "dumbbell"
+    },
+    "keyword_terms": ["dumbbell", "哑铃"]
+  },
+  {
+    "query": "杠铃卧推",
+    "semantic_query": null,
+    "relevant_filter": {
+      "equipment": "barbell",
+      "name_any": ["bench press", "卧推"]
+    },
+    "keyword_terms": ["bench press", "卧推"]
+  },
+  {
+    "query": "背部下拉动作",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "back",
+      "name_any": ["pull down", "pulldown", "下拉"]
+    },
+    "keyword_terms": ["pull down", "下拉"]
+  },
+  {
+    "query": "引体向上变式",
+    "semantic_query": null,
+    "relevant_filter": {
+      "equipment": "bodyweight",
+      "name_any": ["pull up", "pull-up", "引体"]
+    },
+    "keyword_terms": ["pull up", "引体"]
+  },
+  {
+    "query": "杠铃划船练背厚度",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "back",
+      "equipment": "barbell",
+      "name_any": ["row", "划船"]
+    },
+    "keyword_terms": ["row", "划船"]
+  },
+  {
+    "query": "硬拉后链训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "back",
+      "equipment": "barbell",
+      "name_any": ["deadlift", "硬拉"]
+    },
+    "keyword_terms": ["deadlift", "硬拉"]
+  },
+  {
+    "query": "深蹲类动作",
+    "semantic_query": null,
+    "relevant_filter": {
+      "name_any": ["squat", "深蹲"]
+    },
+    "keyword_terms": ["squat", "深蹲"]
+  },
+  {
+    "query": "腿部推举器械",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "legs",
+      "equipment": "machine",
+      "name_any": ["leg press", "腿举"]
+    },
+    "keyword_terms": ["leg press", "腿举"]
+  },
+  {
+    "query": "单腿平衡训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "legs",
+      "name_any": ["single leg", "单腿", "lunge", "弓步"]
+    },
+    "keyword_terms": ["single leg", "单腿"]
+  },
+  {
+    "query": "臀腿训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "legs",
+      "name_any": ["glute", "臀", "hip thrust", "髋"]
+    },
+    "keyword_terms": ["glute", "臀"]
+  },
+  {
+    "query": "肩部推举动作",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "shoulders",
+      "name_any": ["overhead press", "shoulder press", "推举", "肩推"]
+    },
+    "keyword_terms": ["press", "推举"]
+  },
+  {
+    "query": "侧平举练肩中束",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "shoulders",
+      "equipment": "dumbbell",
+      "name_any": ["lateral raise", "侧平举"]
+    },
+    "keyword_terms": ["lateral raise", "侧平举"]
+  },
+  {
+    "query": "肩后束训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "shoulders",
+      "name_any": ["rear delt", "后束", "face pull"]
+    },
+    "keyword_terms": ["rear delt", "后束"]
+  },
+  {
+    "query": "肱二头肌弯举",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "arms",
+      "name_any": ["curl", "弯举"]
+    },
+    "keyword_terms": ["curl", "弯举"]
+  },
+  {
+    "query": "肱三头肌下压",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "arms",
+      "equipment": "cable",
+      "name_any": ["pushdown", "下压", "extension", "臂屈伸"]
+    },
+    "keyword_terms": ["pushdown", "下压"]
+  },
+  {
+    "query": "核心稳定性训练",
+    "semantic_query": "增强躯干稳定与抗旋转的核心训练",
+    "relevant_names": [
+      "dead bug",
+      "front plank with twist",
+      "power point plank",
+      "band horizontal pallof press",
+      "band vertical pallof press"
+    ],
+    "keyword_terms": ["dead bug", "plank", "pallof press", "平板支撑"]
+  },
+  {
+    "query": "腹肌训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "core",
+      "name_any": ["crunch", "卷腹", "leg raise", "抬腿", "sit up", "仰卧起坐"]
+    },
+    "keyword_terms": ["crunch", "卷腹"]
+  },
+  {
+    "query": "小腿训练",
+    "semantic_query": null,
+    "relevant_filter": {
+      "muscle_group": "legs",
+      "name_any": ["calf", "小腿"]
+    },
+    "keyword_terms": ["calf", "小腿"]
+  },
+  {
+    "query": "全身有氧燃脂",
+    "semantic_query": "高强度全身有氧燃脂动作",
+    "relevant_filter": {
+      "category": "cardio"
+    },
+    "keyword_terms": ["burpee", "jump rope", "跳绳", "波比"]
+  },
+  {
+    "query": "壶铃全身训练",
+    "semantic_query": "壶铃全身综合训练",
+    "relevant_filter": {
+      "equipment": "kettlebell",
+      "name_any": ["kettlebell", "壶铃"]
+    },
+    "keyword_terms": ["kettlebell", "壶铃"]
+  },
+  {
+    "query": "爆发力训练",
+    "semantic_query": "增强下肢爆发力的跳跃类动作",
+    "relevant_filter": {
+      "name_any": ["jump", "跳", "box jump", "squat jump", "爆发"]
+    },
+    "keyword_terms": ["jump", "跳"]
+  },
+  {
+    "query": "新手友好的徒手训练",
+    "semantic_query": "适合完全新手的自重基础动作",
+    "relevant_filter": {
+      "difficulty": "beginner",
+      "equipment": "bodyweight"
+    },
+    "keyword_terms": ["crunch", "leg raise", "plank", "平板支撑"]
+  },
+  {
+    "query": "不刺激膝盖的腿部动作",
+    "semantic_query": "不伤膝盖的腿部训练，避免膝关节屈曲压力",
+    "relevant_names": [
+      "lever alternate leg press",
+      "lever horizontal one leg press",
+      "barbell glute bridge",
+      "low glute bridge on floor",
+      "standing calf raise (on a staircase)"
+    ],
+    "keyword_terms": ["leg press", "glute bridge", "calf raise", "腿举", "臀桥"]
+  },
+  {
+    "query": "量子充能普拉提悬浮冥想动作",
+    "semantic_query": "量子充能普拉提悬浮冥想动作",
+    "relevant_names": []
+  }
+]

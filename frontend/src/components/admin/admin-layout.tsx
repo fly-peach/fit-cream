@@ -4,6 +4,7 @@ import {
   LayoutDashboardIcon,
   UsersIcon,
   BookOpenIcon,
+  SearchIcon,
   ShieldIcon,
   ArrowLeftIcon,
   LogOutIcon,
@@ -22,6 +23,7 @@ const adminNavItems = [
   { to: "/admin/overview", label: "总览", icon: LayoutDashboardIcon },
   { to: "/admin/users", label: "用户管理", icon: UsersIcon },
   { to: "/admin/knowledge-bases", label: "知识库管理", icon: BookOpenIcon },
+  { to: "/admin/search-quality", label: "检索质量", icon: SearchIcon },
 ];
 
 function findNavItem(pathname: string) {
