@@ -20,7 +20,7 @@
 
 import json
 import logging
-from typing import Optional, Any
+from typing import Optional
 from dataclasses import dataclass, field
 
 from langchain_core.messages import BaseMessage
@@ -151,31 +151,35 @@ class MemoryExtractor:
         user_id: str,
         messages: list[BaseMessage],
         thread_id: Optional[str] = None,
+        llm: Optional[BaseChatModel] = None,
     ) -> ExtractionResult:
         """
         从对话中提取记忆
-        
+
         Args:
             user_id: 用户 ID
             messages: 对话消息列表
             thread_id: 对话线程 ID
-            
+            llm: 可选模型覆写（如带用户 DeepSeek key 时用 deepseek），
+                缺省使用 self.llm（全局 extractor）
+
         Returns:
             ExtractionResult 包含三类提取的记忆
         """
         # 格式化对话内容
         conversation_text = self._format_conversation(messages)
-        
+
         # 如果对话太短，跳过提取
         if len(conversation_text) < 50:
             return ExtractionResult()
-        
+
         # 构建提取 prompt
         prompt = EXTRACTION_PROMPT.format(conversation=conversation_text)
-        
+
         # 调用 LLM 提取
+        model = llm or self.llm
         try:
-            response = await self.llm.ainvoke([
+            response = await model.ainvoke([
                 ("system", "你是一个记忆提取专家，请按要求输出 JSON 格式。"),
                 ("human", prompt),
             ])

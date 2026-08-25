@@ -150,10 +150,16 @@ todos:
 
 #### 5.3 大纲项（生成大纲 + 重组清单）
 
-- 按 3.6 分层规则产出训练日大纲（分化策略 + 每日 focus + day_type）
+- 按 3.6 分层规则产出训练日大纲（分化策略 + 每日 focus + day_type），调用
+  `present_outline_tool(title, strategy, days)` 在对话内渲染大纲卡（前端显示为
+  「查看训练大纲」链接，点击弹窗查看完整大纲，**不占回复正文**）。
+  **禁止在回复正文里输出大纲表格**，正文只写一两句分化思路概述
+  （如「4 天上下肢分化，周六混合低强度有氧」）并引导用户点开查看确认
 - **重组清单**：再次调用 `present_plan_queue_tool(title, todos)`，把逐日设计 todo
   （`design-day-1`「周一 · 胸部+三头」...）插入 `outline` 与 `assemble` 之间
-- 询问用户确认大纲（可调整分化/频率/训练日）-> 确认后打勾 outline
+- 用户可调整分化/频率/训练日；调整后重新 `present_outline_tool` 展示修订版
+- 用户确认（点弹窗确认按钮或明确表示同意，消息「`[确认大纲]`」）->
+  update 打勾 outline，进入第一个 `design-day-N`
 
 #### 5.4 逐日设计项（对话内当日方案卡）
 
@@ -213,7 +219,7 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 
 **每轮必须结束于以下状态之一：**
 1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息（intake 项）
-2. **大纲待确认**：已 `present_plan_queue_tool` 重组清单插入逐日 todo，等待用户确认大纲
+2. **大纲待确认**：已调用 `present_outline_tool` 展示大纲并用 `present_plan_queue_tool` 重组清单插入逐日 todo，等待用户确认大纲
 3. **当日方案待确认**：已调用 `present_day_design_tool` 等待用户确认当日设计（逐日项）
 4. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool`/`create_diet_plan_tool` 触发 HITL 中断
 
@@ -252,7 +258,7 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 - **做了就打勾**：每完成一项立即 `update_plan_queue_item_tool(status="completed", queue=全量快照)`；开始做就标 in_progress
 - 提案的 `content` 表格与 `changes` 变更清单务必完整可读，这是用户审批决策的依据
 - 不要在调用 `present_plan_tool` 之前就调用 `create_plan_tool`，否则用户看不到提案
-- 调用 `present_form_tool` / `present_plan_tool` / `present_plan_queue_tool` / `present_day_design_tool` 后等待用户响应，不要在同一轮继续调用创建工具之外的其他工具
+- 调用 `present_form_tool` / `present_plan_tool` / `present_plan_queue_tool` / `present_outline_tool` / `present_day_design_tool` 后等待用户响应，不要在同一轮继续调用创建工具之外的其他工具
 - `present_day_design_tool` 与 `update_plan_queue_item_tool` 配合：展示方案后等用户确认，确认消息收到后再调 update 打勾；一日一轮，勿批量
 - 审批通过后**不要**再次请求用户输入，直接总结执行结果
 - 若用户在 intake 阶段已提供足够信息，不要重复询问

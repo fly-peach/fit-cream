@@ -17,6 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_factory, get_db
 from app.dependencies import get_current_user
+from src.agents.harness.orchestration.model_factory import (
+    create_deepseek_vision,
+    estimate_tokens,
+    extract_usage,
+    is_ds_key_invalid,
+)
+from src.agents.harness.runtime.middleware.model_routing import (
+    ds_key_fallback_active,
+    reset_ds_key_fallback,
+)
 from src.agents.harness.runtime.conversation_service import ConversationService
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
@@ -89,35 +99,6 @@ def _get_agent():
     return get_agent()
 
 
-async def _resolve_agent(
-    db: AsyncSession, thread_id: str, plan_design: bool, has_images: bool = False
-) -> tuple:
-    """按线程 agent_mode 解析 Agent 实例（路由 chokepoint）。
-
-    返回 ``(agent, is_non_vision)``：
-    - plan_design 请求直接路由到计划设计 graph；否则按 ThreadMeta.agent_mode 路由
-      （缺失 -> 默认 graph）。
-    - 图片例外：deepseek（计划设计模型）不支持视觉，plan_design 线程收到图片时
-      改走默认 qwen 图（qwen3.7-flash，已验证可处理多模态）。
-    - ``is_non_vision=True`` 表示本轮路由到 deepseek（不支持视觉），调用方应把历史中的
-      image_url 替换为占位文本，避免非视觉模型收到无法处理的图片块。
-    """
-    from src.agents.agent_graph import get_agent_by_mode
-
-    if plan_design:
-        if has_images:
-            logger.info(f"[Chat] plan_design 线程收到图片，改用默认 qwen 图 | thread={thread_id[:8]}")
-            return get_agent_by_mode(None), False
-        return get_agent_by_mode("plan_design"), True
-    mode = await ConversationService.get_thread_agent_mode(db, thread_id)
-    if mode == "plan_design" and has_images:
-        logger.info(f"[Chat] plan_design 线程收到图片，改用默认 qwen 图 | thread={thread_id[:8]}")
-        return get_agent_by_mode(None), False
-    if mode == "plan_design":
-        return get_agent_by_mode("plan_design"), True
-    return get_agent_by_mode(mode), False
-
-
 def _image_url_expired(url: str) -> bool:
     """判断 OSS 签名 URL 是否已过期（解析 Expires 查询参数）。"""
     if not url or not url.startswith("http"):
@@ -132,14 +113,12 @@ def _image_url_expired(url: str) -> bool:
         return False
 
 
-async def _clean_expired_image_urls(checkpointer, thread_id: str, force_strip: bool = False) -> None:
-    """Agent 发送前清理 checkpoint 中的多模态 image_url。
+async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
+    """Agent 发送前清理 checkpoint 中的过期 OSS 签名图片 URL。
 
-    - 默认：仅替换已过期的 OSS 签名 URL（已无法被模型读取）为占位文本，
-      避免每轮重复发送无效图片浪费 token。
-    - ``force_strip=True``：替换**所有** image_url（不论是否过期）为占位文本，
-      供非视觉模型（如 deepseek 计划设计模型）使用--图片已由 qwen 在上一轮分析完毕，
-      非视觉模型用不上且无法处理图片块。无修改则不写 checkpoint。
+    仅替换**已过期**的 OSS 签名 URL（已无法被模型读取）为占位文本，避免每轮
+    重复发送无效图片浪费 token。统一 qwen3.7-plus / deepseek 视觉模型后所有模型
+    均支持多模态，不再有非视觉模型强剥图片分支。无修改则不写 checkpoint。
     """
     if checkpointer is None:
         return
@@ -163,7 +142,7 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str, force_strip: b
                 continue
             img = block.get("image_url") or {}
             url = img.get("url", "") if isinstance(img, dict) else ""
-            if force_strip or (url and _image_url_expired(url)):
+            if url and _image_url_expired(url):
                 block["type"] = "text"
                 block["text"] = "[图片已分析完毕]"
                 modified = True
@@ -286,6 +265,30 @@ class ResumeRequest(BaseModel):
     kb_enabled: Optional[bool] = Field(
         None, description="是否开启知识库回答（与 /chat/message 一致）"
     )
+    # 用户自备 DeepSeek API Key（BYOK）：resume 后仍有模型调用，需保持一致
+    deepseek_api_key: Optional[str] = Field(
+        None, max_length=512, description="用户自备 DeepSeek API Key（仅前端 localStorage 持有）"
+    )
+
+
+def _inject_request_config(config: dict, req) -> None:
+    """把 kb_enabled / deepseek_api_key 写入 RunnableConfig.configurable。
+
+    deepseek key 命中负缓存（曾 401/403）时直接忽略并告警，避免无效重试。
+    """
+    conf = config["configurable"]
+    conf["kb_enabled"] = bool(req.kb_enabled)
+    key = (req.deepseek_api_key or "").strip() if getattr(req, "deepseek_api_key", None) else ""
+    if key:
+        if is_ds_key_invalid(key):
+            logger.warning("[Chat] deepseek key 命中负缓存，忽略本次注入")
+        else:
+            conf["deepseek_api_key"] = key
+
+
+class VerifyDeepSeekKeyIn(BaseModel):
+    """校验用户自备 DeepSeek API Key（保存前调用，不落库）"""
+    deepseek_api_key: str = Field(..., min_length=8, max_length=512)
 
 
 def _build_resume_command(decisions: list[ResumeDecision]):
@@ -332,6 +335,8 @@ async def _run_agent_sse(
 
     yields SSE 事件字符串。
     """
+    # 每请求重置「DS key 无效回退」标志（ModelRoutingMiddleware 置位，结束后发警示）
+    reset_ds_key_fallback(thread_id)
     yield _sse_event("start", {"thread_id": thread_id})
 
     full_content = ""        # 累积正式回复文本（本阶段）
@@ -350,10 +355,12 @@ async def _run_agent_sse(
         "input_tokens": 0,
         "output_tokens": 0,
         "total_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "reasoning_tokens": 0,
         "llm_calls": 0,
         "estimated": False,
     }
-    output_chars = 0
 
     try:
         async for event in agent.astream_events(input_or_command, config=config, version="v2"):
@@ -391,11 +398,10 @@ async def _run_agent_sse(
                         steps.append(pending_reply)
                     pending_reply["content"] += chunk.content
                     full_content += chunk.content
-                    output_chars += len(chunk.content)
                     yield _sse_event("token", {"content": chunk.content})
                     # 回复内容也作为 step 发射，让前端按「思考→回复→工具」顺序交错渲染
                     yield _sse_event("step", {"type": "reply", "delta": chunk.content})
-                chunk_usage = getattr(chunk, "usage_metadata", None) or {}
+                chunk_usage = extract_usage(chunk)
                 if chunk_usage:
                     cur = run_usage.setdefault(
                         event.get("run_id", "_"),
@@ -408,9 +414,9 @@ async def _run_agent_sse(
             elif kind == "on_chat_model_end":
                 run_id = event.get("run_id", "_")
                 output = event.get("data", {}).get("output")
-                end_usage = getattr(output, "usage_metadata", None) if output else None
+                end_usage = extract_usage(output) if output else {}
                 stream_usage = run_usage.pop(run_id, None)
-                final = end_usage or stream_usage
+                final = end_usage or stream_usage or None
                 if final:
                     # 覆盖为「最近一次 LLM 调用」的用量（非累加）：
                     # input_tokens = 当前上下文大小（系统提示+全部消息+工具定义），
@@ -424,6 +430,9 @@ async def _run_agent_sse(
                     usage_total["input_tokens"] += final.get("input_tokens", 0) or 0
                     usage_total["output_tokens"] += final.get("output_tokens", 0) or 0
                     usage_total["total_tokens"] += final.get("total_tokens", 0) or 0
+                    usage_total["cache_read_tokens"] += final.get("cache_read_tokens", 0) or 0
+                    usage_total["cache_write_tokens"] += final.get("cache_write_tokens", 0) or 0
+                    usage_total["reasoning_tokens"] += final.get("reasoning_tokens", 0) or 0
                 else:
                     usage_total["estimated"] = True
                 usage_total["llm_calls"] += 1
@@ -514,6 +523,9 @@ async def _run_agent_sse(
                 "thread_id": thread_id,
                 "action_requests": approvals,
             })
+            # DS key 无效已回退：发一次性警示（前端据此清除/标记 localStorage）
+            if ds_key_fallback_active(thread_id):
+                yield _sse_event("ds_key_invalid", {})
             # 中断态下不发 done（流程未结束），但发 usage 供上下文统计
             if not usage["total_tokens"]:
                 usage["total_tokens"] = usage["input_tokens"] + usage["output_tokens"]
@@ -544,12 +556,15 @@ async def _run_agent_sse(
             await _upsert_thread_usage(stream_db, user.id, thread_id, usage)
 
         yield _sse_event("usage", usage)
+        # DS key 无效已回退：发一次性警示（前端据此清除/标记 localStorage）
+        if ds_key_fallback_active(thread_id):
+            yield _sse_event("ds_key_invalid", {})
         yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
     except Exception as e:
         logger.error(f"[Chat] SSE error: {e}", exc_info=True)
         yield _sse_event("error", {"message": str(e)})
     finally:
-        _log_usage_summary(usage_total, output_chars, thread_id, user_id)
+        _log_usage_summary(usage_total, full_content, thread_id, user_id)
         await _upsert_user_token_usage(stream_db, user_id, usage_total)
 
 
@@ -604,25 +619,30 @@ async def _upsert_user_token_usage(stream_db: AsyncSession, user_id, usage_total
 
 
 def _log_usage_summary(
-    usage_total: dict, output_chars: int, thread_id: str, user_id
+    usage_total: dict, output_text: str, thread_id: str, user_id
 ) -> None:
     """FR-3: 请求结束时输出一条 token 汇总摘要（累加消费，区别于非累加的 usage）。
 
-    usage_total 为本次请求内所有 LLM 调用真实 usage_metadata 之和；若全程未
-    回传 usage_metadata 但有输出，则按输出字符粗估并标记 estimated。
+    usage_total 为本次请求内所有 LLM 调用真实 usage_metadata 之和（含 cache_read /
+    reasoning 拆分）；若全程未回传 usage_metadata 但有输出，则用
+    estimate_tokens（count_tokens_approximately）粗估并标记 estimated。
     """
     usage_logger = logging.getLogger("fitcream.usage")
     total = usage_total["total_tokens"]
     estimated = usage_total["estimated"]
-    if total == 0 and output_chars > 0:
-        est_output = max(1, output_chars // 2)
+    if total == 0 and output_text:
+        est_output = estimate_tokens(output_text)
         usage_total["output_tokens"] = est_output
         usage_total["total_tokens"] = est_output
         estimated = True
     usage_logger.info(
         f"token 汇总 | thread={thread_id[:8]} | user={str(user_id)[:8]} | "
         f"input={usage_total['input_tokens']} | output={usage_total['output_tokens']} | "
-        f"total={usage_total['total_tokens']} | llm_calls={usage_total['llm_calls']} | "
+        f"total={usage_total['total_tokens']} | "
+        f"cache_read={usage_total.get('cache_read_tokens', 0)} | "
+        f"cache_write={usage_total.get('cache_write_tokens', 0)} | "
+        f"reasoning={usage_total.get('reasoning_tokens', 0)} | "
+        f"llm_calls={usage_total['llm_calls']} | "
         f"estimated={'true' if estimated else 'false'}"
     )
 
@@ -669,23 +689,21 @@ async def send_message(
     user_msg_metadata = {"images": list(req.images)} if req.images else None
     await ConversationService.save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
 
-    # 解析 agent：plan_design 请求或按线程已记录的 agent_mode 路由；
-    # plan_design 线程的图片消息改走默认 qwen 图（deepseek 不支持视觉）。
-    # is_non_vision=True 表示本轮路由到 deepseek，需强制剥离历史图片为占位文本。
-    agent, is_non_vision = await _resolve_agent(db, thread_id, req.plan_design, has_images=bool(req.images))
+    # 解析 agent：统一走默认 graph（ModelRoutingMiddleware 按 deepseek_api_key 切模型）。
+    # plan_design 仅作为线程标记保留（ThreadMeta.agent_mode），不再承载模型路由。
+    agent = _get_agent()
     config = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id_str,
-            # 知识库回答开关：缺省（旧客户端/Studio）= 关闭 = 现状行为不变
-            "kb_enabled": bool(req.kb_enabled),
         },
         "recursion_limit": 100,
     }
+    _inject_request_config(config, req)
 
-    # 清理 checkpoint 中的图片：过期的 OSS 签名 URL 一律替换为占位文本；
-    # 路由到 deepseek（非视觉）时强制剥离所有 image_url（已由 qwen 分析完毕，deepseek 用不上）
-    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)
+    # 清理 checkpoint 中过期的 OSS 签名图片 URL（已无法被模型读取，避免浪费 token）；
+    # 统一 qwen3.7-plus / deepseek 视觉模型均支持多模态，不再强剥图片
+    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
 
     # 构建动态上下文注入到对话首条消息之前
     context_msg = await _build_user_context(user)
@@ -766,20 +784,18 @@ async def resume_conversation(
     if await ConversationService.thread_is_foreign(db, user.id, thread_id):
         raise ForbiddenException("无权访问该线程")
 
-    # 按线程 agent_mode 路由（plan_design 线程续流仍走计划设计模型；
-    # 同一 checkpointer + 相同 graph 结构，resume 安全）。
-    # is_non_vision=True 时（路由到 deepseek）强制剥离历史图片，避免非视觉模型收到图片块
-    agent, is_non_vision = await _resolve_agent(db, thread_id, False)
+    # 按统一 graph 路由（ModelRoutingMiddleware 按 deepseek_api_key 切模型）；
+    # 同一 checkpointer + 相同 graph 结构，resume 安全。
+    agent = _get_agent()
     config = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id_str,
-            # resume 后仍有模型调用，保持与原请求一致的 KB 门控（前端随 resume 传当前开关状态）
-            "kb_enabled": bool(req.kb_enabled),
         },
         "recursion_limit": 100,
     }
-    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id, force_strip=is_non_vision)
+    _inject_request_config(config, req)
+    await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
 
     # 构建 resume 命令（decisions 顺序须与 approval_needed 的 action_requests 对齐）
     resume_command = _build_resume_command(req.decisions)
@@ -811,6 +827,28 @@ async def resume_conversation(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/verify-deepseek-key", response_model=ResponseModel[dict])
+async def verify_deepseek_key(
+    req: VerifyDeepSeekKeyIn,
+    user: User = Depends(get_current_user),
+):
+    """
+    校验用户自备 DeepSeek API Key 有效性（个人中心保存前调用）。
+
+    用该 key 对 DeepSeek 官方端点做一次最小调用（max_tokens=1 文本），
+    成功返回 ``{valid: true}``，失败返回 ``{valid: false, error}``。
+    不落库、不记日志明文；key 仅随请求体到达本端点，不入 checkpoint。
+    """
+    key = req.deepseek_api_key.strip()
+    try:
+        llm = create_deepseek_vision(api_key=key, max_tokens=1)
+        await llm.ainvoke([("human", "hi")])
+        return ResponseModel(data={"valid": True})
+    except Exception as e:
+        logger.info("[Chat] verify-deepseek-key 校验失败: %s", e.__class__.__name__)
+        return ResponseModel(data={"valid": False, "error": str(e)[:200]})
 
 
 @router.post("/stop", response_model=ResponseModel[None])

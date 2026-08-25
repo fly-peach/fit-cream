@@ -18,6 +18,7 @@ from src.agents.harness.tools.plan.present_plan_tool import present_plan_tool
 from src.agents.harness.tools.plan.present_form_tool import present_form_tool
 from src.agents.harness.tools.plan.plan_queue_tools import (
     present_plan_queue_tool,
+    present_outline_tool,
     present_day_design_tool,
     update_plan_queue_item_tool,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "present_plan_tool",
     "present_form_tool",
     "present_plan_queue_tool",
+    "present_outline_tool",
     "present_day_design_tool",
     "update_plan_queue_item_tool",
 ]

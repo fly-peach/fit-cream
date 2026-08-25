@@ -5,7 +5,8 @@ FitCream Agent Factory
 
 架构设计：
 - 使用 langchain.agents.create_agent 创建 ReAct 模式的 Agent
-- 模型层使用 ChatDashScope（兼容 OpenAI 协议的通义千问）
+- 模型层使用 ChatQwen（DashScope 官方集成），运行时经 ModelRoutingMiddleware
+  按请求切换用户自备 DeepSeek key（BYOK）
 - Tools 直接调用 Service 层（同进程融合，不走 HTTP）
 - Middleware 在编译时注入（日志、限流、Token 追踪、重试）
 - 支持 checkpointer 实现对话持久化
@@ -25,7 +26,7 @@ from langchain_core.tools import BaseTool
 from langchain.agents import create_agent
 from langgraph.graph.state import CompiledStateGraph
 
-from src.agents.harness.orchestration.model_factory import create_chat_dashscope, ChatDashScope
+from src.agents.harness.orchestration.model_factory import create_qwen, resolve_chat_model
 from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT, build_system_prompt
 
 import logging
@@ -35,28 +36,31 @@ logger = logging.getLogger("fitcream.agent")
 
 def get_default_model(
     model: Optional[str] = None,
-    temperature: float = 0.7,
+    temperature: Optional[float] = None,
     streaming: bool = True,
     enable_thinking: bool = True,
-) -> ChatDashScope:
+) -> BaseChatModel:
     """
-    获取默认的 LLM 模型实例。
+    获取默认的 LLM 模型实例（qwen3.7-plus，ChatQwen 官方集成）。
+
+    温度不再硬编码覆盖 .env，缺省走 DASHSCOPE_TEMPERATURE（ModelSpec + 配置驱动）。
 
     Args:
-        model: 模型名称，默认使用 mdoel_factory 中的 DEFAULT_MODEL
-        temperature: 温度参数
+        model: 模型名称，默认使用 model_factory 中的 DEFAULT_MODEL
+        temperature: 温度参数，默认从 DASHSCOPE_TEMPERATURE 读取
         streaming: 是否启用流式输出（SSE 需要）
         enable_thinking: 是否启用思考模式
 
     Returns:
-        ChatDashScope 实例
+        ChatQwen 实例
     """
     kwargs = {}
     if model:
         kwargs["model"] = model
+    if temperature is not None:
+        kwargs["temperature"] = temperature
 
-    return create_chat_dashscope(
-        temperature=temperature,
+    return create_qwen(
         streaming=streaming,
         enable_thinking=enable_thinking,
         **kwargs,
@@ -78,7 +82,7 @@ def create_fitcream_agent(
     中间件在编译时注入，无需运行时传递 callbacks。
 
     Args:
-        model: LLM 模型实例。默认使用 ChatDashScope (qwen3.7-flash)
+        model: LLM 模型实例。默认使用 ChatQwen (qwen3.7-plus)
         tools: 工具列表。默认使用 FitCream 全部工具
         system_prompt: 系统提示词。默认使用 SYSTEM_PROMPT
         checkpointer: 对话持久化 checkpointer（AsyncPostgresSaver 等）
@@ -106,7 +110,7 @@ def create_fitcream_agent(
         ):
             ...
     """
-    # 1. 模型（默认使用 ChatDashScope + qwen3.7-flash，开启思考模式）
+    # 1. 模型（默认使用 ChatQwen + qwen3.7-plus，开启思考模式）
     if model is None:
         model = get_default_model(
             streaming=True,
@@ -266,13 +270,21 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     from src.agents.harness.runtime.middleware.structured_summarization import (
         StructuredSummarizationMiddleware,
     )
+    from src.agents.harness.runtime.middleware.model_routing import (
+        ModelRoutingMiddleware,
+    )
 
-    # 用于压缩摘要的模型（使用同一模型，低温度确保摘要稳定）
-    summary_model = create_chat_dashscope(
+    # 用于压缩摘要的模型（低温度确保摘要稳定，不开启思考）
+    summary_model = create_qwen(
         temperature=0.3,
         streaming=False,
         enable_thinking=False,
     )
+
+    # 会话压缩的模型解析器：带用户 DS key 时用 deepseek（决策 Q2：压缩走用户
+    # deepseek），无 key 时回退 summary_model（qwen）。模型实例按 key 缓存。
+    def resolve_summary_model(*, user_ds_key=None):
+        return resolve_chat_model(user_ds_key=user_ds_key)
 
     middleware = [
         IntentMiddleware(),
@@ -285,6 +297,9 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         # 模型请求，不落 checkpoint / 不改前端契约）。放在 PlanQueue 注入之后、
         # 日志 / 限流之前。
         ContextMessageGateMiddleware(),
+        # 模型路由：按请求切换 qwen / 用户自备 DeepSeek key（读 configurable 的
+        # deepseek_api_key；401/403 自动回退 qwen + 一次性警示）。
+        ModelRoutingMiddleware(),
     ]
 
     # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
@@ -316,6 +331,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         # 摘要 + 跨 run 增量更新（conversation_summary 持久化通道），防上下文溢出。
         StructuredSummarizationMiddleware(
             model=summary_model,
+            model_resolver=resolve_summary_model,
             trigger_tokens=SUMMARIZE_TRIGGER_TOKENS,
             keep_messages=SUMMARIZE_KEEP_MESSAGES,
         ),
@@ -420,6 +436,7 @@ def _get_default_tools() -> list:
         from src.agents.harness.tools.plan.present_form_tool import present_form_tool
         from src.agents.harness.tools.plan.plan_queue_tools import (
             present_plan_queue_tool,
+            present_outline_tool,
             present_day_design_tool,
             update_plan_queue_item_tool,
         )
@@ -430,6 +447,7 @@ def _get_default_tools() -> list:
             present_plan_tool,
             present_form_tool,
             present_plan_queue_tool,
+            present_outline_tool,
             present_day_design_tool,
             update_plan_queue_item_tool,
         ])

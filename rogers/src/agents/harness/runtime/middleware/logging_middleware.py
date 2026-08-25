@@ -91,7 +91,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
         tool_call_count = 0
         if messages:
             last = messages[-1]
-            # usage_metadata 在非流式调用时存在，流式时由 ChatDashScope 补全
+            # usage_metadata 在非流式调用时存在，流式时由 ChatQwen/ChatDeepSeek 补全
             usage = getattr(last, "usage_metadata", None) or {}
             tokens = usage.get("total_tokens", "N/A")
             if self.verbose:

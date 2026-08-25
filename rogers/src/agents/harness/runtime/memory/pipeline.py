@@ -21,7 +21,7 @@
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 import logging
 
@@ -94,28 +94,30 @@ class MemoryPipeline:
         user_id: str,
         messages: list[BaseMessage],
         thread_id: Optional[str] = None,
+        llm: Optional[BaseChatModel] = None,
     ) -> dict:
         """
         处理对话，提取并存储记忆
-        
-        这是主要的入口方法，在对话结束后调用。
-        
+
         Args:
             user_id: 用户 ID
             messages: 对话消息列表
             thread_id: 对话线程 ID
-            
+            llm: 可选模型覆写（如带用户 DeepSeek key 时用 deepseek），
+                缺省使用全局 extractor
+
         Returns:
             处理结果统计
         """
         if self.extractor is None:
             return {"error": "No extractor configured"}
-        
+
         # 1. 提取记忆
         extracted = await self.extractor.extract_from_conversation(
             user_id=user_id,
             messages=messages,
             thread_id=thread_id,
+            llm=llm,
         )
         
         # 2. 存储记忆
@@ -182,6 +184,7 @@ class MemoryPipeline:
     async def consolidate_memories(
         self,
         user_id: str,
+        llm: Optional[BaseChatModel] = None,
     ) -> dict:
         """
         整合记忆
@@ -193,6 +196,8 @@ class MemoryPipeline:
 
         Args:
             user_id: 用户 ID
+            llm: 可选模型覆写（如带用户 DeepSeek key 时用 deepseek），
+                缺省使用全局 llm / extractor.llm
 
         Returns:
             整合结果统计 {"merged", "conflicts_resolved", "insights"}
@@ -231,7 +236,7 @@ class MemoryPipeline:
                 await session.commit()
 
         # 2. LLM 升华：提炼更高层洞察
-        llm = self.llm or (self.extractor.llm if self.extractor else None)
+        llm = llm or self.llm or (self.extractor.llm if self.extractor else None)
         result_ids: list = []
         if llm is not None:
             try:

@@ -38,22 +38,6 @@ from src.agents.harness.runtime.middleware.dev_auth import _is_dev_env
 from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT
 
 
-def create_plan_design_agent(checkpointer=None):
-    """构建计划设计专用 Agent（同 tools/skills/middleware/HITL，仅模型不同）。
-
-    模型经 get_plan_design_model() 显式构建（enable_thinking 已按配置决定），
-    故 create_fitcream_agent 的 enable_thinking 参数被忽略（仅当 model is None 时才转发）。
-    """
-    from src.agents.harness.orchestration.model_factory import get_plan_design_model
-
-    plan_model = get_plan_design_model()
-    return create_fitcream_agent(
-        model=plan_model,
-        system_prompt=SYSTEM_PROMPT,
-        checkpointer=checkpointer,
-    )
-
-
 # ============================================================
 # 全局 Agent 实例
 # ============================================================
@@ -66,11 +50,6 @@ graph = create_fitcream_agent(
     system_prompt=SYSTEM_PROMPT,
     enable_thinking=True,
 )
-
-# 计划设计专用 Agent（无 checkpointer，用于开发/测试）
-# 与 graph 共享 tools/skills/middleware，仅模型不同（PLAN_DESIGN_MODEL，默认 deepseek-v4-flash）。
-# 无 checkpointer 时不启用 HITL（同 graph），生产 HITL 由 init_agent 构造的带 checkpointer 实例提供。
-plan_design_graph = create_plan_design_agent()
 
 # Dev Agent（与 graph 配置一致 + 自动注入管理员身份，用于 LangGraph Studio 调试）
 def _get_dev_middleware() -> list:
@@ -94,8 +73,6 @@ else:
 
 # 带 checkpointer 的 Agent（生产环境，在 init_agent 中初始化）
 _graph_with_checkpointer = None
-# 计划设计专用 Agent（带 checkpointer，生产环境，在 init_agent 中初始化）
-_plan_design_graph_with_checkpointer = None
 
 
 def _to_psycopg_dsn(url: str) -> str:
@@ -132,7 +109,7 @@ async def init_agent(database_url: Optional[str] = None):
             await init_agent()
             yield
     """
-    global _graph_with_checkpointer, graph, _checkpointer, _checkpointer_cm, _plan_design_graph_with_checkpointer
+    global _graph_with_checkpointer, graph, _checkpointer, _checkpointer_cm
 
     import logging
     logger = logging.getLogger("fitcream")
@@ -171,11 +148,6 @@ async def init_agent(database_url: Optional[str] = None):
                 enable_thinking=True,
             )
 
-            # 计划设计专用 graph：共享同一 checkpointer（按 thread_id 键），
-            # 相同 graph 结构（同 tools/middleware/HITL），仅模型不同，
-            # 故 plan_design 线程上的 HITL resume 可安全路由到此 graph。
-            _plan_design_graph_with_checkpointer = create_plan_design_agent(checkpointer=checkpointer)
-
             graph = _graph_with_checkpointer
             logger.info("Agent 初始化完成（对话持久化已启用）")
 
@@ -184,10 +156,10 @@ async def init_agent(database_url: Optional[str] = None):
             try:
                 from src.agents.harness.runtime.memory.store import init_memory_store
                 from src.agents.harness.runtime.memory.pipeline import init_memory_pipeline
-                from src.agents.harness.orchestration.model_factory import create_chat_dashscope
+                from src.agents.harness.orchestration.model_factory import create_qwen
 
                 memory_store = await init_memory_store(database_url)
-                extractor_llm = create_chat_dashscope(
+                extractor_llm = create_qwen(
                     temperature=0.3,
                     streaming=False,
                     enable_thinking=False,
@@ -260,25 +232,6 @@ def get_agent():
     if _graph_with_checkpointer is not None:
         return _graph_with_checkpointer
     return graph
-
-
-def get_agent_by_mode(mode: Optional[str]):
-    """按线程 agent_mode 路由到对应 Agent 实例。
-
-    - "plan_design" -> 计划设计专用 graph（优先带 checkpointer 的生产实例）
-    - 其余 / None -> 默认 graph（get_agent）
-
-    Args:
-        mode: ThreadMeta.agent_mode，缺失（None）时走默认 graph
-
-    Returns:
-        CompiledStateGraph
-    """
-    if mode == "plan_design":
-        if _plan_design_graph_with_checkpointer is not None:
-            return _plan_design_graph_with_checkpointer
-        return plan_design_graph
-    return get_agent()
 
 
 def create_agent_config(

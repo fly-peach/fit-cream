@@ -1,41 +1,47 @@
 """
-DashScope 模型工厂
+模型工厂（统一模型构建 + 用户自备 DeepSeek Key（BYOK）路由）
 
-封装 ChatDashScope，支持提取 DashScope 模型的思考内容 (reasoning_content)。
-基于 langchain-openai 的 ChatOpenAI，通过直接拦截原始 OpenAI stream 确保
-reasoning_content 被正确捕获（langchain-openai >= 1.3 会丢弃 delta 中的未知字段）。
+统一由官方集成构建模型，不再维护自研 ChatDashScope：
+- qwen 侧：``langchain_qwq.ChatQwen``（DashScope 官方集成，原生处理
+  ``enable_thinking`` / ``reasoning_content`` / ``stream_usage``）
+- deepseek 侧：``ChatDeepSeekVision``（继承 ``langchain_deepseek.ChatDeepSeek``，
+  补齐 vision-exp 的能力档案，官方端点 https://api.deepseek.com）
+
+核心入口：
+- ``resolve_chat_model(*, user_ds_key=None)``：按请求解析模型。有用户自备
+  DeepSeek key 时走 deepseek 视觉模型（进程内 LRU 缓存 + 负缓存：某 key 曾
+  401/403 则标记无效回退 qwen）；无 key 时走 qwen（``DASHSCOPE_MODEL``）。
+- ``build_model(ModelSpec)``：按 spec.provider 分派构造（可配置驱动）。
+- token 工具：``extract_usage``（对齐 LangChain UsageMetadata 标准，补
+  cache_read / reasoning）与 ``estimate_tokens``（``count_tokens_approximately``，
+  替换 ``output_chars//2`` 启发式）。
+
+guarded import：生产环境未安装 ``langchain-qwq`` / ``langchain-deepseek`` 时，
+对应工厂调用会抛 ImportError（不阻断本模块其余导出）。
 
 用法:
-    from src.agents.harness.orchestration.model_factory import create_chat_dashscope
+    from src.agents.harness.orchestration.model_factory import resolve_chat_model
 
-    llm = create_chat_dashscope()
-    response = llm.invoke([("human", "你好")])
-
-    # 获取思考内容
-    reasoning = response.additional_kwargs.get("reasoning_content", "")
-    # 获取最终回答
-    answer = response.content
-
-    # 流式调用
-    for chunk in llm.stream([("human", "你好")]):
-        reasoning = chunk.additional_kwargs.get("reasoning_content", "")
-        if reasoning:
-            print(f"[思考] {reasoning}", end="")
-        if chunk.content:
-            print(chunk.content, end="")
+    llm = resolve_chat_model()                       # 无 key -> qwen
+    llm = resolve_chat_model(user_ds_key=key)        # 有 key -> deepseek
 """
 
-import os
-from typing import Any, Optional, Iterator, AsyncIterator
+import hashlib
+import logging
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from typing import Any, Optional
 
-from typing import cast
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
+from langchain_core.messages.utils import count_tokens_approximately
 
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, AIMessageChunk, ToolCallChunk
-from langchain_core.messages.ai import UsageMetadata
-from langchain_core.outputs import ChatGenerationChunk, ChatResult
+logger = logging.getLogger("fitcream.agent")
 
 DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+# DeepSeek 官方 API 端点（视觉模型 deepseek-v4-flash-vision-exp 仅此处提供）
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 
 
 def _get_setting(key: str, default: str = "") -> str:
@@ -43,302 +49,347 @@ def _get_setting(key: str, default: str = "") -> str:
         from app.config import settings
         return str(getattr(settings, key, default))
     except Exception:
+        import os
         return os.getenv(key, default)
 
 
-DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.7-flash")
+# 默认统一为 qwen3.7-plus（多模态），不再区分文本/视觉模型切换
+DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.7-plus")
 
-# 视觉模型备选（当主模型不支持图片识别时，可切换到 Qwen-VL 系列）
-DEFAULT_VISION_MODEL = _get_setting("DASHSCOPE_VISION_MODEL", "qwen3-vl-flash")
+# DeepSeek 视觉模型（官方端点；DashScope 未托管，且 DashScope 上的 deepseek
+# 文本模型收到 image_url 块会静默丢弃，不报错也不识图）
+DEEPSEEK_VISION_MODEL_NAME = _get_setting(
+    "DEEPSEEK_VISION_MODEL", "deepseek-v4-flash-vision-exp"
+)
 
-# 计划设计专用模型（经同一 DashScope endpoint/API key，可切到 deepseek 等非 Qwen 模型）
-PLAN_DESIGN_MODEL = _get_setting("PLAN_DESIGN_MODEL", "deepseek-v4-flash")
+
+# ===== guarded imports（未安装时相应工厂抛 ImportError） =====
+
+try:
+    from langchain_qwq import ChatQwen
+
+    _HAS_LANGCHAIN_QWQ = True
+except ImportError:
+    ChatQwen = None  # type: ignore[assignment, misc]
+    _HAS_LANGCHAIN_QWQ = False
+
+try:
+    from langchain_deepseek import ChatDeepSeek as _ChatDeepSeekBase
+
+    _HAS_LANGCHAIN_DEEPSEEK = True
+except ImportError:
+    _ChatDeepSeekBase = None  # type: ignore[assignment, misc]
+    _HAS_LANGCHAIN_DEEPSEEK = False
 
 
-class ChatDashScope(ChatOpenAI):
-    """
-    DashScope 模型封装，继承 ChatOpenAI。
+# ===== ModelSpec（统一模型入参） =====
 
-    核心功能：
-    - 自动启用 enable_thinking 参数
-    - 非流式：从原始响应中提取 reasoning_content 到 additional_kwargs
-    - 流式：直接拦截原始 OpenAI stream，从 delta 中提取 reasoning_content
 
-    提取后通过 response.additional_kwargs["reasoning_content"] 访问思考内容。
-    """
+@dataclass
+class ModelSpec:
+    """统一的模型构建入参（与 provider 无关的公共字段）。"""
 
-    enable_thinking: bool = True
+    provider: str = "qwen"  # "qwen" | "deepseek"
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    temperature: Optional[float] = None
+    enable_thinking: Optional[bool] = None
+    max_tokens: Optional[int] = None
+    stream_usage: bool = True
+    timeout: Optional[float] = None
+    max_retries: Optional[int] = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
-    def __init__(self, **kwargs: Any):
-        extra_body = kwargs.pop("extra_body", None) or {}
-        enable_thinking = kwargs.pop("enable_thinking", True)
 
-        if enable_thinking:
-            extra_body["enable_thinking"] = True
-
-        kwargs["extra_body"] = extra_body
-        kwargs["enable_thinking"] = enable_thinking
-
-        kwargs.setdefault("base_url", DASHSCOPE_BASE_URL)
-        kwargs.setdefault("model", DEFAULT_MODEL)
-        kwargs.setdefault("api_key", _get_setting("DASHSCOPE_API_KEY"))
-
-        super().__init__(**kwargs)
-
-    def _create_chat_result(
-        self, response: Any, generation_info: Optional[dict] = None
-    ) -> ChatResult:
-        # 调用父类方法创建标准结果，再补充 reasoning_content
-        result = super()._create_chat_result(response, generation_info)
-
-        # 从原始响应中提取 reasoning_content（langchain-openai 会丢弃此字段）
-        choices = getattr(response, "choices", None)
-        if choices is None and isinstance(response, dict):
-            choices = response.get("choices", [])
-
-        if not choices:
-            return result
-
-        for i, gen in enumerate(result.generations):
-            if i >= len(choices):
-                break
-            choice = choices[i]
-
-            if isinstance(choice, dict):
-                msg = choice.get("message", {})
-                rc = msg.get("reasoning_content")
-            else:
-                msg = getattr(choice, "message", None)
-                rc = getattr(msg, "reasoning_content", None) if msg else None
-
-            if rc:
-                gen.message.additional_kwargs["reasoning_content"] = rc
-
-        return result
-
-    def _stream(
-        self,
-        messages: list[BaseMessage],
-        stop: Optional[list[str]] = None,
-        run_manager: Any = None,
-        **kwargs: Any,
-    ) -> Iterator[ChatGenerationChunk]:
-        # 直接拦截原始 OpenAI stream，确保 delta 中的 reasoning_content 被正确捕获
-        # （langchain-openai >= 1.3 会丢弃 delta 中的未知字段）
-        raw_stream = self._create_raw_stream(messages, stop, **kwargs)
-        for raw_chunk in raw_stream:
-            gen_chunk = self._convert_raw_chunk(raw_chunk)
-            if gen_chunk is not None:
-                if run_manager:
-                    run_manager.on_llm_new_token(gen_chunk.text, chunk=gen_chunk)
-                yield gen_chunk
-
-    async def _astream(
-        self,
-        messages: list[BaseMessage],
-        stop: Optional[list[str]] = None,
-        run_manager: Any = None,
-        **kwargs: Any,
-    ) -> AsyncIterator[ChatGenerationChunk]:
-        # 异步版本：同样拦截原始 stream 以捕获 reasoning_content
-        raw_stream = await self._create_raw_astream(messages, stop, **kwargs)
-        async for raw_chunk in raw_stream:
-            gen_chunk = self._convert_raw_chunk(raw_chunk)
-            if gen_chunk is not None:
-                if run_manager:
-                    await run_manager.on_llm_new_token(gen_chunk.text, chunk=gen_chunk)
-                yield gen_chunk
-
-    def _create_raw_stream(self, messages, stop, **kwargs):
-        params = self._build_stream_params(messages, stop, **kwargs)
-        return self.client.create(**params)
-
-    async def _create_raw_astream(self, messages, stop, **kwargs):
-        params = self._build_stream_params(messages, stop, **kwargs)
-        return await self.async_client.create(**params)
-
-    def _build_stream_params(self, messages, stop, **kwargs) -> dict:
-        # 将 LangChain 消息对象转换为 OpenAI API 格式的 dict
-        message_dicts = self._convert_messages_to_dicts(messages)
-        params: dict[str, Any] = {
-            "model": self.model_name,
-            "messages": message_dicts,
-            "stream": True,
-        }
-        if self.temperature is not None:
-            params["temperature"] = self.temperature
-        if stop:
-            params["stop"] = stop
-        if self.max_tokens is not None:
-            params["max_tokens"] = self.max_tokens
-        if self.top_p is not None:
-            params["top_p"] = self.top_p
-
-        extra_body = self.extra_body or {}
-        if extra_body:
-            params["extra_body"] = extra_body
-
-        if self.stream_usage:
-            params["stream_options"] = {"include_usage": True}
-
-        # 传递 tools 参数（bind_tools 注入的 function calling 定义）
-        tools = kwargs.get("tools")
-        if tools:
-            params["tools"] = tools
-        tool_choice = kwargs.get("tool_choice")
-        if tool_choice:
-            params["tool_choice"] = tool_choice
-
-        return params
-
-    def _convert_messages_to_dicts(self, messages: list[BaseMessage]) -> list[dict]:
-        """
-        将 LangChain 消息对象转换为 OpenAI API 格式的 dict。
-
-        支持多模态内容：当 message.content 为 list 时（包含 text/image_url 等
-        content blocks），_convert_message_to_dict 会将其转换为 OpenAI 兼容格式，
-        DashScope Qwen-VL 接口可直接处理。
-        """
-        from langchain_openai.chat_models.base import _convert_message_to_dict
-        return [_convert_message_to_dict(m) for m in messages]
-
-    @staticmethod
-    def _extract_usage(raw_usage: Any) -> dict[str, int]:
-        if isinstance(raw_usage, dict):
-            return {
-                "input_tokens": int(raw_usage.get("input_tokens") or raw_usage.get("prompt_tokens") or 0),
-                "output_tokens": int(raw_usage.get("output_tokens") or raw_usage.get("completion_tokens") or 0),
-                "total_tokens": int(raw_usage.get("total_tokens") or 0),
-            }
-        return {
-            "input_tokens": int(getattr(raw_usage, "input_tokens", 0) or getattr(raw_usage, "prompt_tokens", 0) or 0),
-            "output_tokens": int(getattr(raw_usage, "output_tokens", 0) or getattr(raw_usage, "completion_tokens", 0) or 0),
-            "total_tokens": int(getattr(raw_usage, "total_tokens", 0) or 0),
-        }
-
-    def _convert_raw_chunk(self, raw_chunk: Any) -> Optional[ChatGenerationChunk]:
-        raw_usage: Any = None
-        if isinstance(raw_chunk, dict):
-            raw_usage = raw_chunk.get("usage")
-        else:
-            raw_usage = getattr(raw_chunk, "usage", None)
-
-        usage_metadata: UsageMetadata | None = None
-        if raw_usage:
-            usage_metadata = cast(UsageMetadata, self._extract_usage(raw_usage))
-
-        if not raw_chunk.choices:
-            if usage_metadata:
-                return ChatGenerationChunk(
-                    message=AIMessageChunk(
-                        content="",
-                        usage_metadata=usage_metadata,
-                    ),
-                    text="",
-                )
-            return None
-
-        delta = raw_chunk.choices[0].delta
-        if delta is None:
-            if usage_metadata:
-                return ChatGenerationChunk(
-                    message=AIMessageChunk(
-                        content="",
-                        usage_metadata=usage_metadata,
-                    ),
-                    text="",
-                )
-            return None
-
-        content = delta.content or ""
-        reasoning_content = getattr(delta, "reasoning_content", None)
-
-        additional_kwargs: dict[str, Any] = {}
-        if reasoning_content:
-            additional_kwargs["reasoning_content"] = reasoning_content
-
-        tool_call_chunks: list[ToolCallChunk] = []
-        if delta.tool_calls:
-            for tc in delta.tool_calls:
-                tool_call_chunks.append(
-                    ToolCallChunk(
-                        name=tc.function.name if tc.function else None,
-                        args=tc.function.arguments if tc.function else "",
-                        id=tc.id,
-                        index=tc.index,
-                    )
-                )
-
-        if not content and not reasoning_content and not delta.tool_calls:
-            if delta.role or usage_metadata:
-                return ChatGenerationChunk(
-                    message=AIMessageChunk(
-                        content="",
-                        additional_kwargs=additional_kwargs,
-                        tool_call_chunks=tool_call_chunks,
-                        response_metadata={"role": delta.role} if delta.role else {},
-                        usage_metadata=usage_metadata,
-                    ),
-                    text="",
-                )
-            return None
-
-        chunk = ChatGenerationChunk(
-            message=AIMessageChunk(
-                content=content,
-                additional_kwargs=additional_kwargs,
-                tool_call_chunks=tool_call_chunks,
-                usage_metadata=usage_metadata,
-            ),
-            text=content,
+def build_model(spec: ModelSpec) -> BaseChatModel:
+    """按 ``spec.provider`` 分派构建模型（qwen / deepseek 官方集成）。"""
+    if spec.provider == "deepseek":
+        return create_deepseek_vision(
+            model=spec.model,
+            api_key=spec.api_key,
+            temperature=spec.temperature,
+            max_tokens=spec.max_tokens,
+            stream_usage=spec.stream_usage,
+            timeout=spec.timeout,
+            max_retries=spec.max_retries,
+            **spec.extra,
         )
-        return chunk
+    return create_qwen(
+        model=spec.model,
+        api_key=spec.api_key,
+        base_url=spec.base_url,
+        temperature=spec.temperature,
+        enable_thinking=spec.enable_thinking,
+        max_tokens=spec.max_tokens,
+        stream_usage=spec.stream_usage,
+        timeout=spec.timeout,
+        max_retries=spec.max_retries,
+        **spec.extra,
+    )
 
 
-def create_chat_dashscope(
+# ===== qwen（langchain_qwq.ChatQwen，DashScope） =====
+
+
+def create_qwen(
     model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
     temperature: Optional[float] = None,
     enable_thinking: Optional[bool] = None,
+    max_tokens: Optional[int] = None,
+    stream_usage: bool = True,
+    timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
     streaming: bool = False,
     **kwargs: Any,
-) -> ChatDashScope:
+) -> "ChatQwen":
     """
-    工厂函数：创建配置好的 ChatDashScope 实例。
+    工厂函数：创建 ChatQwen 实例（DashScope 官方集成）。
 
-    默认值从 .env 配置读取（DASHSCOPE_MODEL / DASHSCOPE_TEMPERATURE / DASHSCOPE_ENABLE_THINKING）。
-
-    Args:
-        model: 模型名称，默认从 DASHSCOPE_MODEL 读取
-        temperature: 温度参数，默认从 DASHSCOPE_TEMPERATURE 读取
-        enable_thinking: 是否启用思考模式，默认从 DASHSCOPE_ENABLE_THINKING 读取
-        streaming: 是否默认流式，默认 False
-        **kwargs: 传递给 ChatOpenAI 的其他参数
-
-    Returns:
-        ChatDashScope 实例
+    默认值从 .env 配置读取（DASHSCOPE_MODEL / DASHSCOPE_API_KEY /
+    DASHSCOPE_TEMPERATURE / DASHSCOPE_ENABLE_THINKING）。API 版 qwen 需显式
+    ``enable_thinking=True`` 才开启思考（reasoning_content 由官方集成原生回传）。
     """
-    return ChatDashScope(
+    if not _HAS_LANGCHAIN_QWQ:
+        raise ImportError(
+            "ChatQwen 需要 langchain-qwq：pip install langchain-qwq"
+        )
+    return ChatQwen(
         model=model or DEFAULT_MODEL,
-        temperature=temperature if temperature is not None else float(_get_setting("DASHSCOPE_TEMPERATURE", "1.2")),
-        enable_thinking=enable_thinking if enable_thinking is not None else _get_setting("DASHSCOPE_ENABLE_THINKING", "true").lower() == "true",
+        api_key=api_key if api_key is not None else _get_setting("DASHSCOPE_API_KEY"),
+        base_url=base_url or DASHSCOPE_BASE_URL,
+        temperature=temperature
+        if temperature is not None
+        else float(_get_setting("DASHSCOPE_TEMPERATURE", "1.2")),
+        enable_thinking=enable_thinking
+        if enable_thinking is not None
+        else _get_setting("DASHSCOPE_ENABLE_THINKING", "true").lower() == "true",
+        max_tokens=max_tokens,
+        stream_usage=stream_usage,
+        timeout=timeout,
+        max_retries=max_retries,
         streaming=streaming,
-        stream_usage=True,
         **kwargs,
     )
 
 
-def get_plan_design_model() -> ChatDashScope:
-    """构建计划设计专用模型实例。
+# ===== deepseek（ChatDeepSeekVision，官方端点） =====
+#
+# 背景：langchain-deepseek 官方集成文档标注 ChatDeepSeek 不支持图片输入（Image
+# input ❌）。该声明来自包内 data/_profiles.py（models.dev 生成），其中未收录
+# deepseek-v4-flash-vision-exp 条目。实测（见 orchestration/test_model.ipynb）：
+# ChatDeepSeek 继承 BaseChatOpenAI，消息转换层对 image_url 内容块**原样透传**，
+# DeepSeek 官方 API 的 vision-exp 可直接识图（invoke/stream/reasoning_content 均正常），
+# 官方 ❌ 只是能力档案数据滞后，并非客户端拦截。
+#
+# 本子类的修正：补齐 vision-exp 的 ModelProfile（image_inputs=True），并预置
+# 官方端点与 DEEPSEEK_API_KEY 默认值。生产环境未安装 langchain-deepseek 时
+# 本段整体跳过（guarded import，不阻断 model_factory 其余导出）。
 
-    读 PLAN_DESIGN_MODEL / PLAN_DESIGN_ENABLE_THINKING / PLAN_DESIGN_TEMPERATURE。
-    非 Qwen 模型必须 enable_thinking=False：ChatDashScope 仅在 enable_thinking=True 时
-    注入 Qwen 专有的 extra_body["enable_thinking"]，发送给 deepseek 等模型会报错。
+# vision-exp 能力档案（对齐 DeepSeek 官方文档 /guides/vision 与 /quick_start/pricing）
+_DEEPSEEK_VISION_PROFILE: dict = {
+    "name": "DeepSeek V4 Flash Vision Exp",
+    "release_date": "2026-08-21",
+    "text_inputs": True,
+    "image_inputs": True,
+    "image_url_inputs": True,
+    "text_outputs": True,
+    "reasoning_output": True,
+    "tool_calling": True,
+    "structured_output": True,
+    "max_input_tokens": 1_000_000,
+    "max_output_tokens": 384_000,
+}
+
+if _HAS_LANGCHAIN_DEEPSEEK:
+
+    class ChatDeepSeekVision(_ChatDeepSeekBase):  # type: ignore[misc, valid-type]
+        """DeepSeek 视觉模型封装（deepseek-v4-flash-vision-exp，官方 API 端点）。
+
+        - 图片输入：标准 OpenAI 兼容 image_url 内容块（base64 data URL / 外部
+          http(s) URL / Files API file_id），图片仅可出现在 user 消息中
+        - 思考模式：DeepSeek 官方参数为 thinking: {"type": ...}（与 Qwen 的
+          extra_body["enable_thinking"] 不同），默认开启，无需额外注入；
+          reasoning_content 由父类 _create_chat_result / 流式 chunk 钩子提取
+        - 注意走 DashScope 端点时不可用：DashScope 未托管 vision-exp（404），
+          且其 deepseek 文本模型会静默丢弃图片
+        """
+
+        def _resolve_model_profile(self):
+            if "vision" in (self.model_name or ""):
+                return dict(_DEEPSEEK_VISION_PROFILE)
+            return super()._resolve_model_profile()
+
+
+def create_deepseek_vision(
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    stream_usage: bool = True,
+    timeout: Optional[float] = None,
+    max_retries: Optional[int] = None,
+    streaming: bool = False,
+    **kwargs: Any,
+) -> "ChatDeepSeekVision":
     """
-    enable_thinking = _get_setting("PLAN_DESIGN_ENABLE_THINKING", "false").lower() == "true"
-    temperature = float(_get_setting("PLAN_DESIGN_TEMPERATURE", "0.7"))
-    return create_chat_dashscope(
-        model=PLAN_DESIGN_MODEL,
-        temperature=temperature,
-        enable_thinking=enable_thinking,
-        streaming=True,
+    工厂函数：创建 DeepSeek 视觉模型实例（官方 API 端点）。
+
+    默认值从 .env 配置读取（DEEPSEEK_VISION_MODEL / DEEPSEEK_TEMPERATURE）。
+    ``api_key`` 优先使用调用方传入（BYOK 用户 key），缺省回退环境 DEEPSEEK_API_KEY。
+    需要环境安装 langchain-deepseek。
+    """
+    if not _HAS_LANGCHAIN_DEEPSEEK:
+        raise ImportError(
+            "ChatDeepSeekVision 需要 langchain-deepseek：pip install langchain-deepseek"
+        )
+    return ChatDeepSeekVision(
+        model=model or DEEPSEEK_VISION_MODEL_NAME,
+        api_key=api_key if api_key is not None else _get_setting("DEEPSEEK_API_KEY"),
+        base_url=DEEPSEEK_BASE_URL,
+        temperature=temperature
+        if temperature is not None
+        else float(_get_setting("DEEPSEEK_TEMPERATURE", "0.7")),
+        max_tokens=max_tokens,
+        stream_usage=stream_usage,
+        timeout=timeout,
+        max_retries=max_retries,
+        streaming=streaming,
+        **kwargs,
     )
+
+
+# ===== resolve_chat_model（按请求路由 + LRU + 负缓存） =====
+
+_MODEL_CACHE_MAX = 32
+# key: (provider, api_key_hash) -> BaseChatModel（进程内 LRU）
+_model_cache: "OrderedDict[tuple[str, str], BaseChatModel]" = OrderedDict()
+# 负缓存：曾 401/403 的 deepseek key hash 集合，命中即回退 qwen
+_invalid_ds_keys: set[str] = set()
+
+
+def _hash_key(key: Optional[str]) -> str:
+    return hashlib.sha256((key or "").encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_get(key: tuple[str, str]) -> Optional[BaseChatModel]:
+    model = _model_cache.get(key)
+    if model is None:
+        return None
+    _model_cache.move_to_end(key)
+    return model
+
+
+def _cache_put(key: tuple[str, str], model: BaseChatModel) -> None:
+    _model_cache[key] = model
+    _model_cache.move_to_end(key)
+    while len(_model_cache) > _MODEL_CACHE_MAX:
+        _model_cache.popitem(last=False)
+
+
+def mark_ds_key_invalid(api_key: str) -> None:
+    """标记某 deepseek key 为无效（401/403），后续请求命中负缓存直接回退 qwen。"""
+    _invalid_ds_keys.add(_hash_key(api_key))
+
+
+def is_ds_key_invalid(api_key: str) -> bool:
+    """判断某 deepseek key 是否已被标记无效（负缓存命中）。"""
+    return _hash_key(api_key) in _invalid_ds_keys
+
+
+def resolve_chat_model(*, user_ds_key: Optional[str] = None) -> BaseChatModel:
+    """按请求解析模型。
+
+    - 有 user DS key：deepseek 视觉模型（LRU 缓存；若该 key 曾 401/403 命中负
+      缓存则回退 qwen）
+    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.7-plus）
+
+    返回的模型一律 ``streaming=True``：本函数主要供 Agent 对话路径（SSE 流式
+    逐 token 转发，见 chat.py _run_agent_sse）与记忆提取/摘要解析使用，
+    streaming=True 保证流式事件与 usage_metadata（stream_usage）均正常。
+    """
+    if user_ds_key:
+        key_hash = _hash_key(user_ds_key)
+        if key_hash in _invalid_ds_keys:
+            logger.warning(
+                "[ModelFactory] deepseek key 已标记无效（负缓存），回退 qwen"
+            )
+            return resolve_chat_model(user_ds_key=None)
+        cache_key = ("deepseek", key_hash)
+        model = _cache_get(cache_key)
+        if model is None:
+            model = create_deepseek_vision(api_key=user_ds_key, streaming=True)
+            _cache_put(cache_key, model)
+        return model
+
+    cache_key = ("qwen", "default")
+    model = _cache_get(cache_key)
+    if model is None:
+        model = create_qwen(enable_thinking=True, streaming=True)
+        _cache_put(cache_key, model)
+    return model
+
+
+# ===== token 工具（对齐 LangChain UsageMetadata 标准） =====
+
+
+def extract_usage(message_or_usage: Any) -> dict:
+    """从 AI 消息 / 流式 chunk / 原始 usage dict 提取 UsageMetadata 标准字段。
+
+    返回 ``{input_tokens, output_tokens, total_tokens, cache_read_tokens,
+    cache_write_tokens, reasoning_tokens}``；缺失字段为 0。兼容老式
+    ``prompt_tokens / completion_tokens`` 字段回退。
+    """
+    usage = message_or_usage
+    if not isinstance(usage, dict):
+        usage = getattr(message_or_usage, "usage_metadata", None)
+    if not usage:
+        return {}
+    try:
+        usage = dict(usage)
+    except Exception:
+        return {}
+    if not isinstance(usage, dict):
+        return {}
+
+    input_tokens = int(
+        usage.get("input_tokens") or usage.get("prompt_tokens") or 0
+    )
+    output_tokens = int(
+        usage.get("output_tokens") or usage.get("completion_tokens") or 0
+    )
+    result: dict = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": int(usage.get("total_tokens") or 0)
+        or (input_tokens + output_tokens),
+    }
+
+    in_details = usage.get("input_token_details") or {}
+    if isinstance(in_details, dict):
+        result["cache_read_tokens"] = int(in_details.get("cache_read") or 0)
+        result["cache_write_tokens"] = int(in_details.get("cache_write") or 0)
+    else:
+        result["cache_read_tokens"] = 0
+        result["cache_write_tokens"] = 0
+
+    out_details = usage.get("output_token_details") or {}
+    if isinstance(out_details, dict):
+        result["reasoning_tokens"] = int(out_details.get("reasoning") or 0)
+    else:
+        result["reasoning_tokens"] = 0
+
+    return result
+
+
+def estimate_tokens(text: str) -> int:
+    """近似估算文本 token 数（LangChain 内置 ``count_tokens_approximately``）。
+
+    替换 ``output_chars // 2`` 启发式；异常时兜底 ``len//2``。
+    """
+    try:
+        return int(count_tokens_approximately([HumanMessage(content=str(text))]))
+    except Exception:
+        return max(1, len(str(text)) // 2)

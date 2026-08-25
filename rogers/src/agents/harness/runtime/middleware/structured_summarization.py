@@ -41,6 +41,8 @@ from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
+from src.agents.harness.runtime.config_flags import get_config_value
+
 logger = logging.getLogger("fitcream.agent")
 
 TokenCounter = Callable[[list], int]
@@ -133,6 +135,7 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
         keep_messages: int = 10,
         token_counter: TokenCounter = count_tokens_approximately,
         summary_prompt: str = STRUCTURED_SUMMARY_PROMPT,
+        model_resolver: Optional[Callable[..., BaseChatModel]] = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -140,6 +143,18 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
         self.keep_messages = keep_messages
         self.token_counter = token_counter
         self.summary_prompt = summary_prompt
+        # 可选模型解析器：有用户 DeepSeek key 时（决策 Q2 会话压缩走用户 deepseek）
+        # 用该 resolver 解析模型；无 key 时回退 self.model（qwen）。签名
+        # ``model_resolver(*, user_ds_key=None) -> BaseChatModel``。
+        self.model_resolver = model_resolver
+
+    def _resolve_model(self) -> BaseChatModel:
+        """按当前 run 的 configurable.deepseek_api_key 解析摘要模型。"""
+        if self.model_resolver is not None:
+            key = get_config_value("deepseek_api_key")
+            if isinstance(key, str) and key.strip():
+                return self.model_resolver(user_ds_key=key.strip())
+        return self.model
 
     @staticmethod
     def _ensure_message_ids(messages: list[AnyMessage]) -> None:
@@ -204,7 +219,8 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
     ) -> str:
         """同步生成增量摘要。"""
         try:
-            response = self.model.invoke(
+            model = self._resolve_model()
+            response = model.invoke(
                 self._prepare_prompt(messages_to_summarize, prev_summary),
                 config={"metadata": {"lc_source": "summarization"}},
             )
@@ -218,7 +234,8 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
     ) -> str:
         """异步生成增量摘要。"""
         try:
-            response = await self.model.ainvoke(
+            model = self._resolve_model()
+            response = await model.ainvoke(
                 self._prepare_prompt(messages_to_summarize, prev_summary),
                 config={"metadata": {"lc_source": "summarization"}},
             )

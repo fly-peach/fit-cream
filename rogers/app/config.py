@@ -72,9 +72,10 @@ class Settings(BaseSettings):
 
     # ---------- DashScope (通义千问) ----------
     DASHSCOPE_API_KEY: str = ""
-    DASHSCOPE_MODEL: str = "qwen3.7-flash"
-    DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"  # 视觉模型（图片识别）
-    DASHSCOPE_TEMPERATURE: float = 1.2
+    # 默认统一为 qwen3.7-plus（多模态，兼容文本+图片），不再区分文本/视觉模型切换
+    DASHSCOPE_MODEL: str = "qwen3.7-plus"
+    DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"  # 视觉模型（图片识别，兜底备选）
+    DASHSCOPE_TEMPERATURE: float = 0.7
     DASHSCOPE_ENABLE_THINKING: bool = True
     # 文本向量化模型（记忆系统 + 动作库语义检索共用）
     DASHSCOPE_EMBEDDING_MODEL: str = "text-embedding-v3"
@@ -89,12 +90,13 @@ class Settings(BaseSettings):
     # 动作库混合检索 rerank 开关（关闭后 exercise hybrid_search 退化为纯向量序）
     EXERCISE_RERANK_ENABLED: bool = True
 
-    # ---------- 计划设计专用模型 ----------
-    # 「为我设计健身计划」会话全程使用该模型（经同一 DashScope endpoint/API key）。
-    # 非 Qwen 模型须 PLAN_DESIGN_ENABLE_THINKING=false（避免发送 Qwen 专有 enable_thinking extra_body）。
-    PLAN_DESIGN_MODEL: str = "deepseek-v4-flash"
-    PLAN_DESIGN_ENABLE_THINKING: bool = False
-    PLAN_DESIGN_TEMPERATURE: float = 0.7
+    # ---------- DeepSeek 官方 API（视觉模型） ----------
+    # deepseek-v4-flash-vision-exp 仅在 DeepSeek 官方端点提供：DashScope 未托管该模型，
+    # 且 DashScope 上的 deepseek 文本模型收到 image_url 块会静默丢弃（不报错也不识图）。
+    # DEEPSEEK_API_KEY 为我方兜底环境 key；BYOK 用户 key（仅存前端 localStorage）优先。
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_VISION_MODEL: str = "deepseek-v4-flash-vision-exp"
+    DEEPSEEK_TEMPERATURE: float = 0.7
 
     # ---------- 记忆容量上限 ----------
     # 每用户各类记忆的上限条数，超过上限时按淘汰策略删除多余记录

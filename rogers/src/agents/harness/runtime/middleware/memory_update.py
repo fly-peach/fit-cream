@@ -35,9 +35,13 @@ from typing import Annotated, Any, Optional
 
 from langchain.agents.middleware import AgentMiddleware, AgentState
 from langchain.agents.middleware.types import PrivateStateAttr
+from langchain_core.language_models import BaseChatModel
 from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
+
+from src.agents.harness.runtime.config_flags import get_config_value
+from src.agents.harness.orchestration.model_factory import resolve_chat_model
 
 logger = logging.getLogger("fitcream.memory")
 
@@ -231,7 +235,12 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         self._processing_users.add(user_id)
         try:
             loop = asyncio.get_running_loop()
-            task = loop.create_task(self._extract_memories(messages, user_id, thread_id))
+            # 决策 Q2：记忆提取「本次请求带 DS key 就用用户 deepseek，否则 qwen」。
+            # 在 create_task 前解析（ContextVar 随任务继承有边界情况），显式传入后台任务。
+            ds_llm = self._resolve_ds_llm()
+            task = loop.create_task(
+                self._extract_memories(messages, user_id, thread_id, ds_llm)
+            )
             # 持有 task 引用防 GC，done_callback 按 user_id 清理防重入键
             self._memory_tasks[user_id] = task
             task.add_done_callback(lambda t, uid=user_id: self._on_extraction_done(t, uid))
@@ -241,6 +250,17 @@ class MemoryUpdateMiddleware(AgentMiddleware):
             self._processing_users.discard(user_id)
             self._memory_tasks.pop(user_id, None)
             logger.warning("[MemoryUpdate] No running event loop; skipping extraction")
+
+    @staticmethod
+    def _resolve_ds_llm() -> Optional[BaseChatModel]:
+        """按当前 run 的 configurable.deepseek_api_key 解析记忆提取模型。
+
+        带 key 时用用户 deepseek（缓存复用）；否则 None（走全局 extractor_llm）。
+        """
+        key = get_config_value("deepseek_api_key")
+        if isinstance(key, str) and key.strip():
+            return resolve_chat_model(user_ds_key=key.strip())
+        return None
 
     def _on_extraction_done(self, task: asyncio.Task, user_id: str) -> None:
         """后台任务完成回调：按 user_id 清理防重入键并记录异常"""
@@ -253,7 +273,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
             logger.error(f"[MemoryUpdate] Background extraction task failed: {exc}")
 
     async def _extract_memories(
-        self, messages: list, user_id: str, thread_id: Optional[str]
+        self, messages: list, user_id: str, thread_id: Optional[str], llm: Optional[BaseChatModel] = None
     ) -> None:
         """
         执行记忆提取
@@ -274,6 +294,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
                 user_id=user_id,
                 messages=messages,
                 thread_id=thread_id,
+                llm=llm,
             )
 
             logger.info(
@@ -286,7 +307,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
 
             # 提取后整合（合并重复 + LLM 升华），best-effort，失败不影响提取结果
             try:
-                cons_stats = await pipeline.consolidate_memories(user_id)
+                cons_stats = await pipeline.consolidate_memories(user_id, llm=llm)
                 logger.info(
                     f"[MemoryUpdate] Consolidation done | "
                     f"user={user_id[:8]} | "

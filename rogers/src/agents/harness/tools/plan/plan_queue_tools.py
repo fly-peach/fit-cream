@@ -5,6 +5,7 @@
     收到设计意图 -> present_plan_queue_tool 创建「从信息收集到落库」的完整待办清单
     -> 逐项执行：update_plan_queue_item_tool(in_progress) -> 做该步 -> update(completed) 打勾
     -> 信息收集项用 present_form_tool 在对话内弹表单
+    -> 大纲阶段用 present_outline_tool 展示训练大纲（chip + 弹窗，不占正文）
     -> 大纲确认后用 present_plan_queue_tool 重组清单（插入逐日设计 todo）
     -> 逐日设计用 get_exercises_tool + present_day_design_tool 在对话内展示当日方案
     -> 装配 present_plan_tool -> create_plan_tool(传 days) 落库审批
@@ -12,9 +13,13 @@
 待办面板只渲染 todo（标题 + 状态），不含表单/方案等内容；所有表单与当日方案
 都在对话消息流内渲染（FormCard / DayDesignCard）。
 
-三个工具均为纯展示/推进节点：不落库、不中断、无副作用。队列状态不进
+本模块工具均为纯展示/推进节点：不落库、不中断、无副作用。队列状态不进
 agent state_schema，由消息历史中的工具调用承载，PlanQueueMiddleware 每轮
 before_model 从历史重建快照注入给模型。
+
+present_outline_tool 入参（分化策略 + 每日 focus/day_type）体量小且全程
+（逐日设计需对照大纲）有用，故不纳入 ContextMessageGateMiddleware 的
+QUEUE_TOOLS 裁剪范围，完整保留在模型视图中。
 """
 
 from typing import List, Optional
@@ -76,6 +81,25 @@ class DayDesign(BaseModel):
     )
 
 
+# ===== 训练大纲（present_outline_tool 用，chip + 弹窗渲染，不占正文）=====
+
+
+class OutlineDay(BaseModel):
+    """大纲中的一个训练日（只有分化安排，不含具体动作）"""
+
+    day_of_week: int = Field(ge=1, le=7, description="1=周一 ... 7=周日")
+    focus: str = Field(description="训练重点，如「胸部 + 三头」；休息日写「休息」")
+    day_type: str = Field(
+        pattern="^(strength|cardio|mixed|rest)$",
+        description="当日类型：strength/cardio/mixed/rest",
+    )
+    note: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="当日备注（可选），如强度安排/恢复说明",
+    )
+
+
 # ===== 待办队列（待办面板只渲染这些，不含别的内容）=====
 
 
@@ -125,6 +149,35 @@ async def present_plan_queue_tool(
     Args:
         title: 队列标题
         todos: 完整待办清单（每次传入当前最新全量，前端据此整体重渲染）
+
+    Returns:
+        ``{"ok": True}``
+    """
+    return {"ok": True}
+
+
+@tool
+async def present_outline_tool(
+    title: str,
+    strategy: str,
+    days: List[OutlineDay],
+) -> dict:
+    """
+    向用户展示训练大纲提案（纯展示，不落库不中断）：分化策略 + 每日 focus + day_type。
+
+    前端渲染为对话内一个「查看训练大纲」链接（chip），点击弹窗展示完整大纲，
+    **不占用回复正文**；回复正文只需一两句话概括分化思路并引导用户点开确认。
+
+    使用场景：
+    - plan-creation 流程大纲项：按分层规则确定分化后调用，代替在正文里输出大纲表格
+    - 用户确认后发结构化消息「[确认大纲]」回到对话，你读取后打勾 outline 项并重组待办清单
+
+    注意：大纲不含具体动作/组次；具体动作在逐日设计（present_day_design_tool）中展开。
+
+    Args:
+        title: 大纲标题，如「4周增肌计划 · 训练大纲」
+        strategy: 分化策略与设计依据（经验层级/频率/安全约束的简述）
+        days: 每日安排（星期/focus/day_type/备注），休息日也要列出（day_type=rest）
 
     Returns:
         ``{"ok": True}``

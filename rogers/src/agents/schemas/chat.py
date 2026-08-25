@@ -36,11 +36,16 @@ class ChatRequest(BaseModel):
         description="图片列表（URL 或 base64 data URL），最多 10 张",
     )
     thread_id: Optional[str] = Field(None, max_length=100)
-    # 为 true 时：生成新 thread_id 并标记 agent_mode=plan_design，全程路由到计划设计专用模型
-    plan_design: Optional[bool] = Field(None, description="是否开启计划设计会话（新线程 + 专用模型）")
+    # 为 true 时：生成新 thread_id 并标记 agent_mode=plan_design（线程徽标语义，不再承载模型路由）
+    plan_design: Optional[bool] = Field(None, description="是否开启计划设计会话（新线程 + plan_design 徽标）")
     # 知识库回答开关：默认关闭（None/falsy 时模型不可见知识库工具）
     kb_enabled: Optional[bool] = Field(
         None, description="是否开启知识库回答（开启则优先检索用户订阅的知识库作答）"
+    )
+    # 用户自备 DeepSeek API Key（BYOK）：仅本次请求使用，不落库、不记日志；
+    # 有值时对话改走 deepseek 视觉模型，否则回退默认 qwen。
+    deepseek_api_key: Optional[str] = Field(
+        None, max_length=512, description="用户自备 DeepSeek API Key（仅前端 localStorage 持有）"
     )
 
     @model_validator(mode="after")
@@ -60,7 +65,7 @@ class ThreadOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     total_tokens: int = 0
-    # 线程绑定的 agent 模式（plan_design -> 计划设计专用模型），供前端徽标展示
+    # 线程绑定的 agent 模式（plan_design -> 计划设计徽标，不再承载模型路由），供前端徽标展示
     agent_mode: Optional[str] = None
 
     model_config = {"from_attributes": True}

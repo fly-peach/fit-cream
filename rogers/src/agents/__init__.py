@@ -5,7 +5,7 @@ FitCream Agent 模块
 
 子模块：
 - agent_graph: Agent 主入口（graph 变量，供 langgraph.json / FastAPI 使用）
-- agent/: Agent 工厂（create_fitcream_agent）和模型工厂（ChatDashScope）
+- agent/: Agent 工厂（create_fitcream_agent）和模型工厂（ChatQwen / ChatDeepSeekVision）
 - harness/: 辅助组件（prompts / tools / middleware / memory）
 
 用法：
