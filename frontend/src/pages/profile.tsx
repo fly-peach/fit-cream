@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  KeyRound,
   Loader2,
   Save,
   Smartphone,
@@ -31,6 +32,7 @@ import {
   User,
 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
+import { clearDsKey, getDsKey, getDsKeyExpiry, saveDsKey } from "@/lib/ds-key";
 import { useAuthStore } from "@/stores/auth-store";
 import { useCountdown } from "@/hooks/use-countdown";
 
@@ -95,6 +97,14 @@ export default function ProfilePage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [usage, setUsage] = useState<TokenUsage | null>(null);
+
+  // DeepSeek 模型（BYOK）：key 仅存前端 localStorage（15 天 TTL）
+  const [dsKeyInput, setDsKeyInput] = useState("");
+  const [dsKeyPresent, setDsKeyPresent] = useState<boolean>(() => !!getDsKey());
+  const [dsExpiry, setDsExpiry] = useState<number | null>(() => getDsKeyExpiry());
+  const [dsVerifying, setDsVerifying] = useState(false);
+  const [dsMsg, setDsMsg] = useState("");
+  const [dsError, setDsError] = useState("");
 
   // 账号与安全 —— 换绑手机号（两步：验证旧号 → 绑定新号）
   const [changeStep, setChangeStep] = useState(0);
@@ -169,6 +179,47 @@ export default function ProfilePage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveDsKey = async () => {
+    const key = dsKeyInput.trim();
+    if (key.length < 8) {
+      setDsError("请输入有效的 DeepSeek API Key");
+      setDsMsg("");
+      return;
+    }
+    setDsVerifying(true);
+    setDsError("");
+    setDsMsg("");
+    try {
+      // 先校验再落 localStorage：无效 key 不保存
+      const data = await api.post<{ valid: boolean; error?: string }>(
+        "/chat/verify-deepseek-key",
+        { deepseek_api_key: key }
+      );
+      if (data.valid) {
+        saveDsKey(key);
+        setDsKeyInput("");
+        setDsKeyPresent(true);
+        setDsExpiry(getDsKeyExpiry());
+        setDsMsg("保存成功：对话已切换为 DeepSeek 模型");
+      } else {
+        setDsError(data.error ? `校验失败：${data.error}` : "校验失败，请检查 key");
+      }
+    } catch (e) {
+      setDsError(e instanceof Error ? e.message : "校验失败，请稍后重试");
+    } finally {
+      setDsVerifying(false);
+    }
+  };
+
+  const handleClearDsKey = () => {
+    clearDsKey();
+    setDsKeyPresent(false);
+    setDsExpiry(null);
+    setDsKeyInput("");
+    setDsMsg("已清除，对话将使用默认模型");
+    setDsError("");
   };
 
   const bmi =
@@ -496,6 +547,71 @@ export default function ProfilePage() {
                   ) : (
                     <p className="text-sm text-emerald-600/50">暂无用量数据</p>
                   )}
+                </CardContent>
+              </Card>
+
+              <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
+                <CardHeader>
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="size-4 text-emerald-600" />
+                    <CardTitle className="text-base font-semibold text-emerald-950">
+                      DeepSeek 模型
+                    </CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="password"
+                      value={dsKeyInput}
+                      onChange={(e) => setDsKeyInput(e.target.value)}
+                      placeholder={
+                        dsKeyPresent ? "已配置，输入新 key 可更换" : "请输入 DeepSeek API Key"
+                      }
+                      autoComplete="off"
+                      className="h-9 border-emerald-200 focus-visible:ring-emerald-400"
+                    />
+                    <Button
+                      onClick={handleSaveDsKey}
+                      disabled={dsVerifying}
+                      className="shrink-0 bg-emerald-600 text-white hover:bg-emerald-500"
+                    >
+                      {dsVerifying ? (
+                        <Loader2 className="mr-1 size-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-1 size-4" />
+                      )}
+                      保存并校验
+                    </Button>
+                    {dsKeyPresent && (
+                      <Button
+                        variant="outline"
+                        onClick={handleClearDsKey}
+                        className="shrink-0 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                      >
+                        清除
+                      </Button>
+                    )}
+                  </div>
+
+                  {dsKeyPresent && (
+                    <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+                      <CheckCircle2 className="size-3.5 text-emerald-500" />
+                      已配置 DeepSeek Key
+                      {dsExpiry
+                        ? `（${new Date(dsExpiry).toLocaleDateString()} 过期）`
+                        : ""}
+                      ，对话将使用 DeepSeek 模型；失效时自动回退默认模型
+                    </p>
+                  )}
+                  {dsMsg && <p className="text-xs text-emerald-600">{dsMsg}</p>}
+                  {dsError && <p className="text-xs text-red-500">{dsError}</p>}
+
+                  <p className="rounded-lg bg-emerald-50/50 px-3 py-2 text-xs leading-relaxed text-emerald-700/70">
+                    说明：DeepSeek Key 仅保存在<b>本机浏览器</b>（localStorage），
+                    15 天后需重新填写；不会上传服务器存储。配置后对话将优先使用
+                    DeepSeek 视觉模型，key 无效时自动回退默认模型。
+                  </p>
                 </CardContent>
               </Card>
 

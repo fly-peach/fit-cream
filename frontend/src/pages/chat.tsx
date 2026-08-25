@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/dialog";
 import { FormCard } from "@/components/form-card";
 import { DayDesignCard } from "@/components/day-design-card";
+import { OutlineCard } from "@/components/outline-card";
 import { PlanQueuePanel } from "@/components/plan-queue-panel";
 import {
   Attachments,
@@ -467,6 +468,16 @@ function StreamSteps({
           if (tool === "present_day_design_tool") {
             return (
               <DayDesignCard
+                key={step.id || i}
+                step={step}
+                interactive={!!formInteractive}
+                onSubmit={(text) => onSubmitForm?.(text)}
+              />
+            );
+          }
+          if (tool === "present_outline_tool") {
+            return (
+              <OutlineCard
                 key={step.id || i}
                 step={step}
                 interactive={!!formInteractive}
@@ -1108,14 +1119,15 @@ export default function ChatPage() {
     setTab("chat");
   }, [setThreadId, clearMessages, setTab]);
 
-  // 「为我设计健身计划」弹窗确认：新开线程 + 标记 plan_design 触发计划设计专用模型全流程
+  // 「为我设计健身计划」弹窗确认：新开线程 + 标记 plan_design（仅线程徽标语义，
+  // 不再承载模型路由——默认统一 qwen3.7-plus，BYOK 用户 key 时走 DeepSeek）
   const handleDesignPlanConfirm = useCallback(() => {
     setDesignPlanOpen(false);
     handleNewChat();
     sendMessage("请帮我设计健身计划", undefined, true);
   }, [sendMessage, handleNewChat]);
 
-  // 当前线程是否为计划设计会话（全程使用计划设计专用模型），供 header 徽标展示
+  // 当前线程是否为计划设计会话（供 header 徽标展示，不再承载模型路由）
   const isPlanDesignThread = useMemo(
     () => threads.some((t) => t.id === currentThreadId && t.agentMode === "plan_design"),
     [threads, currentThreadId]

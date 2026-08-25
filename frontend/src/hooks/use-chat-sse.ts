@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { resumeChat, streamChat, stopGeneration } from "@/lib/sse-client";
+import { clearDsKey } from "@/lib/ds-key";
+import { showError } from "@/lib/toast";
 import { useChatStore } from "@/stores/chat-store";
 import { API_URL } from "@/lib/api-url";
 import type { AgentStep, ChatMessage, ToolApproval, ToolCall, TokenUsage } from "@/types/chat";
@@ -424,6 +426,12 @@ export function useChatSSE(
               );
               break;
 
+            case "ds_key_invalid":
+              // 后端已回退默认模型：清除本地 key + 一次性提示（仅本轮）
+              clearDsKey();
+              showError("DeepSeek key 无效，已回退默认模型，请在个人中心重新填写");
+              break;
+
             case "error":
               setMessages((prev) =>
                 prev.map((m) =>
@@ -587,6 +595,12 @@ export function useChatSSE(
                   m.id === assistantId ? { ...m, isStreaming: false } : m
                 )
               );
+              break;
+
+            case "ds_key_invalid":
+              // 后端已回退默认模型：清除本地 key + 一次性提示（仅本轮）
+              clearDsKey();
+              showError("DeepSeek key 无效，已回退默认模型，请在个人中心重新填写");
               break;
 
             case "error":

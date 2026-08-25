@@ -14,7 +14,8 @@ export type SSEEventType =
   | "usage"
   | "done"
   | "stopped"
-  | "error";
+  | "error"
+  | "ds_key_invalid";
 
 /** Token 使用量 */
 export interface TokenUsage {
@@ -123,7 +124,7 @@ export interface Thread {
   updatedAt: string;
   messageCount: number;
   totalTokens: number;
-  /** 线程绑定的 agent 模式（plan_design -> 计划设计专用模型），供徽标展示 */
+  /** 线程绑定的 agent 模式（plan_design -> 计划设计徽标，不再承载模型路由），供徽标展示 */
   agentMode?: string;
 }
 
@@ -132,7 +133,7 @@ export interface SendMessageRequest {
   message: string;
   thread_id: string | null;
   images?: string[];
-  /** 为 true 时后端新开线程并标记 plan_design，全程路由到计划设计专用模型 */
+  /** 为 true 时后端新开线程并标记 plan_design（线程徽标语义，不再承载模型路由） */
   plan_design?: boolean;
   /** 知识库回答开关：为 true 时模型可见知识库工具并优先检索作答；默认关闭（不传等价 false） */
   kb_enabled?: boolean;
@@ -175,6 +176,21 @@ export interface DayDesign {
   day_type: "strength" | "cardio" | "mixed" | "rest";
   exercises: DayExerciseDesign[];
   rationale?: string;
+}
+
+// ===== 训练大纲（present_outline_tool 入参，chip + 弹窗渲染）=====
+
+export interface OutlineDay {
+  day_of_week: number;
+  focus: string;
+  day_type: "strength" | "cardio" | "mixed" | "rest";
+  note?: string;
+}
+
+export interface PlanOutline {
+  title: string;
+  strategy: string;
+  days: OutlineDay[];
 }
 
 /** 待办清单中的一项（面板只显示标题 + 状态） */

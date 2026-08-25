@@ -1,5 +1,6 @@
 import type { SSEEvent } from "@/types/chat";
 import { API_URL, checkAuthEnvelope, isAuthError } from "@/lib/api";
+import { getDsKey } from "@/lib/ds-key";
 import { useAuthStore } from "@/stores/auth-store";
 
 export async function* streamChat(
@@ -17,6 +18,9 @@ export async function* streamChat(
   if (planDesign) body.plan_design = true;
   // 仅在开启时发送（关闭省略字段等价 falsy，旧客户端行为不变）
   if (kbEnabled) body.kb_enabled = true;
+  // 用户自备 DeepSeek Key：仅随请求体发送（后端不落库、不记日志）
+  const dsKey = getDsKey();
+  if (dsKey) body.deepseek_api_key = dsKey;
 
   const response = await fetch(`${API_URL}/chat/message`, {
     method: "POST",
@@ -106,6 +110,9 @@ export async function* resumeChat(
 
   const body: Record<string, unknown> = { thread_id: threadId, decisions };
   if (kbEnabled) body.kb_enabled = true;
+  // 用户自备 DeepSeek Key：resume 后仍有模型调用，保持一致
+  const dsKey = getDsKey();
+  if (dsKey) body.deepseek_api_key = dsKey;
 
   const response = await fetch(`${API_URL}/chat/resume`, {
     method: "POST",
