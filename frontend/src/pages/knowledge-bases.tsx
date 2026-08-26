@@ -7,11 +7,12 @@ import {
   PlusIcon,
   SearchIcon,
   ArrowRightIcon,
+  FileTextIcon,
+  UserIcon,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api";
 import { kbApi, type KBListItem } from "@/lib/kb-api";
@@ -71,49 +72,83 @@ export default function KnowledgeBasesPage() {
     );
   };
 
+  const renderEmpty = (isMine: boolean) => (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-emerald-50">
+        <BookOpenIcon className="size-8 text-emerald-400" />
+      </div>
+      <p className="mb-1 text-sm font-medium text-gray-700">
+        {isMine ? "还没有订阅任何知识库" : "暂无知识库"}
+      </p>
+      <p className="text-xs text-gray-400">
+        {isMine
+          ? "去「全部」浏览并订阅感兴趣的知识库吧"
+          : "知识库正在建设中，敬请期待"}
+      </p>
+    </div>
+  );
+
   const renderGrid = (list: KBListItem[]) => {
     const filtered = filterKbs(list);
     if (filtered.length === 0) {
-      return (
-        <div className="flex flex-col items-center gap-1 py-6 text-center text-emerald-600/50 sm:gap-2 sm:py-16">
-          <BookOpenIcon className="size-3 sm:size-8" />
-          <p className="text-[6px] sm:text-sm">
-            {tab === "mine" ? "还没有订阅任何知识库" : "暂无知识库"}
-          </p>
+      return keyword.trim() ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-gray-50">
+            <SearchIcon className="size-8 text-gray-300" />
+          </div>
+          <p className="text-sm font-medium text-gray-600">未找到相关知识库</p>
+          <p className="text-xs text-gray-400">试试其他关键词</p>
         </div>
+      ) : (
+        renderEmpty(tab === "mine")
       );
     }
     return (
-      <div className="grid grid-cols-3 gap-1 sm:gap-2">
+      <div className="grid grid-cols-2 gap-3">
         {filtered.map((kb) => (
-          <Card
+          <div
             key={kb.id}
-            className="flex flex-col border-emerald-100 bg-white/80 transition-shadow hover:shadow-md"
+            className={cn(
+              "group relative flex flex-col overflow-hidden rounded-2xl border bg-white transition-all duration-200",
+              kb.subscribed
+                ? "border-emerald-200 shadow-sm"
+                : "border-gray-100 shadow-sm hover:shadow-md"
+            )}
           >
-            <CardContent className="flex flex-1 flex-col gap-[2px] p-1 sm:gap-1.5 sm:p-2.5">
-              <div className="flex items-start justify-between gap-1">
-                <h3 className="line-clamp-1 text-[6px] font-semibold text-emerald-950 sm:text-sm">
-                  {kb.name}
-                </h3>
-                {kb.subscribed && (
-                  <span className="shrink-0 rounded-full bg-emerald-100 px-1 py-0.5 text-[4px] font-medium text-emerald-700 sm:px-1.5 sm:text-[10px]">
-                    已订阅
-                  </span>
-                )}
+            {kb.subscribed && (
+              <div className="absolute right-0 top-0">
+                <div className="rounded-bl-xl bg-emerald-500 px-2 py-0.5">
+                  <CheckIcon className="size-3 text-white" />
+                </div>
               </div>
-              <p className="line-clamp-1 flex-1 text-[5px] text-emerald-700/70 sm:text-xs">
+            )}
+
+            <div className="flex flex-1 flex-col p-3.5">
+              <div className="mb-2 flex items-start gap-2">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-teal-500">
+                  <BookOpenIcon className="size-4 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="line-clamp-2 text-sm font-semibold leading-tight text-gray-900">
+                    {kb.name}
+                  </h3>
+                </div>
+              </div>
+
+              <p className="mb-3 line-clamp-2 flex-1 text-xs leading-relaxed text-gray-500">
                 {kb.description || "暂无描述"}
               </p>
-              <div className="flex items-center gap-[2px] pt-0.5 sm:gap-1">
+
+              <div className="flex items-center gap-2">
                 <Link
                   to={`/knowledge-bases/${kb.id}`}
                   className={cn(
                     buttonVariants({ variant: "ghost", size: "icon" }),
-                    "size-3 text-emerald-700 sm:size-8"
+                    "size-7 rounded-lg text-gray-400 hover:bg-gray-50 hover:text-emerald-600"
                   )}
-                  title="查看"
+                  title="查看详情"
                 >
-                  <ArrowRightIcon className="size-[5px] sm:size-3.5" />
+                  <ArrowRightIcon className="size-3.5" />
                 </Link>
                 <Button
                   variant={kb.subscribed ? "outline" : "default"}
@@ -121,24 +156,24 @@ export default function KnowledgeBasesPage() {
                   disabled={busyId === kb.id}
                   onClick={() => toggleSubscribe(kb)}
                   className={cn(
-                    "h-3 flex-1 px-1 text-[5px] sm:h-7 sm:px-2.5 sm:text-[0.8rem]",
+                    "h-7 flex-1 rounded-lg px-2 text-xs font-medium transition-all",
                     kb.subscribed
-                      ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                      : "bg-emerald-600 text-white hover:bg-emerald-500"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                      : "bg-emerald-500 text-white hover:bg-emerald-600 active:scale-[0.97]"
                   )}
                 >
                   {busyId === kb.id ? (
-                    <Loader2 className="size-[6px] animate-spin sm:size-3.5" />
+                    <Loader2 className="size-3.5 animate-spin" />
                   ) : kb.subscribed ? (
-                    <CheckIcon className="size-[6px] sm:size-3.5" />
+                    <CheckIcon className="size-3.5" />
                   ) : (
-                    <PlusIcon className="size-[6px] sm:size-3.5" />
+                    <PlusIcon className="size-3.5" />
                   )}
                   <span className="ml-1">{kb.subscribed ? "已订阅" : "订阅"}</span>
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
       </div>
     );
@@ -148,68 +183,81 @@ export default function KnowledgeBasesPage() {
 
   return (
     <AppLayout>
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto max-w-5xl space-y-2.5 p-2 sm:space-y-6 sm:p-6">
-          <header className="flex items-center gap-1.5 sm:gap-3">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-xl bg-emerald-100 sm:size-11 sm:rounded-2xl">
-              <BookOpenIcon className="size-3 text-emerald-600 sm:size-5" />
+      <div className="h-full overflow-y-auto bg-gray-50/50">
+        <div className="mx-auto max-w-2xl px-4 pb-6 pt-4">
+          {/* Header */}
+          <header className="mb-5">
+            <div className="mb-1 flex items-center gap-2.5">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 shadow-sm">
+                <BookOpenIcon className="size-5 text-white" />
+              </div>
+              <h1 className="text-lg font-bold text-gray-900">知识库</h1>
             </div>
-            <div>
-              <h1 className="text-[12px] font-bold text-emerald-950 sm:text-xl">
-                知识库
-              </h1>
-              <p className="text-[8px] text-emerald-600/60 sm:text-sm">
-                订阅知识库后即可浏览其文档，AI 教练也会在对话中检索已订阅的知识库
-              </p>
-            </div>
+            <p className="text-xs leading-relaxed text-gray-400">
+              订阅知识库后即可浏览其文档，AI 教练也会在对话中检索已订阅的知识库
+            </p>
           </header>
 
-          <div className="flex items-center gap-1 sm:gap-2">
-            <div className="flex rounded-lg bg-emerald-50 p-0.5 sm:rounded-xl sm:p-1">
-              <button
-                onClick={() => setTab("all")}
-                className={cn(
-                  "rounded-md px-1.5 py-1 text-[6px] font-medium transition-colors sm:rounded-lg sm:px-3 sm:py-1.5 sm:text-sm",
-                  tab === "all"
-                    ? "bg-white text-emerald-700 shadow-sm"
-                    : "text-emerald-600/60 hover:text-emerald-700"
-                )}
-              >
-                全部
-              </button>
-              <button
-                onClick={() => setTab("mine")}
-                className={cn(
-                  "rounded-md px-1.5 py-1 text-[6px] font-medium transition-colors sm:rounded-lg sm:px-3 sm:py-1.5 sm:text-sm",
-                  tab === "mine"
-                    ? "bg-white text-emerald-700 shadow-sm"
-                    : "text-emerald-600/60 hover:text-emerald-700"
-                )}
-              >
-                我的订阅（{myKbs.length}）
-              </button>
-            </div>
+          {/* Tabs */}
+          <div className="mb-4 flex items-center gap-1 rounded-xl bg-gray-100 p-1">
+            <button
+              onClick={() => setTab("all")}
+              className={cn(
+                "flex-1 rounded-lg py-2 text-sm font-medium transition-all duration-200",
+                tab === "all"
+                  ? "bg-white text-emerald-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              全部
+            </button>
+            <button
+              onClick={() => setTab("mine")}
+              className={cn(
+                "flex-1 rounded-lg py-2 text-sm font-medium transition-all duration-200",
+                tab === "mine"
+                  ? "bg-white text-emerald-600 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              )}
+            >
+              我的订阅
+              {myKbs.length > 0 && (
+                <span
+                  className={cn(
+                    "ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold",
+                    tab === "mine"
+                      ? "bg-emerald-100 text-emerald-600"
+                      : "bg-gray-200 text-gray-500"
+                  )}
+                >
+                  {myKbs.length}
+                </span>
+              )}
+            </button>
           </div>
 
-          <div className="relative">
-            <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-2 -translate-y-1/2 text-emerald-400 sm:left-3 sm:size-4" />
+          {/* Search */}
+          <div className="relative mb-4">
+            <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
             <Input
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索知识库名称或描述"
-              className="h-3 pl-5 text-[6px] sm:h-8 sm:pl-9 sm:text-sm"
+              className="h-10 rounded-xl border-gray-200 bg-white pl-9 text-sm shadow-sm transition-shadow focus:shadow-md focus-visible:ring-emerald-200"
             />
           </div>
 
+          {/* Error */}
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-2 py-1.5 text-[6px] text-red-600 sm:rounded-xl sm:px-4 sm:py-3 sm:text-sm">
+            <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
               {error}
             </div>
           )}
 
+          {/* Content */}
           {loading ? (
-            <div className="flex items-center justify-center py-8 text-emerald-500 sm:py-20">
-              <Loader2 className="size-3 animate-spin sm:size-6" />
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="size-6 animate-spin text-emerald-500" />
             </div>
           ) : (
             renderGrid(currentList)
