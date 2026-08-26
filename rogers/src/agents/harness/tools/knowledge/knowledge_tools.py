@@ -4,6 +4,7 @@
 供 Agent 调用，检索知识库内容。
 遵循现有 plan_tools.py 的 @tool + session_scope() 模式（同进程融合）。
 """
+import logging
 from typing import Optional
 from uuid import UUID
 
@@ -12,10 +13,16 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
-from src.knowledge_base.embeddings import semantic_available
+from src.knowledge_base.embeddings import (
+    KB_RERANK_PROFILE_ENABLED,
+    RERANK_ENABLED,
+    semantic_available,
+)
 from src.knowledge_base.services.document_service import KBDocumentService
 from src.knowledge_base.services.knowledge_base_service import KnowledgeBaseService
 from src.knowledge_base.services.search_service import KBSearchService
+
+logger = logging.getLogger("fitcream")
 
 
 def _kb_disabled(config) -> bool:
@@ -34,6 +41,47 @@ _KB_DISABLED_RESP = {
     "success": False,
     "error": "知识库回答未开启，请在前端开启后重试",
 }
+
+
+async def _build_profile_hint(db, user_id: UUID) -> Optional[str]:
+    """构建用户画像片段（供 rerank 精排阶段做排序参考，不影响召回）。
+
+    聚合来源：
+    - 身体数据：UserService.get_profile_summary（目标/性别/年龄，非必需维度）
+    - 语义记忆：get_memory_store().retrieve_semantic（active 全部分类，含偏好/事实/规则/状态）
+
+    输出示例：`目标:减脂; 身体:男/32岁; 用户 经验 新手; 用户 器械 只有哑铃`
+    任一来源失败则省略该维度（不整体失败）；全缺返回 None，检索行为退化为现状。
+    总长截断 ~300 字符。
+    """
+    parts: list[str] = []
+    try:
+        from src.fitme.services.user_service import UserService
+
+        profile = await UserService.get_profile_summary(db, user_id)
+        if profile.get("goal"):
+            parts.append(f"目标:{profile['goal']}")
+        gender, age = profile.get("gender"), profile.get("age")
+        if gender or age:
+            body = "/".join(x for x in (gender, f"{age}岁") if x)
+            parts.append(f"身体:{body}")
+    except Exception as e:
+        logger.warning("画像构建失败（跳过身体数据维度）: %s", e)
+
+    try:
+        from src.agents.harness.runtime.memory.store import get_memory_store
+
+        memories = await get_memory_store().retrieve_semantic(str(user_id), limit=10)
+        triples = [m.to_triple_string() for m in memories if m.status == "active"]
+        if triples:
+            parts.extend(triples)
+    except Exception as e:
+        logger.warning("语义记忆画像构建失败（跳过）: %s", e)
+
+    if not parts:
+        return None
+    text = "; ".join(parts)
+    return text[:300]
 
 
 class SearchKBInput(BaseModel):
@@ -79,8 +127,17 @@ async def search_knowledge_base(
 
     try:
         async with session_scope() as db:
+            # rerank 精排可用时才拉取画像片段（否则纯浪费两次查询）
+            profile_hint = None
+            if RERANK_ENABLED and KB_RERANK_PROFILE_ENABLED:
+                profile_hint = await _build_profile_hint(db, user_id)
             results = await KBSearchService.search_across_subscriptions(
-                db, user_id, query, UUID(kb_id) if kb_id else None, limit
+                db,
+                user_id,
+                query,
+                UUID(kb_id) if kb_id else None,
+                limit,
+                profile_hint=profile_hint,
             )
             semantic = await semantic_available(db)
     except Exception as e:

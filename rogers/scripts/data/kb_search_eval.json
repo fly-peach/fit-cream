@@ -1,0 +1,222 @@
+[
+  {
+    "query": "深蹲怎么做",
+    "group": "generic",
+    "expect_title_keywords": ["深蹲"]
+  },
+  {
+    "query": "卧推技术要点",
+    "group": "generic",
+    "expect_title_keywords": ["卧推"]
+  },
+  {
+    "query": "硬拉",
+    "group": "generic",
+    "expect_title_keywords": ["硬拉"]
+  },
+  {
+    "query": "蛋白质每天吃多少",
+    "group": "generic",
+    "expect_content_keywords": ["蛋白质"]
+  },
+  {
+    "query": "减脂原理",
+    "group": "generic",
+    "expect_title_keywords": ["减脂"]
+  },
+  {
+    "query": "碳水摄入",
+    "group": "generic",
+    "expect_title_keywords": ["碳水"]
+  },
+  {
+    "query": "肌酸的作用",
+    "group": "generic",
+    "expect_content_keywords": ["肌酸"]
+  },
+  {
+    "query": "什么是RPE",
+    "group": "generic",
+    "expect_content_keywords": ["RPE"]
+  },
+  {
+    "query": "训练容量怎么算",
+    "group": "generic",
+    "expect_content_keywords": ["容量"]
+  },
+  {
+    "query": "电解质",
+    "group": "generic",
+    "expect_content_keywords": ["电解质"]
+  },
+  {
+    "query": "怎么改善睡眠",
+    "group": "generic",
+    "expect_title_keywords": ["睡眠"]
+  },
+  {
+    "query": "热身激活",
+    "group": "generic",
+    "expect_title_keywords": ["热身"]
+  },
+  {
+    "query": "拉伸放松",
+    "group": "generic",
+    "expect_title_keywords": ["拉伸"]
+  },
+  {
+    "query": "补剂",
+    "group": "generic",
+    "expect_title_keywords": ["补剂"]
+  },
+  {
+    "query": "有氧运动",
+    "group": "generic",
+    "expect_title_keywords": ["有氧"]
+  },
+  {
+    "query": "核心训练",
+    "group": "generic",
+    "expect_title_keywords": ["核心"]
+  },
+  {
+    "query": "体态矫正",
+    "group": "generic",
+    "expect_title_keywords": ["体态"]
+  },
+  {
+    "query": "关节疼痛怎么办",
+    "group": "generic",
+    "expect_title_keywords": ["关节"]
+  },
+  {
+    "query": "碳循环减脂",
+    "group": "generic",
+    "expect_title_keywords": ["碳循环"]
+  },
+  {
+    "query": "增肌减脂怎么选",
+    "group": "generic",
+    "expect_title_keywords": ["增肌减脂"]
+  },
+  {
+    "query": "女性健身",
+    "group": "generic",
+    "expect_title_keywords": ["女性"]
+  },
+  {
+    "query": "新手怎么开始健身",
+    "group": "generic",
+    "expect_title_keywords": ["新手"]
+  },
+  {
+    "query": "怎么减脂",
+    "group": "personalized",
+    "profile_hint": "目标:减脂; 阶段:减脂期",
+    "expect_title_keywords": ["减脂"]
+  },
+  {
+    "query": "该增肌还是减脂",
+    "group": "personalized",
+    "profile_hint": "目标:增肌; 经验:新手",
+    "expect_content_keywords": ["头 3 年都应优先增肌"]
+  },
+  {
+    "query": "居家训练",
+    "group": "personalized",
+    "profile_hint": "经验:新手; 器械:只有哑铃",
+    "expect_content_keywords": ["居家"]
+  },
+  {
+    "query": "硬拉",
+    "group": "personalized",
+    "profile_hint": "限制:腰突; 经验:新手",
+    "expect_content_keywords": ["罗马尼亚硬拉"]
+  },
+  {
+    "query": "蛋白质",
+    "group": "personalized",
+    "profile_hint": "目标:减脂; 饮食模式:素食",
+    "expect_content_keywords": ["蛋白质"]
+  },
+  {
+    "query": "增肌",
+    "group": "personalized",
+    "profile_hint": "目标:增肌; 经验:新手",
+    "expect_title_keywords": ["增肌"]
+  },
+  {
+    "query": "膝盖不舒服还能练吗",
+    "group": "personalized",
+    "profile_hint": "限制:膝盖不适",
+    "expect_content_keywords": ["关节"]
+  },
+  {
+    "query": "减脂期吃什么",
+    "group": "personalized",
+    "profile_hint": "目标:减脂; 身体:女/28岁",
+    "expect_title_keywords": ["减脂饮食"]
+  },
+  {
+    "query": "训练计划",
+    "group": "personalized",
+    "profile_hint": "目标:增肌; 经验:进阶",
+    "expect_title_keywords": ["训练计划"]
+  },
+  {
+    "query": "体态",
+    "group": "personalized",
+    "profile_hint": "限制:翼状肩胛",
+    "expect_content_keywords": ["翼状肩胛"]
+  },
+  {
+    "query": "RPE",
+    "group": "keyword",
+    "expect_content_keywords": ["RPE"]
+  },
+  {
+    "query": "渐进超负荷",
+    "group": "keyword",
+    "expect_content_keywords": ["渐进超负荷"]
+  },
+  {
+    "query": "罗马尼亚硬拉",
+    "group": "keyword",
+    "expect_content_keywords": ["罗马尼亚硬拉"]
+  },
+  {
+    "query": "肌酸",
+    "group": "keyword",
+    "expect_content_keywords": ["肌酸"]
+  },
+  {
+    "query": "电解质",
+    "group": "keyword",
+    "expect_content_keywords": ["电解质"]
+  },
+  {
+    "query": "水盐平衡",
+    "group": "keyword",
+    "expect_content_keywords": ["水盐平衡"]
+  },
+  {
+    "query": "肩袖",
+    "group": "keyword",
+    "expect_content_keywords": ["肩袖"]
+  },
+  {
+    "query": "热量赤字",
+    "group": "keyword",
+    "expect_content_keywords": ["热量赤字"]
+  },
+  {
+    "query": "基础代谢",
+    "group": "keyword",
+    "expect_content_keywords": ["基础代谢"]
+  },
+  {
+    "query": "深蹲",
+    "group": "keyword",
+    "expect_title_keywords": ["深蹲"]
+  }
+]

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from typing import Optional
 
 from sqlalchemy import text
@@ -24,6 +25,9 @@ from app.config import get_settings
 logger = logging.getLogger("fitcream")
 
 EMBED_CONCURRENCY = 8
+
+# query 向量缓存（模块级 LRU，maxlen 256）：跨库/多轮搜索复用同一 query 向量
+QUERY_EMBED_CACHE_MAX = 256
 
 # semantic_available 探测结果的 TTL 缓存（秒）：部署后补列/回填无需重启进程即可生效
 SEMANTIC_CACHE_TTL = 300.0
@@ -42,6 +46,13 @@ RERANK_TOP_N = int(_get_setting("RERANK_TOP_N", "20"))
 
 # 知识库语义向量整体开关（运营/测试可关闭，关闭后检索退化为纯全文）
 KB_EMBEDDING_ENABLED = _get_setting("KB_EMBEDDING_ENABLED", "True").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# rerank 精排阶段是否把用户画像拼进 query 侧做排序参考（关闭后个性化静默失效）
+KB_RERANK_PROFILE_ENABLED = _get_setting("KB_RERANK_PROFILE_ENABLED", "True").lower() in (
     "1",
     "true",
     "yes",
@@ -111,6 +122,32 @@ async def embed_chunks(contents: list[str]) -> list[Optional[list[float]]]:
     return results
 
 
+# query 向量 LRU 缓存（key=query 文本；embedding 模型是全局单例，仅缓存 query 侧）
+_query_embed_cache: OrderedDict[str, list] = OrderedDict()
+
+
+async def aget_query_embedding(query: str) -> Optional[list]:
+    """生成 query 向量（模块级 LRU 缓存，maxlen 256；失败返回 None，调用方兜底）。
+
+    跨库搜索每个 KB 复用同一 query 向量，语义记忆检索等其他 query 侧调用也走这里。
+    """
+    cached = _query_embed_cache.get(query)
+    if cached is not None:
+        _query_embed_cache.move_to_end(query)
+        return cached
+    try:
+        from src.agents.harness.runtime.memory.embeddings import get_embedding_model
+
+        vec = await get_embedding_model().aget_text_embedding(query)
+    except Exception as e:
+        logger.warning("query embedding 生成失败: %s", e)
+        return None
+    _query_embed_cache[query] = vec
+    if len(_query_embed_cache) > QUERY_EMBED_CACHE_MAX:
+        _query_embed_cache.popitem(last=False)
+    return vec
+
+
 # rerank 后处理器（进程级缓存，避免每次搜索重建）
 _reranker = None
 
@@ -135,22 +172,32 @@ def _load_reranker():
         return None
 
 
-async def rerank(query: str, results: list[dict], top_n: int = RERANK_TOP_N) -> list[dict]:
+async def rerank(
+    query: str,
+    results: list[dict],
+    top_n: int = RERANK_TOP_N,
+    profile_hint: Optional[str] = None,
+) -> list[dict]:
     """对候选结果精排。
 
     results 为 search_documents 产出的 dict 列表（含 content），返回按 rerank 分重排的列表。
-    不可用/异常时原样返回（调用方保留 RRF 顺序）。
+    profile_hint 非空且 KB_RERANK_PROFILE_ENABLED 开启时，仅拼进 query 侧做排序参考（不影响召回）。
+    不可用/异常时截断到 top_n 返回（保留 RRF 顺序；候选池扩大后避免超发）。
     """
     if not results:
         return results
     postprocessor = _load_reranker()
     if postprocessor is None:
-        return results
+        return results[:top_n]
+
+    query_str = query
+    if profile_hint and KB_RERANK_PROFILE_ENABLED:
+        query_str = f"{query}\n用户画像（仅供排序参考）: {profile_hint}"
 
     from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
     try:
-        query_bundle = QueryBundle(query_str=query)
+        query_bundle = QueryBundle(query_str=query_str)
         nodes = [
             NodeWithScore(node=TextNode(text=r["content"], metadata={"index": i}), score=0.0)
             for i, r in enumerate(results)
@@ -164,11 +211,11 @@ async def rerank(query: str, results: list[dict], top_n: int = RERANK_TOP_N) -> 
             metadata = getattr(node, "metadata", {}) or {}
             idx = metadata.get("index", None)
             if not isinstance(idx, int) or not (0 <= idx < len(results)):
-                return results
+                return results[:top_n]
             ordered.append(results[idx])
         chosen = {id(r) for r in ordered}
         ordered.extend(r for r in results if id(r) not in chosen)
         return ordered[:top_n]
     except Exception as e:
         logger.warning("rerank 执行失败（回退 RRF）: %s", e)
-        return results
+        return results[:top_n]

@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     RERANK_TOP_N: int = 20
     # 知识库语义向量整体开关（关闭后检索/摄入退化为纯全文）
     KB_EMBEDDING_ENABLED: bool = True
+    # rerank 精排阶段是否把用户画像拼进 query 侧做排序参考（关闭后个性化静默失效）
+    KB_RERANK_PROFILE_ENABLED: bool = True
     # 动作库混合检索 rerank 开关（关闭后 exercise hybrid_search 退化为纯向量序）
     EXERCISE_RERANK_ENABLED: bool = True
 
