@@ -48,13 +48,32 @@ def _redact_queue_args(args: dict, name: str) -> dict:
 def _redact_messages(messages: list) -> list:
     """返回裁剪后的消息列表（仅替换含队列工具调用的 AIMessage）。
 
+    保留**最新一份**队列快照完整（模型必须据此构造下一次 update 的完整入参），
+    只裁剪更早的冗余快照（token 精简目标保留）。
+
+    背景（Bug：最新消息渲染诡异 / 计划设计死循环）：此前裁剪**所有**队列快照，
+    模型在工具循环轮看不到真实队列（PlanQueueMiddleware 仅在 HumanMessage 轮注入
+    快照），会把裁剪占位符「…(省略…)」**原文当 queue.todos 传回**（checkpoint 实测
+    todos_kind=str 值=占位符），pydantic 校验失败 + 快照重建失败 -> 模型反复尝试
+    -> GraphRecursionError。
+
     纯函数：不改动入参消息；无队列工具调用时原样返回同一列表对象。
     """
+    # 找到最后一个含队列工具调用的消息索引（该份快照保留完整）
+    last_queue_idx = -1
+    for i, msg in enumerate(messages):
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls and any(
+            (tc.get("name") if isinstance(tc, dict) else None) in QUEUE_TOOLS
+            for tc in tool_calls
+        ):
+            last_queue_idx = i
+
     out: list = []
     changed_any = False
-    for msg in messages:
+    for i, msg in enumerate(messages):
         tool_calls = getattr(msg, "tool_calls", None)
-        if not tool_calls:
+        if not tool_calls or i == last_queue_idx:
             out.append(msg)
             continue
 

@@ -66,11 +66,24 @@ class TestRedactMessages:
         assert redacted is not msgs
         # 原始消息不被改动
         assert msgs[1].tool_calls[0]["args"]["todos"] == FULL_TODOS
-        # 队列工具被裁剪
+        assert msgs[2].tool_calls[0]["args"]["queue"]["todos"] == FULL_TODOS
+        # 更早的队列工具被裁剪（token 精简）
         assert isinstance(redacted[1].tool_calls[0]["args"]["todos"], str)
-        assert isinstance(redacted[2].tool_calls[0]["args"]["queue"]["todos"], str)
+        # 最新一份队列快照保留完整：模型必须据此构造下一次 update 的完整入参
+        # （否则模型会把裁剪占位符原文当 todos 传回 -> 校验失败 -> 死循环）
+        assert redacted[2].tool_calls[0]["args"]["queue"]["todos"] == FULL_TODOS
         # 非队列消息原样保留
         assert redacted[0] is msgs[0]
+
+    def test_single_queue_call_kept_full(self):
+        # 只有一份队列快照时完全不裁剪（它既是"最新"也是模型推进的依据）
+        msgs = [
+            HumanMessage(content="帮我设计计划"),
+            _queue_ai("present_plan_queue_tool", "4周计划", FULL_TODOS),
+        ]
+        redacted = _redact_messages(msgs)
+        assert redacted is msgs
+        assert redacted[1].tool_calls[0]["args"]["todos"] == FULL_TODOS
 
     def test_no_queue_calls_returns_same_list(self):
         msgs = [HumanMessage(content="你好"), AIMessage(content="嗨")]
@@ -94,6 +107,7 @@ class TestContextMessageGateMiddleware:
         messages = [
             HumanMessage(content="帮我设计计划"),
             _queue_ai("present_plan_queue_tool", "4周计划", FULL_TODOS),
+            _queue_ai("update_plan_queue_item_tool", "4周计划", FULL_TODOS),
         ]
         request = ModelRequest(model=None, messages=messages)
 
@@ -106,11 +120,18 @@ class TestContextMessageGateMiddleware:
         result = mw.wrap_model_call(request, handler)
         assert result == "ok"
         assert captured["req"] is not request
+        # 更早的队列快照被裁剪
         assert isinstance(captured["req"].messages[1].tool_calls[0]["args"]["todos"], str)
+        # 最新一份保留完整（模型据此推进，防占位符被回传 -> 死循环）
+        assert captured["req"].messages[2].tool_calls[0]["args"]["queue"]["todos"] == FULL_TODOS
 
     async def test_awrap_model_call_redacts(self):
         mw = ContextMessageGateMiddleware()
-        messages = [_queue_ai("update_plan_queue_item_tool", "4周计划", FULL_TODOS)]
+        messages = [
+            HumanMessage(content="帮我设计计划"),
+            _queue_ai("present_plan_queue_tool", "4周计划", FULL_TODOS),
+            _queue_ai("update_plan_queue_item_tool", "4周计划", FULL_TODOS),
+        ]
         request = ModelRequest(model=None, messages=messages)
 
         captured = {}
@@ -122,6 +143,8 @@ class TestContextMessageGateMiddleware:
         result = await mw.awrap_model_call(request, handler)
         assert result == "ok"
         assert captured["req"] is not request
+        # 最新一份保留完整
+        assert captured["req"].messages[2].tool_calls[0]["args"]["queue"]["todos"] == FULL_TODOS
 
     def test_no_queue_calls_passthrough(self):
         mw = ContextMessageGateMiddleware()
