@@ -644,9 +644,10 @@ async def _run_agent_sse(
             await ConversationService.save_message(
                 stream_db, user.id, thread_id, "assistant", err_text,
                 metadata={
-                    "thinking": None,
-                    "tool_calls": tool_calls or None,
-                    "steps": steps or None,
+                    # 错误兜底消息**不携带**崩溃残留的 steps/tool_calls：
+                    # 前端 StreamSteps 会把崩溃循环产生的多个 reply 步骤渲染成多段
+                    # 碎片正文，且 hasReply 为真会抑制兜底错误文案（表现为最新消息
+                    # 渲染成 6-7 段乱码正文，真正的错误提示反而不可见）。
                     "error": str(e)[:500],
                 },
             )
