@@ -150,7 +150,13 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
                 modified = True
     if modified:
         try:
-            new_versions = checkpoint.get("channel_versions") or {}
+            # 必须 bump messages 的 channel_versions：AsyncPostgresSaver 的 blob 存储
+            # 按 channel_versions 判断是否变更，版本不变则不会持久化修改后的消息
+            new_versions = dict(checkpoint.get("channel_versions") or {})
+            new_versions["messages"] = (
+                f"{new_versions.get('messages', '0')}.img-clean.{modified}"
+            )
+            checkpoint["channel_versions"] = new_versions
             await checkpointer.aput(tup.config, checkpoint, tup.metadata, new_versions)
             logger.info(f"[Chat] Cleaned expired image_urls | thread={thread_id[:8]}")
         except Exception as e:
@@ -204,7 +210,14 @@ async def _repair_dangling_tool_calls(checkpointer, thread_id: str) -> None:
             name=tc.get("name", ""),
         ))
     try:
-        new_versions = checkpoint.get("channel_versions") or {}
+        # 必须 bump messages 的 channel_versions：AsyncPostgresSaver 的 blob 存储
+        # 按 channel_versions 判断是否变更，版本不变则 aput 不会持久化修复结果
+        # （此前实测：24 条消息 + 1 悬空，修复后仍 24 条——aput 静默未写入）。
+        new_versions = dict(checkpoint.get("channel_versions") or {})
+        new_versions["messages"] = (
+            f"{new_versions.get('messages', '0')}.repair.{len(dangling)}"
+        )
+        checkpoint["channel_versions"] = new_versions
         await checkpointer.aput(tup.config, checkpoint, tup.metadata, new_versions)
         logger.info(
             f"[Chat] Repaired {len(dangling)} dangling tool_calls | thread={thread_id[:8]}"

@@ -199,6 +199,7 @@ class FakeCheckpointer:
     async def aput(self, config, checkpoint, metadata, new_versions):
         self.put_calls += 1
         self.saved_messages = checkpoint["channel_values"]["messages"]
+        self.saved_versions = new_versions
 
 
 class TestRepairDanglingToolCalls:
@@ -221,6 +222,9 @@ class TestRepairDanglingToolCalls:
         assert len(replied) == 1
         assert replied[0].tool_call_id == "c1"
         assert "异常中断" in replied[0].content
+        # 必须 bump messages 的 channel_versions，否则 AsyncPostgresSaver 不持久化
+        assert cp.saved_versions is not None
+        assert str(cp.saved_versions.get("messages", "")).endswith(".repair.1")
 
     async def test_idempotent(self):
         cp = FakeCheckpointer([
