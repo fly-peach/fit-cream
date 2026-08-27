@@ -1137,17 +1137,21 @@ export default function ChatPage() {
   // present_plan_queue_tool（入参 {title, todos}）或 update_plan_queue_item_tool
   // （入参.queue = {title, todos}）的快照，驱动顶部持久化进度面板。
   // 面板只渲染待办标题+状态；表单与当日方案在对话内渲染。
+  /** 校验队列快照形状：todos 必须是数组（模型偶发传坏参导致前端崩溃的防御） */
+  const isValidPlanQueue = (q: unknown): q is PlanQueue =>
+    !!q && typeof q === "object" && Array.isArray((q as PlanQueue).todos);
+
   const latestQueue = useMemo<PlanQueue | null>(() => {
     let latest: PlanQueue | null = null;
     for (const msg of messages) {
       for (const s of msg.steps || []) {
         if (s.type !== "tool") continue;
         if (s.tool === "present_plan_queue_tool") {
-          const q = (s.input || {}) as PlanQueue;
-          if (q && q.todos) latest = q;
+          const q = s.input;
+          if (isValidPlanQueue(q)) latest = q;
         } else if (s.tool === "update_plan_queue_item_tool") {
-          const q = (s.input || {}).queue as PlanQueue | undefined;
-          if (q && q.todos) latest = q;
+          const q = (s.input || {}).queue;
+          if (isValidPlanQueue(q)) latest = q;
         }
       }
     }

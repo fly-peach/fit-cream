@@ -137,6 +137,20 @@
   animation: float-slow 6s ease-in-out infinite;
 }
 
+/* 思考中：呼吸脉冲（透明度 0.3 <-> 1.0 循环渐变） */
+@keyframes reasoning-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.reasoning-breathe {
+  animation: reasoning-breathe 2s ease-in-out infinite;
+}
+
 /* 无障碍：用户偏好减少动态效果时，禁用动画与过渡 */
 @media (prefers-reduced-motion: reduce) {
   *,

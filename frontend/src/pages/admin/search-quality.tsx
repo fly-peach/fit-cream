@@ -160,7 +160,7 @@ export default function AdminSearchQualityPage() {
           <div className="flex items-center gap-2">
             <Select value={k} onValueChange={setK}>
               <SelectTrigger className="w-[104px]">
-                <SelectValue />
+                <SelectValue>{`K = ${k}`}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="10">K = 10</SelectItem>

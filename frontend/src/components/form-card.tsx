@@ -171,7 +171,9 @@ export function FormCard({ step, interactive, onSubmit }: FormCardProps) {
                   disabled={locked}
                 >
                   <SelectTrigger className={cn("h-9 text-sm", !value && "text-muted-foreground")}>
-                    <SelectValue placeholder="请选择" />
+                    <SelectValue placeholder="请选择">
+                      {value ? optionLabel(f, value) : undefined}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {(f.options || []).map((o) => (
