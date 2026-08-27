@@ -325,10 +325,13 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         # 展示类工具严格限制（初始建清单 + 大纲后重组各 1 次，共 2 次内），防止模型
         # 反复重 present 同一队列/大纲陷入死循环；其余工具默认 5 次（get_exercises_tool
         # 逐日检索合法需多次，不受影响）。
+        # present_form_tool 限 1：每次用户消息（一个 run）只允许发送一个表单，用户
+        # 提交（[表单提交: ...]）后再发下一个——配合提示词约束，拦截同轮连续弹多张表单卡。
         *create_rate_limit_middleware(
             tool_limits={
                 "present_plan_queue_tool": 2,
                 "present_outline_tool": 2,
+                "present_form_tool": 1,
             },
         ),
         TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),

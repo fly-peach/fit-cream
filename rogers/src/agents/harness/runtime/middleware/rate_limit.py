@@ -29,6 +29,25 @@ from typing_extensions import NotRequired
 
 logger = logging.getLogger("fitcream.agent")
 
+# 限流拦截时的引导文案（按工具覆盖）：默认走英文通用提示；对交互类工具给出
+# 中文收口指引，帮助模型理解被拦原因并正确等待用户输入。
+TOOL_LIMIT_HINTS: dict[str, str] = {
+    "present_form_tool": (
+        "每次只能向用户发送一个表单。请停止继续调用表单工具，用简短文字引导用户"
+        "填写当前表单，等待收到「[表单提交: <form_id>]」后再发送下一个表单。"
+    ),
+}
+
+
+def _limit_hint(tool_name: str, limit: int) -> str:
+    hint = TOOL_LIMIT_HINTS.get(tool_name)
+    if hint:
+        return f"Error: Tool '{tool_name}' 已达单次会话调用上限（{limit} 次）。{hint}"
+    return (
+        f"Error: Tool '{tool_name}' has been called "
+        f"{limit} times already. Please try a different approach."
+    )
+
 
 class SameToolLimitState(AgentState):
     """SameToolLimitMiddleware 的每轮状态（不持久化到 checkpoint）。"""
@@ -122,11 +141,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
                 f"{tool_name} (max {limit})"
             )
             return ToolMessage(
-                content=(
-                    f"Error: Tool '{tool_name}' has been called "
-                    f"{limit} times already. "
-                    f"Please try a different approach."
-                ),
+                content=_limit_hint(tool_name, limit),
                 tool_call_id=request.tool_call["id"],
                 name=tool_name,
                 status="error",
@@ -143,11 +158,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
                 f"{tool_name} (max {limit})"
             )
             return ToolMessage(
-                content=(
-                    f"Error: Tool '{tool_name}' has been called "
-                    f"{limit} times already. "
-                    f"Please try a different approach."
-                ),
+                content=_limit_hint(tool_name, limit),
                 tool_call_id=request.tool_call["id"],
                 name=tool_name,
                 status="error",

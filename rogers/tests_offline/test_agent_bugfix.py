@@ -167,6 +167,35 @@ class TestSameToolLimitPerTool:
         assert result.status == "error"
         assert executed == [True]  # 仅第 1 次真正执行
 
+    def test_present_form_tool_limit_1(self):
+        # 表单限 1：同一 run 内第 2 次 present_form_tool 被拦截（每轮只发一个表单）
+        mw = SameToolLimitMiddleware(
+            max_same_tool_calls=5,
+            tool_limits={"present_form_tool": 1},
+        )
+        assert mw._limit_for("present_form_tool") == 1
+        executed = []
+
+        def handler(request):
+            executed.append(True)
+            return "ok"
+
+        # 第 1 次（count=1）放行
+        assert mw.wrap_tool_call(
+            _make_request({"same_tool_counts": {"present_form_tool": 1}}, "present_form_tool"),
+            handler,
+        ) == "ok"
+        # 第 2 次（count=2）拦截，带中文收口引导
+        result = mw.wrap_tool_call(
+            _make_request({"same_tool_counts": {"present_form_tool": 2}}, "present_form_tool"),
+            handler,
+        )
+        assert isinstance(result, ToolMessage)
+        assert result.status == "error"
+        assert "每次只能向用户发送一个表单" in result.content
+        assert "表单提交" in result.content
+        assert executed == [True]
+
 
 # ============================================================
 # P1-5 悬空 tool_calls 修复（Bug B1）

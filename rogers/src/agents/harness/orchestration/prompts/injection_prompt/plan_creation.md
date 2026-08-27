@@ -16,6 +16,8 @@
 - missing_fields 非空 -> present_form_tool(form_id="body_profile") 让用户补全基础数据
 - 规划参考维度（目标动机/健康安全/体能水平/运动经历/生活方式）用 present_form_tool 逐卡收集；
   健康安全维度必须收集，其余维度信息充足可跳过
+- **每个对话轮次只发送一个表单**：发完当前表单即止步等待用户提交（收到
+  「[表单提交: <form_id>]」）后再弹下一个；禁止同一轮连续调用多次 present_form_tool
 - 用户提交后「[表单提交]」消息回到对话：标注「写入档案」的字段调 update_user_profile_tool 落库；
   标注「仅本次参考」的字段只用于本次设计，禁止写入数据库
 - 提案用 present_plan_tool（content 表格 + changes 变更清单），随后调创建工具触发审批
