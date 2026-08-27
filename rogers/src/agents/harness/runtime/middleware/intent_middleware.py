@@ -58,6 +58,11 @@ logger = logging.getLogger("fitcream.agent")
 # 单轮最多注入的意图提示词数量（防止多个意图叠加失控）
 MAX_INTENTS = 3
 
+# 非 plan_design 会话中 plan_creation 的替代提示词键：完整计划设计（plan-execute）
+# 流程只允许「为我设计健身计划」按钮进入的会话（configurable.plan_design）触发；
+# 普通聊天里用户提及计划设计时，只注入「引导点击按钮」的轻量提示词。
+PLAN_CREATION_BUTTON_INTENT = "plan_creation_button"
+
 
 def _extract_text(content: Any) -> str:
     """从 HumanMessage.content 提取纯文本（支持 str / list 多模态块）。"""
@@ -208,6 +213,16 @@ class IntentMiddleware(AgentMiddleware):
             fallback = self._classify_with_llm(_extract_text(last_msg.content))
             if fallback:
                 intents = [fallback]
+
+        # plan_design 门控：完整计划设计（plan-execute）流程只允许按钮进入的
+        # plan_design 会话（configurable.plan_design=true）触发。普通聊天里用户
+        # 提及计划设计时，把 plan_creation 替换为「引导点击按钮」的轻量提示词，
+        # 不进入队列/表单/大纲的完整流程。
+        if "plan_creation" in intents and not get_config_flag("plan_design", False):
+            intents = [
+                PLAN_CREATION_BUTTON_INTENT if i == "plan_creation" else i
+                for i in intents
+            ]
 
         # knowledge_query 意图注入「优先知识库检索」引导，与 KB 工具门控矛盾：
         # 开关关闭（configurable.kb_enabled falsy）时跳过注入，避免模型想调不可见的 KB 工具。

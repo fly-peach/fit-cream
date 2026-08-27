@@ -146,14 +146,27 @@ async def present_plan_queue_tool(
     待办面板只渲染标题与各 todo 的标题+状态，不含表单/方案内容；所有表单与当日方案
     都在对话消息流内渲染（present_form_tool / present_day_design_tool）。
 
+    调用纪律：
+    - **每次设计会话只调用一次**（初始建清单）。展示后立即用
+      update_plan_queue_item_tool 推进，不得反复重 present 同一清单。
+    - 仅在大纲确认后**重组清单**（插入逐日设计 todo）时才可再次调用。
+    - 调用后本轮即止步等待用户/推进动作，不要在同一轮继续重复调用本工具。
+
     Args:
         title: 队列标题
         todos: 完整待办清单（每次传入当前最新全量，前端据此整体重渲染）
 
     Returns:
-        ``{"ok": True}``
+        ``{"ok": True, "next": ...}``
     """
-    return {"ok": True}
+    return {
+        "ok": True,
+        "next": (
+            "队列已展示。立即调用 update_plan_queue_item_tool 将第一项标记为 "
+            "in_progress 并执行该步（如发起信息收集表单）。本次设计会话禁止再次调用 "
+            "本工具（大纲确认后重组清单除外）。"
+        ),
+    }
 
 
 @tool
@@ -208,9 +221,35 @@ async def update_plan_queue_item_tool(
         queue: 更新后的完整队列快照
 
     Returns:
-        ``{"ok": True}``
+        ``{"ok": True, "next": ...}``（打勾后引导推进下一项；全部完成则引导装配/审批）
     """
-    return {"ok": True}
+    remaining = [t for t in queue.todos if t.status in ("pending", "in_progress")]
+    if status == "completed" and not remaining:
+        return {
+            "ok": True,
+            "next": (
+                "全部待办已完成。立即进入装配：调用 present_plan_tool 展示完整计划提案"
+                "与变更清单，随后调用 create_plan_tool(传 days) 触发审批落库。"
+            ),
+        }
+    if not remaining:
+        return {
+            "ok": True,
+            "next": (
+                "队列已全部完成。立即调用 present_plan_tool + create_plan_tool(传 days)"
+                "装配提案并触发审批落库，不得开放式收尾。"
+            ),
+        }
+    return {
+        "ok": True,
+        "next": (
+            f"已更新「{item_id}」为 {status}。立即推进下一项：调用 "
+            "update_plan_queue_item_tool 将下一个 pending 项标记为 in_progress "
+            "并执行该步（信息收集项用 present_form_tool 弹表单、分析项定类型、"
+            "大纲项用 present_outline_tool、逐日项用 get_exercises_tool + "
+            "present_day_design_tool）。"
+        ),
+    }
 
 
 @tool

@@ -44,6 +44,28 @@ _ds_fallback_flag: ContextVar[bool] = ContextVar(
 )
 _ds_fallback_threads: set[str] = set()
 
+# DS 断路器（Bug B2）：非 401/403 的 DS 调用异常（限流/网络/服务端错误等）会
+# 每轮都先试 DS 再回退 qwen，一次 run 可能多次无效尝试烧大量 token。这里按
+# thread_id 记录**同一 run 内连续失败次数**，达到阈值后剩余调用直接走 qwen，
+# 不再尝试 DS。每请求开头随 reset_ds_key_fallback 清零。
+_DS_CIRCUIT_BREAKER_THRESHOLD = 2
+_ds_fail_counts: dict[str, int] = {}
+
+
+def _thread_id() -> Optional[str]:
+    tid = get_config_value("thread_id")
+    return tid if isinstance(tid, str) and tid else None
+
+
+def _mark_ds_fail() -> None:
+    tid = _thread_id()
+    if not tid:
+        return
+    # 上限保护：超限时整体清空（丢失旧线程计数无害，下一 run 重新计数）
+    if len(_ds_fail_counts) >= 1024:
+        _ds_fail_counts.clear()
+    _ds_fail_counts[tid] = _ds_fail_counts.get(tid, 0) + 1
+
 
 def ds_key_fallback_active(thread_id: Optional[str] = None) -> bool:
     """当前 run 是否发生过 DS key 无效回退（按 thread_id，缺失时回退 ContextVar）。"""
@@ -53,10 +75,11 @@ def ds_key_fallback_active(thread_id: Optional[str] = None) -> bool:
 
 
 def reset_ds_key_fallback(thread_id: Optional[str] = None) -> None:
-    """重置回退标志（chat.py 每个请求开始时调用）。"""
+    """重置回退标志与 DS 失败计数（chat.py 每个请求开始时调用）。"""
     _ds_fallback_flag.set(False)
     if thread_id:
         _ds_fallback_threads.discard(thread_id)
+        _ds_fail_counts.pop(thread_id, None)
 
 
 def _mark_ds_fallback() -> None:
@@ -103,9 +126,19 @@ def _auth_status_code(exc: BaseException) -> Optional[int]:
 class ModelRoutingMiddleware(AgentMiddleware):
     """按请求路由模型（qwen 默认 / 用户自备 DeepSeek key）。"""
 
+    def _breaker_open(self) -> bool:
+        """断路器是否已断开（同 run 连续 DS 失败达阈值 -> 直接走 qwen）。"""
+        tid = _thread_id()
+        return bool(tid and _ds_fail_counts.get(tid, 0) >= _DS_CIRCUIT_BREAKER_THRESHOLD)
+
     def wrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:
+            return handler(request)
+
+        # 断路器已断开：本轮剩余调用直接走 qwen，不再尝试 DS（避免反复无效调用烧 token）
+        if self._breaker_open():
+            logger.warning("[ModelRouting] DS 连续失败达阈值，本轮剩余调用直接走 qwen")
             return handler(request)
 
         try:
@@ -116,12 +149,22 @@ class ModelRoutingMiddleware(AgentMiddleware):
             status = _auth_status_code(e)
             if status in (401, 403):
                 return self._fallback(request, handler, ds_key, e)
-            logger.error("[ModelRouting] DS 模型调用异常: %s", e)
+            # 非认证类失败：记一次连续失败（达阈值后同 run 剩余调用短路）
+            _mark_ds_fail()
+            logger.error(
+                "[ModelRouting] DS 模型调用异常（第 %s 次失败）: %s",
+                _ds_fail_counts.get(_thread_id(), 0),
+                e,
+            )
             return handler(request)
 
     async def awrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:
+            return await handler(request)
+
+        if self._breaker_open():
+            logger.warning("[ModelRouting] DS 连续失败达阈值，本轮剩余调用直接走 qwen")
             return await handler(request)
 
         try:
@@ -131,7 +174,12 @@ class ModelRoutingMiddleware(AgentMiddleware):
             status = _auth_status_code(e)
             if status in (401, 403):
                 return await self._afallback(request, handler, ds_key, e)
-            logger.error("[ModelRouting] DS 模型调用异常: %s", e)
+            _mark_ds_fail()
+            logger.error(
+                "[ModelRouting] DS 模型调用异常（第 %s 次失败）: %s",
+                _ds_fail_counts.get(_thread_id(), 0),
+                e,
+            )
             return await handler(request)
 
     def _fallback(self, request, handler, ds_key: str, exc: BaseException):

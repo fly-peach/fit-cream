@@ -322,7 +322,15 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
 
     middleware.extend([
         AgentLoggingMiddleware(),
-        *create_rate_limit_middleware(),
+        # 展示类工具严格限制（初始建清单 + 大纲后重组各 1 次，共 2 次内），防止模型
+        # 反复重 present 同一队列/大纲陷入死循环；其余工具默认 5 次（get_exercises_tool
+        # 逐日检索合法需多次，不受影响）。
+        *create_rate_limit_middleware(
+            tool_limits={
+                "present_plan_queue_tool": 2,
+                "present_outline_tool": 2,
+            },
+        ),
         TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
         # 终结工具：白名单工具批全部成功后结束 run，跳过后续自动 LLM 总结。
         # 默认白名单为空（保守起步），按 3.3 与产品对齐后逐工具灰度启用。

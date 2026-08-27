@@ -11,6 +11,8 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,6 +155,62 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
             logger.info(f"[Chat] Cleaned expired image_urls | thread={thread_id[:8]}")
         except Exception as e:
             logger.warning(f"[Chat] aput failed: {e}")
+
+
+async def _repair_dangling_tool_calls(checkpointer, thread_id: str) -> None:
+    """修复 checkpoint 中悬空的 AIMessage.tool_calls（缺对应 ToolMessage 的调用）。
+
+    异常/递归崩溃后，checkpoint 可能残留「已发出 tool_calls 但无 ToolMessage 响应」
+    的 AIMessage。qwen 容忍此类坏状态，但 DeepSeek 严格要求每个 tool_call_id 都有
+    响应，resume / 继续对话会触发 400（Bug B1）。这里扫描历史，为缺少响应的
+    tool_call 追加合成 ToolMessage（占位说明），幂等；同时修复存量坏线程
+    （9cd8bb77 / a471d3bd 等）。无修改则不写 checkpoint。
+    """
+    if checkpointer is None:
+        return
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        tup = await checkpointer.aget_tuple(config)
+    except Exception as e:
+        logger.warning(f"[Chat] aget_tuple failed: {e}")
+        return
+    if not tup:
+        return
+    checkpoint = tup.checkpoint or {}
+    messages = (checkpoint.get("channel_values") or {}).get("messages") or []
+    if not messages:
+        return
+
+    replied_ids = {
+        getattr(msg, "tool_call_id", None)
+        for msg in messages
+        if isinstance(msg, ToolMessage)
+    }
+    dangling = []
+    for msg in messages:
+        if not isinstance(msg, AIMessage):
+            continue
+        for tc in getattr(msg, "tool_calls", []) or []:
+            cid = tc.get("id")
+            if cid and cid not in replied_ids:
+                dangling.append(tc)
+    if not dangling:
+        return
+
+    for tc in dangling:
+        messages.append(ToolMessage(
+            content="[该工具调用因异常中断，无结果]",
+            tool_call_id=tc["id"],
+            name=tc.get("name", ""),
+        ))
+    try:
+        new_versions = checkpoint.get("channel_versions") or {}
+        await checkpointer.aput(tup.config, checkpoint, tup.metadata, new_versions)
+        logger.info(
+            f"[Chat] Repaired {len(dangling)} dangling tool_calls | thread={thread_id[:8]}"
+        )
+    except Exception as e:
+        logger.warning(f"[Chat] aput failed: {e}")
 
 
 async def _build_user_context(user: User) -> str:
@@ -562,7 +620,26 @@ async def _run_agent_sse(
         yield _sse_event("done", {"thread_id": thread_id, "tool_calls": tool_calls})
     except Exception as e:
         logger.error(f"[Chat] SSE error: {e}", exc_info=True)
-        yield _sse_event("error", {"message": str(e)})
+        # 人性化错误文案：GraphRecursionError 单独提示（计划设计死循环 A 类根因），
+        # 其余异常脱敏展示（不把原始异常串/路径/密钥泄漏给前端）
+        if isinstance(e, GraphRecursionError):
+            err_text = "本轮处理超出复杂度上限已终止，请换个说法重试"
+        else:
+            err_text = f"处理出错（{e.__class__.__name__}），请稍后重试"
+        # 落库一条 assistant 兜底消息（错误说明），刷新历史仍可见，不消失
+        try:
+            await ConversationService.save_message(
+                stream_db, user.id, thread_id, "assistant", err_text,
+                metadata={
+                    "thinking": None,
+                    "tool_calls": tool_calls or None,
+                    "steps": steps or None,
+                    "error": str(e)[:500],
+                },
+            )
+        except Exception as save_err:
+            logger.warning(f"[Chat] Failed to save fallback error message: {save_err}")
+        yield _sse_event("error", {"message": err_text})
     finally:
         _log_usage_summary(usage_total, full_content, thread_id, user_id)
         await _upsert_user_token_usage(stream_db, user_id, usage_total)
@@ -680,7 +757,7 @@ async def send_message(
     if req.thread_id and not req.plan_design and await ConversationService.thread_is_foreign(db, user.id, thread_id):
         raise ForbiddenException("无权访问该线程")
 
-    # plan_design：标记线程 agent_mode，后续 message/resume 按此路由到计划设计模型
+    # plan_design：标记线程 agent_mode，后续 message/resume 按此识别计划设计会话
     if req.plan_design:
         await ConversationService.upsert_thread_agent_mode(db, user.id, thread_id, "plan_design")
 
@@ -689,6 +766,14 @@ async def send_message(
     user_msg_metadata = {"images": list(req.images)} if req.images else None
     await ConversationService.save_message(db, user.id, thread_id, "user", user_msg_text, metadata=user_msg_metadata)
 
+    # plan_design 门控：完整 plan-execute 计划设计流程只允许按钮进入的会话触发。
+    # 首条消息（req.plan_design=true）或已有线程 agent_mode=plan_design 的后续消息
+    # 都视为计划设计会话（写入 configurable.plan_design 供 IntentMiddleware 读取）。
+    is_plan_design = bool(req.plan_design)
+    if not is_plan_design and req.thread_id:
+        mode = await ConversationService.get_thread_agent_mode(db, thread_id)
+        is_plan_design = mode == "plan_design"
+
     # 解析 agent：统一走默认 graph（ModelRoutingMiddleware 按 deepseek_api_key 切模型）。
     # plan_design 仅作为线程标记保留（ThreadMeta.agent_mode），不再承载模型路由。
     agent = _get_agent()
@@ -696,6 +781,7 @@ async def send_message(
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id_str,
+            "plan_design": is_plan_design,
         },
         "recursion_limit": 100,
     }
@@ -704,6 +790,9 @@ async def send_message(
     # 清理 checkpoint 中过期的 OSS 签名图片 URL（已无法被模型读取，避免浪费 token）；
     # 统一 qwen3.7-plus / deepseek 视觉模型均支持多模态，不再强剥图片
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
+    # 修复 checkpoint 中悬空的 tool_calls（缺 ToolMessage 响应）：
+    # 崩溃残留会导致 DeepSeek resume/续聊 400（Bug B1），先修复再进流
+    await _repair_dangling_tool_calls(getattr(agent, "checkpointer", None), thread_id)
 
     # 构建动态上下文注入到对话首条消息之前
     context_msg = await _build_user_context(user)
@@ -786,16 +875,21 @@ async def resume_conversation(
 
     # 按统一 graph 路由（ModelRoutingMiddleware 按 deepseek_api_key 切模型）；
     # 同一 checkpointer + 相同 graph 结构，resume 安全。
+    # plan_design 门控：resume 属于计划设计审批流程，按线程 agent_mode 识别并写入 configurable。
+    mode = await ConversationService.get_thread_agent_mode(db, thread_id)
     agent = _get_agent()
     config = {
         "configurable": {
             "thread_id": thread_id,
             "user_id": user_id_str,
+            "plan_design": mode == "plan_design",
         },
         "recursion_limit": 100,
     }
     _inject_request_config(config, req)
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
+    # 修复悬空 tool_calls（resume 前同样先修复，防 DeepSeek 400）
+    await _repair_dangling_tool_calls(getattr(agent, "checkpointer", None), thread_id)
 
     # 构建 resume 命令（decisions 顺序须与 approval_needed 的 action_requests 对齐）
     resume_command = _build_resume_command(req.decisions)

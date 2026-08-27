@@ -52,9 +52,19 @@ class SameToolLimitMiddleware(AgentMiddleware):
 
     state_schema = SameToolLimitState  # type: ignore[assignment]
 
-    def __init__(self, max_same_tool_calls: int = 5):
+    def __init__(
+        self,
+        max_same_tool_calls: int = 5,
+        tool_limits: dict[str, int] | None = None,
+    ):
         super().__init__()
         self.max_same_tool_calls = max_same_tool_calls
+        # 按工具覆盖默认上限（如展示类工具严格限制），未列出的工具用默认值
+        self.tool_limits: dict[str, int] = tool_limits or {}
+
+    def _limit_for(self, tool_name: str) -> int:
+        """该工具的调用上限（未单独配置则用默认值）。"""
+        return self.tool_limits.get(tool_name, self.max_same_tool_calls)
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         logger.info(
@@ -88,31 +98,33 @@ class SameToolLimitMiddleware(AgentMiddleware):
         for tool_call in last_ai_message.tool_calls:
             tool_name = tool_call["name"]
             counts[tool_name] = counts.get(tool_name, 0) + 1
+            limit = self._limit_for(tool_name)
 
             logger.info(
                 f"[RateLimit] Tool call check | tool={tool_name} | "
-                f"count={counts[tool_name]}/{self.max_same_tool_calls}"
+                f"count={counts[tool_name]}/{limit}"
             )
 
         return {"same_tool_counts": counts}
 
     def _is_over_limit(self, state: Any, tool_name: str) -> bool:
-        """按 state 中已累计计数判断是否超过同一工具调用上限。"""
+        """按 state 中已累计计数判断是否超过同一工具调用上限（按工具精细限额）。"""
         counts = (state or {}).get("same_tool_counts", {}) or {}
-        return counts.get(tool_name, 0) > self.max_same_tool_calls
+        return counts.get(tool_name, 0) > self._limit_for(tool_name)
 
     def wrap_tool_call(self, request, handler):
         """工具执行前拦截：超限则短路，不执行工具。"""
         tool_name = request.tool_call["name"]
+        limit = self._limit_for(tool_name)
         if self._is_over_limit(request.state, tool_name):
             logger.warning(
                 f"[RateLimit] Same tool limit exceeded, blocked before execution: "
-                f"{tool_name} (max {self.max_same_tool_calls})"
+                f"{tool_name} (max {limit})"
             )
             return ToolMessage(
                 content=(
                     f"Error: Tool '{tool_name}' has been called "
-                    f"{self.max_same_tool_calls} times already. "
+                    f"{limit} times already. "
                     f"Please try a different approach."
                 ),
                 tool_call_id=request.tool_call["id"],
@@ -124,15 +136,16 @@ class SameToolLimitMiddleware(AgentMiddleware):
     async def awrap_tool_call(self, request, handler):
         """异步工具执行前拦截：超限则短路，不执行工具。"""
         tool_name = request.tool_call["name"]
+        limit = self._limit_for(tool_name)
         if self._is_over_limit(request.state, tool_name):
             logger.warning(
                 f"[RateLimit] Same tool limit exceeded, blocked before execution: "
-                f"{tool_name} (max {self.max_same_tool_calls})"
+                f"{tool_name} (max {limit})"
             )
             return ToolMessage(
                 content=(
                     f"Error: Tool '{tool_name}' has been called "
-                    f"{self.max_same_tool_calls} times already. "
+                    f"{limit} times already. "
                     f"Please try a different approach."
                 ),
                 tool_call_id=request.tool_call["id"],
@@ -146,9 +159,13 @@ def create_rate_limit_middleware(
     max_tool_calls: int = 10,
     max_llm_calls: int = 30,
     max_same_tool_calls: int = 5,
+    tool_limits: dict[str, int] | None = None,
 ) -> list:
     """
     创建限流中间件列表。
+
+    Args:
+        tool_limits: 按工具覆盖 SameToolLimit 上限（如展示类工具限 2 次）。
 
     Returns:
         [ModelCallLimitMiddleware, ToolCallLimitMiddleware, SameToolLimitMiddleware]
@@ -162,5 +179,8 @@ def create_rate_limit_middleware(
             run_limit=max_tool_calls,
             exit_behavior="continue",
         ),
-        SameToolLimitMiddleware(max_same_tool_calls=max_same_tool_calls),
+        SameToolLimitMiddleware(
+            max_same_tool_calls=max_same_tool_calls,
+            tool_limits=tool_limits,
+        ),
     ]

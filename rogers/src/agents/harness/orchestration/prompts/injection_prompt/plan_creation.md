@@ -33,12 +33,19 @@
 - `custom_name` **仅当用户明确点名了动作库中不存在的动作/器械**时才使用，且须在 `rationale`/`notes` 注明；否则一律用 `exercise_id`
 
 ## 执行流程
-1. get_user_summary_tool 查已有数据与缺失字段
-2. present_form_tool 逐卡补全（已有数据不重复问）
+**流程以 plan-creation SKILL.md 的队列规范为准**（收到设计意图后第一步调用
+`present_plan_queue_tool` 建闭环待办，逐项推进：intake -> analyze -> outline ->
+逐日设计 -> assemble -> approve）。要点：
+1. get_user_summary_tool 查已有数据与缺失字段（档案已有不重复问）
+2. present_form_tool 逐卡补全（已标 in_progress 的 intake 项）
 3. 读取表单提交内容：可落库字段写入档案，参考字段仅用于设计
-4. 确认用户意图（新建 or 调整）
-5. present_plan_tool 展示提案与变更清单 -> 调用创建工具触发审批（编辑/删除由破坏类工具单独触发审批）
-6. 审批通过后总结计划要点
+4. 分析项确定训练类型与分化 -> present_outline_tool 展示大纲并重组待办清单
+5. 逐日设计：get_exercises_tool 检索 -> present_day_design_tool 展示当日方案
+6. present_plan_tool 展示提案与变更清单 -> 调用创建工具触发审批（编辑/删除由破坏类工具单独触发审批）
+7. 审批通过后总结计划要点
+
+**present_plan_queue_tool 每次设计会话只调用一次**（初始建清单 + 大纲后重组除外），
+展示后立即用 update_plan_queue_item_tool 推进，禁止反复重 present。
 
 ## 循环推进规则（重要）
 设计期间持续推进，**每轮必须推进到下一交互点（表单待填 / 计划+审批），未到审批不收尾**。
