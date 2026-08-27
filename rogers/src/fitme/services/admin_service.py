@@ -174,7 +174,17 @@ class AdminService:
                 bmi=metric.bmi,
             )
 
-        item = AdminUserDetail.model_validate(user)
+        # 不能直接 AdminUserDetail.model_validate(user)：子类新增的 settings 字段
+        # 会从 ORM 的 user.settings（UserSettings 身体数据，字段为身高/体重）读取，
+        # 与 AdminUserSettings（由 user.goals 构建的摘要，字段为 goal 等）类型不符，
+        # 触发 pydantic ValidationError（GET /api/admin/users/{id} 500）。
+        # 改为先验证父类基础字段（无 settings），再显式构造详情。
+        base = AdminUserListItem.model_validate(user)
+        item = AdminUserDetail(
+            **base.model_dump(),
+            settings=settings,
+            latest_health_metric=latest_metric,
+        )
         token_map = await UsageService.batch_user_totals(db, [user.id])
         t = token_map.get(user.id, {"total_tokens": 0, "tokens_7d": 0})
         item.plan_count = c["plans"]
