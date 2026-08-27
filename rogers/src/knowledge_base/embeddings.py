@@ -41,7 +41,7 @@ def _get_setting(key: str, default: str) -> str:
 
 
 RERANK_ENABLED = _get_setting("RERANK_ENABLED", "True").lower() in ("1", "true", "yes")
-RERANK_MODEL = _get_setting("RERANK_MODEL", "gte-rerank-v2")
+RERANK_MODEL = _get_setting("RERANK_MODEL", "qwen3-rerank")
 RERANK_TOP_N = int(_get_setting("RERANK_TOP_N", "20"))
 
 # 知识库语义向量整体开关（运营/测试可关闭，关闭后检索退化为纯全文）

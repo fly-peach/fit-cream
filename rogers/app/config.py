@@ -83,7 +83,7 @@ class Settings(BaseSettings):
 
     # ---------- 知识库语义检索（rerank） ----------
     RERANK_ENABLED: bool = True
-    RERANK_MODEL: str = "gte-rerank-v2"
+    RERANK_MODEL: str = "qwen3-rerank"
     RERANK_TOP_N: int = 20
     # 知识库语义向量整体开关（关闭后检索/摄入退化为纯全文）
     KB_EMBEDDING_ENABLED: bool = True
