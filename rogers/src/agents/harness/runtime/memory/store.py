@@ -253,6 +253,13 @@ class MemoryStore:
             ).all()
             if not ids:
                 return 0
+            # 删除前清空指向待删 ids 的 superseded_by 引用，避免 RESTRICT 外键
+            # 阻断删除（与 delete_semantic 的清理范式一致；版本链启用后必现）
+            await session.execute(
+                update(SemanticMemory)
+                .where(SemanticMemory.superseded_by.in_(ids))
+                .values(superseded_by=None)
+            )
             await session.execute(
                 delete(SemanticMemory).where(SemanticMemory.id.in_(ids))
             )
@@ -562,13 +569,20 @@ class MemoryStore:
                 status="active",
             )
 
+            session.add(memory)
+            # 先 flush 落 INSERT（新记忆行落库、id 可用），再赋旧版本的
+            # superseded_by 外键。此前直接赋 `existing.superseded_by = memory.id`
+            # 是裸外键列赋值，SQLAlchemy 把 UPDATE（旧→superseded）排在 INSERT
+            # 之前，而 superseded_by 是自引用非 deferrable 外键，flush 时立即
+            # 检查失败 → 整个事务回滚，新记忆也写不进（Bug 7/8：691 条全 active）。
+            await session.flush()
+
             # 标记旧版本为 superseded，建立版本链
             if existing:
                 existing.status = "superseded"
                 existing.superseded_by = memory.id
                 existing.updated_at = datetime.utcnow()
 
-            session.add(memory)
             await session.commit()
 
             memory_id = memory.id
@@ -909,6 +923,13 @@ class MemoryStore:
         """
         stats = {"episodic": 0, "semantic": 0, "procedural": 0, "consolidation_logs": 0}
         async with self.async_session() as session:
+            # 先清空该用户语义记忆的全部 superseded_by 自引用，再删除：
+            # 版本链启用后 bulk DELETE 可能触发自引用 RESTRICT 外键
+            await session.execute(
+                update(SemanticMemory)
+                .where(SemanticMemory.user_id == user_id)
+                .values(superseded_by=None)
+            )
             r = await session.execute(
                 delete(SemanticMemory).where(SemanticMemory.user_id == user_id)
             )
