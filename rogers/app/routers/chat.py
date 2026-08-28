@@ -411,10 +411,9 @@ async def _run_agent_sse(
     yield _sse_event("start", {"thread_id": thread_id})
 
     full_content = ""        # 累积正式回复文本（本阶段）
-    full_thinking = ""       # 累积思考内容
+    full_thinking = ""       # 累积思考内容（仅落库 metadata.thinking 供调试，不下发前端）
     tool_calls = []          # 完整工具调用记录 [{id, name, input, output, status}]
-    steps: list[dict] = []   # ReAct 步骤序列
-    pending_thought: Optional[dict] = None
+    steps: list[dict] = []   # ReAct 步骤序列（不含 thought：思考碎片不再进入前端时间线）
     pending_reply: Optional[dict] = None
     # 按 run_id 索引进行中的工具：并行工具调用时 on_tool_start/end 事件交错，
     # 单指针跟踪会丢失先启动的工具，导致其永远停留在 running
@@ -456,13 +455,10 @@ async def _run_agent_sse(
                 chunk = event["data"]["chunk"]
                 reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                 if reasoning:
-                    if pending_thought is None:
-                        pending_thought = {"type": "thought", "content": ""}
-                        steps.append(pending_thought)
-                    pending_thought["content"] += reasoning
+                    # 思考内容不再下发前端（P0-2）：qwen enable_thinking 的冗长
+                    # reasoning_content 直接流给前端会渲染成「思考了X秒」碎片并泄漏
+                    # 模型内部权衡。仅累积存 metadata.thinking 供机器调试，不 yield。
                     full_thinking += reasoning
-                    yield _sse_event("thinking", {"content": reasoning})
-                    yield _sse_event("step", {"type": "thought", "delta": reasoning})
                 if chunk.content:
                     if pending_reply is None:
                         pending_reply = {"type": "reply", "content": ""}
@@ -507,7 +503,6 @@ async def _run_agent_sse(
                 else:
                     usage_total["estimated"] = True
                 usage_total["llm_calls"] += 1
-                pending_thought = None
                 pending_reply = None
 
             elif kind == "on_tool_start":
@@ -753,7 +748,6 @@ async def send_message(
 
     SSE 事件类型：
     - start: 流式开始，返回 thread_id
-    - thinking: 模型思考内容（reasoning_content）
     - token: 正式回复 token
     - tool_start: Tool 调用开始
     - tool_result: Tool 调用结果

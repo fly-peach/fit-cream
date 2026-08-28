@@ -433,15 +433,6 @@ function StreamSteps({
   return (
     <div className="space-y-2">
       {steps.map((step, i) => {
-        if (step.type === "thought") {
-          if (!step.content) return null;
-          return (
-            <Reasoning key={i} isStreaming={isStreaming && i === steps.length - 1}>
-              <ReasoningTrigger />
-              <ReasoningContent>{step.content}</ReasoningContent>
-            </Reasoning>
-          );
-        }
         if (step.type === "reply") {
           if (!step.content) return null;
           return (
