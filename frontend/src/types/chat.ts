@@ -206,3 +206,30 @@ export interface PlanQueue {
   title: string;
   todos: PlanQueueTodo[];
 }
+
+// ===== 闯关路线图（present_roadmap_tool 入参，RoadmapCard 渲染）=====
+
+/** 单一指标条件 */
+export interface RoadmapCriterion {
+  metric: string;
+  op: ">=" | "<=";
+  value: number;
+  unit?: string;
+}
+
+/** 关卡设计 */
+export interface RoadmapStage {
+  stage_index: number;
+  title: string;
+  description?: string;
+  exit_criteria: RoadmapCriterion[];
+  expected_weeks: number;
+  training_focus?: string;
+}
+
+/** 路线图提案（present_roadmap_tool 入参） */
+export interface RoadmapProposal {
+  title: string;
+  description?: string;
+  stages: RoadmapStage[];
+}

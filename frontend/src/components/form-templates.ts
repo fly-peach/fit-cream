@@ -1,11 +1,12 @@
 /**
  * Intake 信息采集表单模板
  *
- * 模板定义在前端（字段/类型/选项/是否落库），后端 present_form_tool 只传
+ * 模板定义在前端（字段/类型/选项），后端 present_form_tool 只传
  * form_id + 已知字段预填值，FormCard 按模板自动渲染。
  *
- * persist=true：提交后 agent 调 update_user_profile_tool 写入档案
- * persist=false：仅用于本次计划设计，agent 禁止写库
+ * 全部模板提交后均落库：body_profile 由 agent 调 update_user_profile_tool，
+ * 五维（health_safety/fitness_level/exercise_history/lifestyle/diet_profile）
+ * 由 agent 调 update_fitness_profile_tool，baseline 由 record_baseline_tool。
  */
 
 export type FormFieldType = "number" | "text" | "textarea" | "select";
@@ -29,7 +30,6 @@ export interface FormFieldDef {
 export interface FormTemplate {
   id: string;
   title: string;
-  persist: boolean;
   fields: FormFieldDef[];
   hint?: string;
 }
@@ -51,7 +51,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   body_profile: {
     id: "body_profile",
     title: "基础身体数据",
-    persist: true,
     fields: [
       { key: "height_cm", label: "身高", type: "number", unit: "cm", required: true, placeholder: "如 175" },
       { key: "weight_kg", label: "体重", type: "number", unit: "kg", required: true, placeholder: "如 70" },
@@ -64,7 +63,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   health_safety: {
     id: "health_safety",
     title: "健康与安全基线",
-    persist: false,
     fields: [
       {
         key: "medical_history",
@@ -123,7 +121,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   fitness_level: {
     id: "fitness_level",
     title: "当前体能水平",
-    persist: false,
     fields: [
       {
         key: "training_experience",
@@ -171,10 +168,11 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
         ],
       },
       {
-        key: "body_fat",
+        key: "body_fat_pct",
         label: "体脂率（如知道）",
-        type: "text",
-        placeholder: "如 22%，不知道可留空",
+        type: "number",
+        unit: "%",
+        placeholder: "如 22，不知道可留空",
       },
     ],
   },
@@ -182,7 +180,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   exercise_history: {
     id: "exercise_history",
     title: "运动经历与习惯",
-    persist: false,
     fields: [
       {
         key: "weekly_frequency",
@@ -224,7 +221,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   diet_profile: {
     id: "diet_profile",
     title: "饮食偏好与结构",
-    persist: false,
     fields: [
       {
         key: "diet_preferences",
@@ -279,8 +275,7 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   baseline: {
     id: "baseline",
     title: "基线评测数据",
-    persist: false,
-    hint: "用于定训练强度与后续复测追踪，仅本次参考",
+    hint: "提交后将写入基线评测档案（力量参考动作与身体围度），用于定训练强度与后续复测追踪",
     fields: [
       {
         key: "reference_lifts",
@@ -300,7 +295,6 @@ export const FORM_TEMPLATES: Record<string, FormTemplate> = {
   lifestyle: {
     id: "lifestyle",
     title: "生活方式与客观环境",
-    persist: false,
     fields: [
       {
         key: "occupation_schedule",

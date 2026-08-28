@@ -49,7 +49,7 @@ export function CheckinCalendar({
 }) {
   const [currentMonth, setCurrentMonth] = useState(selectedDate);
   const [syncMode, setSyncMode] = useState(mode);
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (mode !== syncMode) {
     setSyncMode(mode);

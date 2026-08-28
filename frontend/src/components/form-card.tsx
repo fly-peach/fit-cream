@@ -5,7 +5,7 @@
  * - 模板（字段/类型/选项）来自 form-templates.ts，agent 只传 form_id + 预填值
  * - agent 预填的字段（档案已有数据）渲染为只读，用户不可修改
  * - 缺失字段渲染为可编辑控件，提交后格式化为结构化用户消息发回对话，
- *   agent 读取后按 persist 分流：写入档案 / 仅本次参考
+ *   agent 读取后按表单类型分流落库（body_profile / 五维 / baseline）
  */
 
 import { useMemo, useState } from "react";
@@ -50,22 +50,18 @@ function valueDisplay(field: FormFieldDef, raw: string): string {
   return field.unit ? `${raw} ${field.unit}` : raw;
 }
 
-/** 构建提交消息：persist 模板提示写库，其余标注仅本次参考 */
+/** 构建提交消息：统一提示写入档案（消息结构保持 [表单提交: form_id] 头 + 字段列表） */
 function buildSubmitMessage(
   template: FormTemplate,
   filled: { field: FormFieldDef; raw: string }[],
   reused: { field: FormFieldDef; value: unknown }[]
 ): string {
   const lines: string[] = [`[表单提交: ${template.id}]`];
-  if (template.persist) {
-    lines.push("请调用 update_user_profile_tool 将以下新补充字段写入我的档案：");
-  } else {
-    lines.push("以下信息仅用于本次计划设计，请勿写入数据库：");
-  }
+  lines.push("请将以下新补充字段写入我的档案：");
   for (const { field, raw } of filled) {
     lines.push(`- ${field.label}: ${valueDisplay(field, raw)}`);
   }
-  if (reused.length > 0 && template.persist) {
+  if (reused.length > 0) {
     const reusedText = reused
       .map(({ field, value }) => `${field.label} ${prefilledDisplay(field, value)}`)
       .join("、");
@@ -221,9 +217,7 @@ export function FormCard({ step, interactive, onSubmit }: FormCardProps) {
       {interactive && !submitted && editableFields.length > 0 && (
         <div className="flex items-center justify-between border-t border-emerald-100 px-4 py-2.5">
           <span className="text-[11px] text-muted-foreground">
-            {template.persist
-              ? "提交后这些基础数据将存入你的档案"
-              : "提交后仅用于本次计划设计，不会保存"}
+            提交后这些数据将存入你的档案
           </span>
           <Button
             size="sm"

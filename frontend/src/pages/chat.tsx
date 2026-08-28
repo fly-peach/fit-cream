@@ -37,6 +37,7 @@ import {
   ConfirmationTitle,
 } from "@/components/ai-elements/confirmation";
 import { Textarea } from "@/components/ui/textarea";
+import { linkifyExerciseNames } from "@/lib/exercise-links";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +49,7 @@ import {
 import { FormCard } from "@/components/form-card";
 import { DayDesignCard } from "@/components/day-design-card";
 import { OutlineCard } from "@/components/outline-card";
+import { RoadmapCard } from "@/components/roadmap-card";
 import { PlanQueuePanel } from "@/components/plan-queue-panel";
 import {
   Attachments,
@@ -476,6 +478,16 @@ function StreamSteps({
               />
             );
           }
+          if (tool === "present_roadmap_tool") {
+            return (
+              <RoadmapCard
+                key={step.id || i}
+                step={step}
+                interactive={!!formInteractive}
+                onSubmit={(text) => onSubmitForm?.(text)}
+              />
+            );
+          }
           // 队列工具只驱动顶部待办面板，不在消息流内渲染卡片
           if (
             tool === "present_plan_queue_tool" ||
@@ -506,6 +518,24 @@ interface PlanChange {
   action?: string;
   target?: string;
   detail?: string;
+}
+
+/**
+ * 计划提案正文：把动作库动作名替换为 /exercises/<id> 详情链接后按 markdown 渲染。
+ * 映射异步加载，未就绪/失败时退回原始文本。
+ */
+function PlanContentMarkdown({ markdown }: { markdown: string }) {
+  const [linked, setLinked] = useState(markdown);
+  useEffect(() => {
+    let cancelled = false;
+    linkifyExerciseNames(markdown).then((text) => {
+      if (!cancelled) setLinked(text);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [markdown]);
+  return <MessageResponse>{linked}</MessageResponse>;
 }
 
 /**
@@ -566,7 +596,7 @@ function PlanCard({ step }: { step: AgentStep }) {
             </div>
           </div>
         )}
-        <MessageResponse>{input.content || ""}</MessageResponse>
+        <PlanContentMarkdown markdown={input.content || ""} />
       </PlanContent>
     </Plan>
   );

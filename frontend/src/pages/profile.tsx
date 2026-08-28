@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/app-layout";
 import { ApiKeyPanel } from "@/components/api-key-panel";
+import { FitnessProfileCard } from "@/components/fitness-profile-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -130,6 +131,9 @@ export default function ProfilePage() {
 
   // 账号与安全 —— 折叠展开（默认收起）
   const [securityOpen, setSecurityOpen] = useState(false);
+  // Token 用量 / DeepSeek —— 折叠展开（默认收起，压缩页面）
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [dsOpen, setDsOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -497,12 +501,30 @@ export default function ProfilePage() {
                 </CardContent>
               </Card>
 
+              <FitnessProfileCard />
+
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>
-                  <CardTitle className="text-base font-semibold text-emerald-950">
-                    Token 用量
-                  </CardTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base font-semibold text-emerald-950">
+                      Token 用量
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-emerald-600/70"
+                      onClick={() => setUsageOpen((v) => !v)}
+                      title={usageOpen ? "收起" : "展开"}
+                    >
+                      {usageOpen ? (
+                        <ChevronUp className="size-4" />
+                      ) : (
+                        <ChevronDown className="size-4" />
+                      )}
+                    </Button>
+                  </div>
                 </CardHeader>
+                {usageOpen && (
                 <CardContent className="space-y-4">
                   {usage ? (
                     <>
@@ -548,17 +570,34 @@ export default function ProfilePage() {
                     <p className="text-sm text-emerald-600/50">暂无用量数据</p>
                   )}
                 </CardContent>
+                )}
               </Card>
 
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>
-                  <div className="flex items-center gap-2">
-                    <KeyRound className="size-4 text-emerald-600" />
-                    <CardTitle className="text-base font-semibold text-emerald-950">
-                      DeepSeek 模型
-                    </CardTitle>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="size-4 text-emerald-600" />
+                      <CardTitle className="text-base font-semibold text-emerald-950">
+                        DeepSeek 模型
+                      </CardTitle>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-emerald-600/70"
+                      onClick={() => setDsOpen((v) => !v)}
+                      title={dsOpen ? "收起" : "展开"}
+                    >
+                      {dsOpen ? (
+                        <ChevronUp className="size-4" />
+                      ) : (
+                        <ChevronDown className="size-4" />
+                      )}
+                    </Button>
                   </div>
                 </CardHeader>
+                {dsOpen && (
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2">
                     <Input
@@ -613,6 +652,7 @@ export default function ProfilePage() {
                     DeepSeek 视觉模型，key 无效时自动回退默认模型。
                   </p>
                 </CardContent>
+                )}
               </Card>
 
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">

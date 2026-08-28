@@ -35,6 +35,11 @@ import {
 import { AppLayout } from "@/components/app-layout";
 import { TodayOverviewBar } from "@/components/today-overview-bar";
 import {
+  criterionText,
+  type RoadmapCriterionView,
+  type RoadmapViewData,
+} from "@/components/roadmap-view";
+import {
   Flame,
   Dumbbell,
   Target,
@@ -49,6 +54,8 @@ import {
   Pencil,
   Check,
   X,
+  MapPin,
+  Route,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -756,6 +763,126 @@ function BodyStatsCard({
   );
 }
 
+// ============ 闯关进行中卡片（当前关节点） ============
+
+interface CurrentMilestone {
+  id: string;
+  stage_index: number;
+  title: string;
+  exit_criteria: RoadmapCriterionView[];
+  expected_weeks?: number | null;
+  status?: string | null;
+}
+
+interface GoalRoadmapData {
+  roadmap: RoadmapViewData | null;
+  current_milestone: CurrentMilestone | null;
+  latest_tests?: Record<string, { lift?: string; value?: number; bodyweight_kg?: number | null }>;
+  body_metrics?: {
+    weight_kg?: number | null;
+    body_fat_pct?: number | null;
+    waist_cm?: number | null;
+    height_cm?: number | null;
+  };
+}
+
+function RoadmapCurrentCard({ data }: { data: GoalRoadmapData | null }) {
+  const current = data?.current_milestone;
+  const roadmap = data?.roadmap;
+  if (!roadmap || !current) {
+    return (
+      <DashCard icon={<Route className="size-4 text-sky-500" />} title="闯关进行中">
+        <div className="flex h-full flex-col items-center justify-center gap-2 py-5 text-center">
+          <Route className="size-6 text-sky-200" />
+          <p className="text-xs text-emerald-600/60 sm:text-sm">还没有闯关路线图</p>
+          <p className="text-[11px] text-emerald-500/50 sm:text-xs">
+            在 AI 教练聊天页点「设计计划」确定目标原型即可开启闯关
+          </p>
+        </div>
+      </DashCard>
+    );
+  }
+
+  const tests = data?.latest_tests ?? {};
+  const body = data?.body_metrics ?? {};
+  const baselineRows: { label: string; value: string }[] = [];
+  const liftNames: Record<string, string> = {
+    bench: "卧推",
+    squat: "深蹲",
+    deadlift: "硬拉",
+    ohp: "推举",
+    pull_up: "引体",
+  };
+  for (const [lift, t] of Object.entries(tests)) {
+    if (t?.value != null) {
+      baselineRows.push({
+        label: liftNames[lift] ?? lift,
+        value: `${t.value}${lift === "pull_up" ? " 次" : " kg"}`,
+      });
+    }
+  }
+  if (body?.body_fat_pct != null) {
+    baselineRows.push({ label: "体脂率", value: `${body.body_fat_pct}%` });
+  }
+  if (body?.waist_cm != null) {
+    baselineRows.push({ label: "腰围", value: `${body.waist_cm} cm` });
+  }
+
+  return (
+    <DashCard
+      icon={<Route className="size-4 text-sky-500" />}
+      title="闯关进行中"
+      action={
+        <span className="shrink-0 rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+          {roadmap.title}
+        </span>
+      }
+    >
+      <div className="flex h-full flex-col gap-3">
+        <div className="rounded-lg border border-sky-200 bg-sky-50/50 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="flex size-6 items-center justify-center rounded-full bg-sky-600 text-xs font-bold text-white">
+              {current.stage_index}
+            </span>
+            <span className="text-sm font-semibold text-sky-950">{current.title}</span>
+            {current.expected_weeks ? (
+              <span className="ml-auto shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                约 {current.expected_weeks} 周
+              </span>
+            ) : null}
+          </div>
+          <ul className="mt-2 space-y-0.5">
+            {current.exit_criteria.map((c, i) => (
+              <li key={i} className="flex items-center gap-1.5 text-xs text-sky-800/80">
+                <MapPin className="size-3 shrink-0 text-sky-500" />
+                通关条件：{criterionText(c)}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {baselineRows.length > 0 ? (
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {baselineRows.slice(0, 6).map((row) => (
+              <div
+                key={row.label}
+                className="rounded-lg bg-emerald-50/50 px-2 py-1.5 text-center"
+              >
+                <p className="text-[10px] text-emerald-600/60">{row.label}</p>
+                <p className="text-sm font-bold tabular-nums text-emerald-900">{row.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-[11px] text-emerald-500/60">
+            暂无基线数据，训练后记得复测
+          </p>
+        )}
+      </div>
+    </DashCard>
+  );
+}
+
 // ============ 主页面 ============
 
 export default function DashboardPage() {
@@ -765,6 +892,7 @@ export default function DashboardPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [checkins, setCheckins] = useState<CheckinItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [goalRoadmap, setGoalRoadmap] = useState<GoalRoadmapData | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -773,7 +901,8 @@ export default function DashboardPage() {
       api.get<BodyStats>("/stats/body").catch(() => null),
       api.get<UserSettings>("/users/settings").catch(() => null),
       api.get<{ items: CheckinItem[] }>("/checkins?size=50").catch(() => null),
-    ]).then(([ov, wk, bd, s, checkinRes]) => {
+      api.get<GoalRoadmapData>("/goal-roadmap").catch(() => null),
+    ]).then(([ov, wk, bd, s, checkinRes, goalRes]) => {
       setOverview(ov);
       setWeekly(wk);
       setBody(bd);
@@ -781,6 +910,7 @@ export default function DashboardPage() {
       if (checkinRes?.items) {
         setCheckins(checkinRes.items);
       }
+      if (goalRes) setGoalRoadmap(goalRes);
       setLoading(false);
     });
   }, []);
@@ -882,6 +1012,9 @@ export default function DashboardPage() {
                   </Card>
                 ))}
               </div>
+
+              {/* 闯关进行中（当前关节点） */}
+              <RoadmapCurrentCard data={goalRoadmap} />
 
               {/* 数据卡行：今日训练 / 本周目标 / 身体数据，移动端 3 列 */}
               <div className="grid grid-cols-3 gap-2 sm:gap-4 lg:gap-5">

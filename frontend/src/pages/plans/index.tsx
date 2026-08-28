@@ -4,6 +4,7 @@ import { zhCN } from "date-fns/locale";
 import { useNavigate, useParams } from "react-router-dom";
 import { AppLayout } from "@/components/app-layout";
 import { MetadataPreview } from "@/components/metadata-editor";
+import { RoadmapView, type RoadmapViewData } from "@/components/roadmap-view";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,12 +34,14 @@ import {
   RefreshCw,
   UtensilsCrossed,
   ArrowRight,
+  MapIcon,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { showError } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckinCalendar } from "./checkin-calendar";
+import { CurrentTraining } from "./current-training";
 import { DayDetailDialog } from "./day-detail-dialog";
 import { DietPlanCard } from "./diet-plan-card";
 import { NutritionOverview } from "./nutrition-overview";
@@ -101,6 +104,7 @@ export default function PlansPage() {
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<"training" | "diet">("training");
   const [deleteDayTarget, setDeleteDayTarget] = useState<string | null>(null);
+  const [roadmap, setRoadmap] = useState<RoadmapViewData | null>(null);
 
   // 创建首个训练计划的内联表单状态
   const [creatingPlan, setCreatingPlan] = useState(false);
@@ -127,13 +131,17 @@ export default function PlansPage() {
       api.get<{ current_streak: number }>("/checkins/streak").catch(() => null),
       api.get<DietPlanDetail | null>("/diet-plans/active").catch(() => null),
       api.get<UserSettings>("/users/settings").catch(() => null),
+      api
+        .get<{ roadmap: RoadmapViewData | null }>("/goal-roadmap")
+        .catch(() => null),
     ])
-      .then(([active, checkinRes, streakRes, diet, userSettings]) => {
+      .then(([active, checkinRes, streakRes, diet, userSettings, goalRes]) => {
         setActivePlan(active);
         if (checkinRes?.items) setCheckins(checkinRes.items);
         if (streakRes) setStreak(streakRes.current_streak);
         setDietPlan(diet);
         setSettings(userSettings);
+        if (goalRes?.roadmap) setRoadmap(goalRes.roadmap);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -297,34 +305,33 @@ export default function PlansPage() {
 
   const renderTrainingCard = () => (
     <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
-      <CardHeader>
-        <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="text-[11px] font-semibold text-emerald-950 sm:text-lg">
-              当日训练
-            </CardTitle>
-            <p className="mt-0.5 text-[7px] text-emerald-600/70 sm:mt-1 sm:text-xs">
-              {exDateLabel}
-              {activePlan ? ` · ${activePlan.name}` : ""}
-            </p>
-          </div>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-emerald-950">
+            <Dumbbell className="size-4 text-emerald-500" />
+            当日训练概览
+          </CardTitle>
           {exDay && (
             <Button
               variant="ghost"
               size="icon"
               title="编辑训练日"
-              className="size-5 text-emerald-400 hover:text-emerald-600 sm:size-8"
+              className="size-6 text-emerald-400 hover:text-emerald-600"
               onClick={() => openDayDetail(exDay)}
             >
-              <Pencil className="size-3 sm:size-4" />
+              <Pencil className="size-3" />
             </Button>
           )}
         </div>
+        <p className="mt-1 text-xs text-emerald-600/70">
+          {exDateLabel}
+          {activePlan ? ` · ${activePlan.name}` : ""}
+        </p>
       </CardHeader>
       <CardContent className="space-y-3">
         {!activePlan ? (
-          <div className="flex flex-col items-center gap-3 py-6 text-center">
-            <Dumbbell className="size-8 text-emerald-300" />
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <Dumbbell className="size-7 text-emerald-300" />
             <p className="text-sm text-emerald-600/60">
               暂无训练计划，可手动创建或让 AI 教练为你生成
             </p>
@@ -610,6 +617,22 @@ export default function PlansPage() {
             </div>
           ) : (
             <div className="space-y-6">
+              {/* 闯关路线图（完整） */}
+              <Card className="border-sky-100 bg-white/80 shadow-sm backdrop-blur">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-950 sm:text-lg">
+                    <MapIcon className="size-3.5 text-sky-500 sm:size-4" />
+                    闯关路线图
+                    <span className="text-[9px] font-normal text-muted-foreground sm:text-xs">
+                      当前目标与关卡进度
+                    </span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RoadmapView roadmap={roadmap} />
+                </CardContent>
+              </Card>
+
               {/* 移动端 Tabs：训练 / 饮食 */}
               <div className="lg:hidden">
                 <Tabs
@@ -639,6 +662,11 @@ export default function PlansPage() {
                         streak={streak}
                         dietDayCalories={dietDayCalories}
                         dietTargetCalories={dietPlan?.target_calories ?? null}
+                      />
+                      <CurrentTraining
+                        day={exDay}
+                        dateLabel={exDateLabel}
+                        completedPdeIds={completedPdeIds}
                       />
                       {renderTrainingCard()}
                     </>
@@ -674,16 +702,23 @@ export default function PlansPage() {
 
               {/* 桌面端双栏 */}
               <div className="hidden space-y-6 lg:block">
+                {/* 第2行：锻炼日历（整行） */}
+                <CheckinCalendar
+                  mode={calMode}
+                  onModeChange={setCalMode}
+                  selectedDate={calMode === "exercise" ? exDate : dietDate}
+                  onPickDate={calMode === "exercise" ? pickExerciseDate : pickDietDate}
+                  checkinDates={checkinDates}
+                  streak={streak}
+                  dietDayCalories={dietDayCalories}
+                  dietTargetCalories={dietPlan?.target_calories ?? null}
+                />
+                {/* 第3行：当前训练 | 当日营养概览 */}
                 <div className="grid items-start gap-6 lg:grid-cols-2">
-                  <CheckinCalendar
-                    mode={calMode}
-                    onModeChange={setCalMode}
-                    selectedDate={calMode === "exercise" ? exDate : dietDate}
-                    onPickDate={calMode === "exercise" ? pickExerciseDate : pickDietDate}
-                    checkinDates={checkinDates}
-                    streak={streak}
-                    dietDayCalories={dietDayCalories}
-                    dietTargetCalories={dietPlan?.target_calories ?? null}
+                  <CurrentTraining
+                    day={exDay}
+                    dateLabel={exDateLabel}
+                    completedPdeIds={completedPdeIds}
                   />
                   <NutritionOverview
                     meals={dietDay?.meals ?? []}
@@ -691,7 +726,8 @@ export default function PlansPage() {
                     dateLabel={dietDateLabel}
                   />
                 </div>
-                <div className="grid gap-6 lg:grid-cols-2">
+                {/* 第4行：当日训练概览 | 当日饮食 */}
+                <div className="grid items-start gap-6 lg:grid-cols-2">
                   {renderTrainingCard()}
                   <DietPlanCard
                     dietPlan={dietPlan}

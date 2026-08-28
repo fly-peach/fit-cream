@@ -60,6 +60,11 @@ export const toolNameMap: Record<string, string> = {
   get_user_summary_tool: "用户画像摘要",
   present_plan_tool: "计划提案",
   present_form_tool: "信息采集表单",
+  get_goal_knowledge_tool: "闯关知识",
+  present_roadmap_tool: "路线图提案",
+  create_roadmap_tool: "创建路线图",
+  get_roadmap_tool: "闯关路线图",
+  record_baseline_tool: "记录基线",
 };
 
 /** 工具名 -> 图标 */
@@ -101,4 +106,9 @@ export const toolIconMap: Record<string, LucideIcon> = {
   get_user_summary_tool: UserIcon,
   present_plan_tool: ClipboardListIcon,
   present_form_tool: ClipboardListIcon,
+  get_goal_knowledge_tool: BrainIcon,
+  present_roadmap_tool: ClipboardListIcon,
+  create_roadmap_tool: ClipboardListIcon,
+  get_roadmap_tool: ClipboardListIcon,
+  record_baseline_tool: ScaleIcon,
 };

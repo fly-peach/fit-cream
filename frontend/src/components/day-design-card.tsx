@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { CheckCircle2Icon, DumbbellIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -96,7 +97,18 @@ export function DayDesignCard({ step, interactive, onSubmit }: DayDesignCardProp
             <tbody>
               {design.exercises.map((ex, i) => (
                 <tr key={i} className="border-b border-emerald-50 last:border-0">
-                  <td className="px-3 py-1.5 text-emerald-900">{ex.name}</td>
+                  <td className="px-3 py-1.5">
+                    {ex.exercise_id ? (
+                      <Link
+                        to={`/exercises/${ex.exercise_id}`}
+                        className="text-emerald-700 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-600"
+                      >
+                        {ex.name}
+                      </Link>
+                    ) : (
+                      <span className="text-emerald-900">{ex.name}</span>
+                    )}
+                  </td>
                   <td className="px-3 py-1.5 text-muted-foreground">
                     {exerciseDetail(ex) || "-"}
                   </td>

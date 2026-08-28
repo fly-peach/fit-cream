@@ -24,6 +24,7 @@ export interface ExerciseBrief {
   target?: string | null;
   target_zh?: string | null;
   image?: string | null;
+  gif_url?: string | null;
 }
 
 export interface Exercise extends ExerciseBrief {
