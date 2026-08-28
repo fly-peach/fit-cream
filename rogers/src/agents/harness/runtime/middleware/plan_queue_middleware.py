@@ -47,14 +47,21 @@ def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
 
     - present_plan_queue_tool：入参 {title, todos}
     - update_plan_queue_item_tool：入参含 queue 字段（{title, todos}）
+
+    防御：todos 必须是 list 才视为有效快照（模型可能把裁剪占位符「…(省略…)」
+    或字符串数组原文回传，todos_kind=str——见 context_message_gate 备注），
+    否则返回 None，让 _reconstruct_queue 继续找更早的有效快照而非崩溃。
     """
     if not isinstance(args, dict):
         return None
     if name == "present_plan_queue_tool":
-        return args if args.get("todos") is not None else None
+        todos = args.get("todos")
+        return args if isinstance(todos, list) else None
     if name == "update_plan_queue_item_tool":
         q = args.get("queue")
-        return q if isinstance(q, dict) else None
+        if isinstance(q, dict) and isinstance(q.get("todos"), list):
+            return q
+        return None
     return None
 
 
@@ -99,7 +106,15 @@ def get_queue_snapshot(messages: list) -> dict | None:
 def _render_snapshot(queue: dict) -> str:
     """把队列快照渲染成注入给模型的简明文本。"""
     title = queue.get("title", "计划设计")
-    todos = queue.get("todos") or []
+    raw_todos = queue.get("todos") or []
+    # 防御：模型回传的 todos 可能是字符串（占位符原文）/ dict / 含非 dict 元素，
+    # 只保留 dict 项，防 sum/循环里 str.get 抛 AttributeError 阻断整条消息。
+    if isinstance(raw_todos, list):
+        todos = [t for t in raw_todos if isinstance(t, dict)]
+    elif isinstance(raw_todos, dict):
+        todos = [raw_todos]
+    else:
+        todos = []
     done = sum(1 for t in todos if t.get("status") == "completed")
     lines = [
         "# 计划设计待办进度（务必据此推进，做了就打勾，勿重复已完成项）",

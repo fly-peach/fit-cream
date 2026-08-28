@@ -19,7 +19,10 @@ from src.agents.harness.runtime.middleware.context_message_gate import (
     _redact_messages,
     _redact_queue_args,
 )
-from src.agents.harness.runtime.middleware.plan_queue_middleware import _reconstruct_queue
+from src.agents.harness.runtime.middleware.plan_queue_middleware import (
+    _reconstruct_queue,
+    _render_snapshot,
+)
 
 
 def _queue_ai(tool_name: str, title: str, todos: list | str) -> AIMessage:
@@ -185,8 +188,43 @@ class TestReconstructQueueBackwardScan:
         msgs = [HumanMessage(content="你好"), AIMessage(content="嗨")]
         assert _reconstruct_queue(msgs) is None
 
-    def test_redacted_queue_still_reconstructed(self):
-        # 即使入参被模型视图裁剪（todos 为占位串），后向扫描仍能拿到快照结构
+    def test_redacted_queue_skipped_when_malformed(self):
+        # 入参被模型视图裁剪（todos 为占位串/字符串数组）时视为畸形快照，
+        # 后向扫描跳过它（否则 _render_snapshot 对字符串逐字符迭代 -> AttributeError）
         msgs = [_queue_ai("present_plan_queue_tool", "4周计划", "…(省略)")]
+        assert _reconstruct_queue(msgs) is None
+
+    def test_skips_malformed_but_finds_older_valid(self):
+        # 最新快照畸形（字符串数组）时回退到更早的有效快照，避免崩溃且不丢状态
+        msgs = [
+            _queue_ai("present_plan_queue_tool", "第一版", FULL_TODOS),
+            HumanMessage(content="继续"),
+            _queue_ai("update_plan_queue_item_tool", "第二版", "…(省略)"),
+        ]
         snapshot = _reconstruct_queue(msgs)
-        assert snapshot["title"] == "4周计划"
+        assert snapshot is not None
+        assert snapshot["title"] == "第一版"
+
+
+class TestRenderSnapshotRobust:
+    def test_string_todos_no_crash(self):
+        # 回归：todos 为占位串（模型回传畸形入参）时不崩，渲染空队列
+        text = _render_snapshot({"title": "4周计划", "todos": "…(省略)"})
+        assert "4周计划" in text
+        assert "0/0" in text
+
+    def test_list_with_string_items_no_crash(self):
+        # 回归：todos 列表混入字符串元素时只取 dict 项，不抛 AttributeError
+        text = _render_snapshot(
+            {
+                "title": "4周计划",
+                "todos": [
+                    "收集数据",
+                    {"id": "a", "title": "大纲", "status": "completed"},
+                    {"id": "b", "title": "逐日设计", "status": "pending"},
+                ],
+            }
+        )
+        assert "1/2" in text
+        assert "大纲" in text
+        assert "逐日设计" in text
