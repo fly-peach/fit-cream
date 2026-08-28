@@ -362,7 +362,24 @@ docker compose up -d --build
 
 - `docker-compose.yml` 中 `DATABASE_URL` 已覆盖为容器内部地址（`db:5432`），`.env` 中的数据库配置仅用于本地开发。
 - 数据库数据持久化在 `pgdata` volume 中，`docker compose down` 不会丢失数据。
-- 首次启动自动建表 + 种子数据（管理员、动作库）。
+- 本地部署通过 `docker-compose.override.yml` 覆盖 `DEBUG: "true"`：`init_db()` 自动建表 /
+  补列 + 枚举 CHECK 约束 + 种子数据（管理员、动作库），**schema 变更无需手动迁移**。
+
+### 数据库迁移（DEBUG=false 环境）
+
+`init_db()` 仅 `DEBUG=true` 时运行；`docker-compose.yml` 生产 `DEBUG=false`，
+**新增表/列不会自动创建**，须在部署重启前手动执行迁移脚本：
+
+- 迁移脚本位于 `rogers/scripts/migrations/`，按日期命名（如 `2026-08-28_user_fitness_profiles.sql`），
+  全部幂等、可重复执行；纯新增表向后兼容，可先执行 SQL 再部署代码。
+- 在 db 容器内执行：
+
+```bash
+docker exec -i <db容器名> psql -U fitcream -d fitcream < rogers/scripts/migrations/<脚本名>.sql
+```
+
+- 本地验证迁移脚本（模拟生产路径）：`docker compose up -d db` 后手动执行上述命令即可，
+  不影响 `app` 服务 `DEBUG=true` 的自动建表。
 
 ### 常用命令
 
@@ -373,7 +390,7 @@ docker compose logs -f app
 # 停止
 docker compose down
 
-# 停止并清除数据
+# 停止并清除数据（会清空 pgdata 卷）
 docker compose down -v
 
 # 重新构建（代码更新后）
