@@ -45,6 +45,14 @@ from src.agents.harness.orchestration.model_factory import resolve_chat_model
 
 logger = logging.getLogger("fitcream.memory")
 
+# 共享 MemoryUpdateMiddleware 实例（供 lifespan shutdown 排空后台记忆任务）
+_shared_memory_middleware: Optional["MemoryUpdateMiddleware"] = None
+
+
+def get_shared_memory_middleware() -> Optional["MemoryUpdateMiddleware"]:
+    """获取共享 MemoryUpdateMiddleware 实例（生产 graph 最后一次构造的实例）。"""
+    return _shared_memory_middleware
+
 
 class MemoryUpdateState(AgentState):
     """MemoryUpdateMiddleware 的每轮状态（不持久化到 checkpoint）。"""
@@ -98,6 +106,26 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         # 共享 graph 下所有 run 复用同一中间件实例，per-user 键保证并发用户互不干扰。
         self._processing_users: set[str] = set()
         self._memory_tasks: dict[str, asyncio.Task] = {}
+
+        # 注册为共享实例（lifespan shutdown 时据此排空后台任务）
+        global _shared_memory_middleware
+        _shared_memory_middleware = self
+
+    async def shutdown(self) -> None:
+        """排空/取消进行中的后台记忆任务，防止其持有 DB 连接跨事件循环存活。
+
+        lifespan shutdown 时调用（agent_graph.shutdown_agent）：取消未完成的任务
+        并等待其收尾（连接归还池），避免 AsyncAdaptedQueuePool 的 GC 清理告警
+        （non-checked-in connection）。
+        """
+        tasks = list(self._memory_tasks.values())
+        self._memory_tasks.clear()
+        self._processing_users.clear()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def _resolve_ids(self, runtime: Runtime) -> tuple[Optional[str], Optional[str]]:
         """

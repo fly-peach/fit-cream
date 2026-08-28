@@ -195,6 +195,19 @@ async def shutdown_agent():
         _checkpointer_cm = None
         _checkpointer = None
 
+    # 排空 MemoryUpdateMiddleware 后台记忆任务（防止跨 loop 持有 DB 连接，
+    # 导致 AsyncAdaptedQueuePool GC 清理告警）
+    try:
+        from src.agents.harness.runtime.middleware.memory_update import (
+            get_shared_memory_middleware,
+        )
+
+        mw = get_shared_memory_middleware()
+        if mw is not None:
+            await mw.shutdown()
+    except Exception:
+        pass
+
     # 关闭记忆存储引擎（与 checkpointer 对称释放）
     try:
         from src.agents.harness.runtime.memory.store import shutdown_memory_store

@@ -299,12 +299,15 @@ def is_ds_key_invalid(api_key: str) -> bool:
     return _hash_key(api_key) in _invalid_ds_keys
 
 
-def resolve_chat_model(*, user_ds_key: Optional[str] = None) -> BaseChatModel:
+def resolve_chat_model(
+    *, user_ds_key: Optional[str] = None, enable_thinking: bool = True
+) -> BaseChatModel:
     """按请求解析模型。
 
     - 有 user DS key：deepseek 视觉模型（LRU 缓存；若该 key 曾 401/403 命中负
       缓存则回退 qwen）
-    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.7-plus）
+    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.7-plus）；``enable_thinking``
+      可 per-call 覆盖（plan_design 纯 tool-calling 轮传 False 省 reasoning tokens）
 
     返回的模型一律 ``streaming=True``：本函数主要供 Agent 对话路径（SSE 流式
     逐 token 转发，见 chat.py _run_agent_sse）与记忆提取/摘要解析使用，
@@ -316,7 +319,7 @@ def resolve_chat_model(*, user_ds_key: Optional[str] = None) -> BaseChatModel:
             logger.warning(
                 "[ModelFactory] deepseek key 已标记无效（负缓存），回退 qwen"
             )
-            return resolve_chat_model(user_ds_key=None)
+            return resolve_chat_model(user_ds_key=None, enable_thinking=enable_thinking)
         cache_key = ("deepseek", key_hash)
         model = _cache_get(cache_key)
         if model is None:
@@ -324,10 +327,10 @@ def resolve_chat_model(*, user_ds_key: Optional[str] = None) -> BaseChatModel:
             _cache_put(cache_key, model)
         return model
 
-    cache_key = ("qwen", "default")
+    cache_key = ("qwen", "default" if enable_thinking else "nothink")
     model = _cache_get(cache_key)
     if model is None:
-        model = create_qwen(enable_thinking=True, streaming=True)
+        model = create_qwen(enable_thinking=enable_thinking, streaming=True)
         _cache_put(cache_key, model)
     return model
 
