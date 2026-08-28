@@ -415,6 +415,8 @@ async def _run_agent_sse(
     tool_calls = []          # 完整工具调用记录 [{id, name, input, output, status}]
     steps: list[dict] = []   # ReAct 步骤序列（不含 thought：思考碎片不再进入前端时间线）
     pending_reply: Optional[dict] = None
+    # 当前思考阶段是否已发「思考中」状态事件（每阶段只发一次；思考内容仍不下发）
+    thinking_started = False
     # 按 run_id 索引进行中的工具：并行工具调用时 on_tool_start/end 事件交错，
     # 单指针跟踪会丢失先启动的工具，导致其永远停留在 running
     _tools_by_run_id: dict[str, dict] = {}
@@ -455,11 +457,18 @@ async def _run_agent_sse(
                 chunk = event["data"]["chunk"]
                 reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                 if reasoning:
-                    # 思考内容不再下发前端（P0-2）：qwen enable_thinking 的冗长
+                    if not thinking_started:
+                        # 思考阶段开始：发一个无内容的 thinking 状态事件，让前端显示
+                        # 「思考中...」而不是干等。不带 reasoning 内容（防泄漏内部权衡）。
+                        thinking_started = True
+                        yield _sse_event("thinking", {"content": ""})
+                    # 思考内容仍不下发前端（P0-2）：qwen enable_thinking 的冗长
                     # reasoning_content 直接流给前端会渲染成「思考了X秒」碎片并泄漏
-                    # 模型内部权衡。仅累积存 metadata.thinking 供机器调试，不 yield。
+                    # 模型内部权衡。仅累积存 metadata.thinking 供机器调试。
                     full_thinking += reasoning
                 if chunk.content:
+                    if thinking_started:
+                        thinking_started = False  # 开始出正式回复，思考阶段结束
                     if pending_reply is None:
                         pending_reply = {"type": "reply", "content": ""}
                         steps.append(pending_reply)
@@ -504,8 +513,10 @@ async def _run_agent_sse(
                     usage_total["estimated"] = True
                 usage_total["llm_calls"] += 1
                 pending_reply = None
+                thinking_started = False
 
             elif kind == "on_tool_start":
+                thinking_started = False  # 进入工具调用，思考状态结束
                 tool_name = event["name"]
                 run_id = event.get("run_id", str(len(tool_calls)))
                 raw_input = event.get("data", {}).get("input")

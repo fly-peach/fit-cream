@@ -183,6 +183,21 @@ function InterleavedReasoning({
   return <div className="space-y-2">{nodes}</div>;
 }
 
+/** 模型思考中的轻量状态提示（思考内容不下发，只给用户「正在思考」的反馈） */
+function ThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+      <LoaderCircleIcon className="size-3.5 animate-spin" />
+      <span>思考中</span>
+      <span className="flex gap-0.5">
+        <span className="animate-bounce">.</span>
+        <span className="animate-bounce [animation-delay:0.15s]">.</span>
+        <span className="animate-bounce [animation-delay:0.3s]">.</span>
+      </span>
+    </div>
+  );
+}
+
 function MessageItem({
   message,
   pendingApproval,
@@ -243,6 +258,9 @@ function MessageItem({
   return (
     <Message from="assistant">
       <MessageContent>
+        {/* 模型思考中：显示「思考中...」状态而非干等（思考内容不下发，仅状态标记） */}
+        {message.isStreaming && message.isThinking && <ThinkingIndicator />}
+
         {/* 新格式：扁平时间流（思考→回复→工具 交错渲染） */}
         {hasSteps && (
           <StreamSteps
@@ -283,9 +301,13 @@ function MessageItem({
         {/* 旧格式（无 steps）的正文 */}
         {!hasSteps && cleaned && <MessageResponse>{cleaned}</MessageResponse>}
 
-        {message.isStreaming && !message.content && !hasSteps && !showLegacyReasoning && (
-          <span className="animate-pulse text-muted-foreground">▊</span>
-        )}
+        {message.isStreaming &&
+          !message.content &&
+          !hasSteps &&
+          !showLegacyReasoning &&
+          !message.isThinking && (
+            <span className="animate-pulse text-muted-foreground">▊</span>
+          )}
       </MessageContent>
     </Message>
   );

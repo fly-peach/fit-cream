@@ -109,6 +109,8 @@ export interface ChatMessage {
   approvals?: ToolApproval[];
   createdAt: number;
   isStreaming?: boolean;
+  /** 模型当前处于思考阶段（后端 thinking 状态事件驱动，用于显示「思考中...」） */
+  isThinking?: boolean;
 }
 
 /** 对话线程 */

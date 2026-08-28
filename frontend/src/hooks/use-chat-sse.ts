@@ -138,7 +138,7 @@ export function useChatSSE(
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, thinking: (m.thinking || "") + delta }
+                ? { ...m, isThinking: true, thinking: (m.thinking || "") + delta }
                 : m
             )
           );
@@ -149,7 +149,11 @@ export function useChatSSE(
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, content: m.content + (event.data.content as string) }
+                ? {
+                    ...m,
+                    isThinking: false,
+                    content: m.content + (event.data.content as string),
+                  }
                 : m
             )
           );
@@ -209,7 +213,7 @@ export function useChatSSE(
                   } as AgentStep;
                 }
               }
-              return { ...m, steps };
+              return { ...m, isThinking: false, steps };
             })
           );
           break;
@@ -226,7 +230,7 @@ export function useChatSSE(
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
-                ? { ...m, toolCalls: [...(m.toolCalls || []), toolCall] }
+                ? { ...m, isThinking: false, toolCalls: [...(m.toolCalls || []), toolCall] }
                 : m
             )
           );
@@ -255,7 +259,7 @@ export function useChatSSE(
               if (idx !== -1) {
                 calls[idx] = { ...calls[idx], output: event.data.data as string, status: "completed" };
               }
-              return { ...m, toolCalls: calls };
+              return { ...m, isThinking: false, toolCalls: calls };
             })
           );
           break;

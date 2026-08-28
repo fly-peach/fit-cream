@@ -270,9 +270,11 @@ class TestThinkingNotStreamed:
         async for s in gen:
             sse_text += s
 
-        # 不再下发 thinking 事件 / thought step
-        assert "event: thinking" not in sse_text
+        # 思考内容不下发：无 thought step、reasoning 文本不泄漏；
+        # 但思考阶段发「思考中」状态事件（无内容，供前端显示提示而非干等）
         assert '"type": "thought"' not in sse_text
+        assert "内部权衡" not in sse_text
+        assert "event: thinking" in sse_text
         # 正常 token / step(reply) / done 仍下发
         assert "event: token" in sse_text
         assert "正式回复" in sse_text
