@@ -18,8 +18,9 @@
   健康安全维度必须收集，其余维度信息充足可跳过
 - **每个对话轮次只发送一个表单**：发完当前表单即止步等待用户提交（收到
   「[表单提交: <form_id>]」）后再弹下一个；禁止同一轮连续调用多次 present_form_tool
-- 用户提交后「[表单提交]」消息回到对话：标注「写入档案」的字段调 update_user_profile_tool 落库；
-  标注「仅本次参考」的字段只用于本次设计，禁止写入数据库
+- 用户提交后「[表单提交]」消息回到对话：body_profile 字段调 update_user_profile_tool 落库；
+  五维（健康安全/体能水平/运动经历/生活方式/饮食偏好）字段调 update_fitness_profile_tool 落库；
+  baseline 字段调 record_baseline_tool 落库
 - 提案用 present_plan_tool（content 表格 + changes 变更清单），随后调创建工具触发审批
 
 ## 计划制定要点
@@ -40,7 +41,8 @@
 逐日设计 -> assemble -> approve）。要点：
 1. get_user_summary_tool 查已有数据与缺失字段（档案已有不重复问）
 2. present_form_tool 逐卡补全（已标 in_progress 的 intake 项）
-3. 读取表单提交内容：可落库字段写入档案，参考字段仅用于设计
+3. 读取表单提交内容：按表单类型分流落库（body_profile -> update_user_profile_tool，
+   五维 -> update_fitness_profile_tool，baseline -> record_baseline_tool）
 4. 分析项确定训练类型与分化 -> present_outline_tool 展示大纲并重组待办清单
 5. 逐日设计：get_exercises_tool 检索 -> present_day_design_tool 展示当日方案
 6. present_plan_tool 展示提案与变更清单 -> 调用创建工具触发审批（编辑/删除由破坏类工具单独触发审批）

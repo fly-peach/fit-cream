@@ -157,6 +157,10 @@ class CreatePlanInput(BaseModel):
             "未提供时走后端 generate_plan_from_goal 模板生成（向后兼容）。"
         ),
     )
+    milestone_id: Optional[str] = Field(
+        default=None,
+        description="关联闯关关卡 ID（goal_milestones.id），有 active 路线图时传当前关",
+    )
 
 
 @tool(args_schema=CreatePlanInput)
@@ -168,6 +172,7 @@ async def create_plan_tool(
     name: Optional[str] = None,
     weeks: Optional[int] = None,
     days: Optional[List[PlanDayCreate]] = None,
+    milestone_id: Optional[str] = None,
     config: "RunnableConfig" = None,  # type: ignore[assignment]
 ) -> dict:
     """
@@ -207,6 +212,7 @@ async def create_plan_tool(
                         difficulty=difficulty,
                         weeks=weeks,
                         days=days,
+                        milestone_id=UUID(milestone_id) if milestone_id else None,
                     ),
                 )
                 # 预加载 days->exercises->exercise，避免 plan_data 访问关系触发异步懒加载

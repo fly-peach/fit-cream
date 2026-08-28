@@ -13,6 +13,7 @@ from src.fitme.schemas.exercise import (
     CategoryStats,
     EquipmentStats,
     ExerciseCreate,
+    ExerciseNameOut,
     ExerciseOut,
     ExerciseUpdate,
     MuscleGroupStats,
@@ -107,6 +108,16 @@ async def get_exercise_favorite_ids(
     """获取当前用户收藏的动作 ID 集合（用于前端批量标记）"""
     ids = await ExerciseService.get_favorite_ids(db, user.id)
     return ResponseModel(data=[str(i) for i in ids])
+
+
+@router.get("/names", response_model=ResponseModel[list[ExerciseNameOut]], operation_id="list_exercise_names")
+async def list_exercise_names(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """全量动作名 -> ID 轻量映射（前端把计划提案中的动作名转为 /exercises/<id> 详情超链接）"""
+    data = await ExerciseService.list_name_map(db)
+    return ResponseModel(data=[ExerciseNameOut(**d) for d in data])
 
 
 @router.get("/{exercise_id}", response_model=ResponseModel[ExerciseOut], operation_id="get_exercise")

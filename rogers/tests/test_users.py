@@ -45,6 +45,67 @@ async def test_update_settings(user_client):
     assert data["weekly_training_goal"] == 6
 
 
+async def test_get_fitness_profile_defaults(user_client):
+    data = unwrap(await user_client.get("/api/users/me/fitness-profile"))
+    assert data["medical_history"] is None
+    assert data["parq_result"] is None
+    assert data["body_fat_pct"] is None
+    assert data["meals_per_day"] is None
+
+
+async def test_update_fitness_profile_partial_roundtrip(user_client):
+    data = unwrap(
+        await user_client.put(
+            "/api/users/me/fitness-profile",
+            json={
+                "medical_history": "无",
+                "parq_result": "low",
+                "training_experience": "intermediate",
+                "weekly_frequency": "3-4",
+                "sleep_quality": "good",
+                "diet_preferences": "少油清淡",
+                "body_fat_pct": 22.5,
+            },
+        )
+    )
+    assert data["medical_history"] == "无"
+    assert data["parq_result"] == "low"
+    assert data["training_experience"] == "intermediate"
+    assert data["weekly_frequency"] == "3-4"
+    assert data["sleep_quality"] == "good"
+    assert data["diet_preferences"] == "少油清淡"
+    assert data["body_fat_pct"] == 22.5
+    # 未传字段保持 None
+    assert data["injuries"] is None
+    assert data["cardio_level"] is None
+
+    # 再次 GET 往返一致
+    fetched = unwrap(await user_client.get("/api/users/me/fitness-profile"))
+    assert fetched["parq_result"] == "low"
+    assert fetched["body_fat_pct"] == 22.5
+
+    # 部分更新不影响已存字段
+    data2 = unwrap(
+        await user_client.put(
+            "/api/users/me/fitness-profile", json={"strength_level": "advanced"}
+        )
+    )
+    assert data2["strength_level"] == "advanced"
+    assert data2["weekly_frequency"] == "3-4"
+
+
+async def test_update_fitness_profile_invalid_enum(user_client):
+    resp = await user_client.put(
+        "/api/users/me/fitness-profile", json={"parq_result": "unknown"}
+    )
+    assert resp.status_code == 422
+
+    resp = await user_client.put(
+        "/api/users/me/fitness-profile", json={"body_fat_pct": 150}
+    )
+    assert resp.status_code == 422
+
+
 async def test_health_metrics_crud(user_client):
     created = unwrap(
         await user_client.post(

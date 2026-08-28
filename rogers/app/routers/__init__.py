@@ -28,6 +28,8 @@ from app.routers.checkins import router as checkins_router
 from app.routers.diet_meals import router as diet_meals_router
 from app.routers.diet_plans import router as diet_plans_router
 from app.routers.exercises import router as exercises_router
+from app.routers.goal_knowledge import router as goal_knowledge_router
+from app.routers.goal_roadmap import router as goal_roadmap_router
 from app.routers.knowledge_bases import router as knowledge_bases_router
 from app.routers.memory import router as memory_router
 from app.routers.moods import router as moods_router
@@ -46,6 +48,8 @@ api_router.include_router(checkins_router)
 api_router.include_router(moods_router)
 api_router.include_router(stats_router)
 api_router.include_router(exercises_router)
+api_router.include_router(goal_knowledge_router)
+api_router.include_router(goal_roadmap_router)
 api_router.include_router(knowledge_bases_router)
 api_router.include_router(memory_router)
 api_router.include_router(activity_router)

@@ -22,6 +22,8 @@ from src.fitme.schemas.user import (
     UserApiKeyCreate,
     UserApiKeyCreated,
     UserApiKeyOut,
+    UserFitnessProfileOut,
+    UserFitnessProfileUpdate,
     UserGoalsOut,
     UserGoalsUpdate,
     UserOut,
@@ -105,6 +107,35 @@ async def update_settings(
     """更新当前用户目标（部分更新）"""
     goals = await UserService.update_user_goals(db, current_user.id, data)
     return ResponseModel(data=UserGoalsOut.model_validate(goals))
+
+
+@router.get(
+    "/me/fitness-profile",
+    response_model=ResponseModel[UserFitnessProfileOut],
+    operation_id="get_my_fitness_profile",
+)
+async def get_my_fitness_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户健身画像（Intake 五维数据，不存在则创建空档案）"""
+    profile = await UserService.get_fitness_profile(db, current_user.id)
+    return ResponseModel(data=UserFitnessProfileOut.model_validate(profile))
+
+
+@router.put(
+    "/me/fitness-profile",
+    response_model=ResponseModel[UserFitnessProfileOut],
+    operation_id="update_my_fitness_profile",
+)
+async def update_my_fitness_profile(
+    data: UserFitnessProfileUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新当前用户健身画像（部分更新）"""
+    profile = await UserService.update_fitness_profile(db, current_user.id, data)
+    return ResponseModel(data=UserFitnessProfileOut.model_validate(profile))
 
 
 @router.get("/health-metrics", response_model=ResponseModel[PaginatedResponse[HealthMetricOut]], operation_id="list_health_metrics")

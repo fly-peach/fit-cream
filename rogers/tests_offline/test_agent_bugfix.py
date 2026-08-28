@@ -78,38 +78,50 @@ class TestPlanDesignGating:
         )
         return IntentMiddleware()
 
+    def _run(self, mw: IntentMiddleware, text: str) -> str:
+        """跑一轮 wrap_model_call，返回合并进 system_message 的提示词文本。
+
+        F1 迁移后 IntentMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
+        """
+        from langchain.agents.middleware.types import ModelRequest
+        from langchain_core.messages import HumanMessage
+
+        request = ModelRequest(model=None, messages=[HumanMessage(content=text)])
+        captured = {}
+
+        def handler(req):
+            captured["req"] = req
+            return "ok"
+
+        mw.wrap_model_call(request, handler)
+        sys_msg = captured["req"].system_message
+        return sys_msg.content if sys_msg else ""
+
     def test_non_plan_design_injects_button_guide(self, monkeypatch):
         mw = self._mw(monkeypatch, plan_design=False)
-        state = {"messages": [HumanMessage(content="请帮我设计健身计划")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        content = result["messages"][0].content
+        content = self._run(mw, "请帮我设计健身计划")
         # 注入按钮引导，而不是完整 plan-execute 流程（闭环待办只在完整流程提示词里）
+        assert content != ""
         assert "按钮" in content
         assert "闭环待办" not in content
 
     def test_plan_design_injects_full_flow(self, monkeypatch):
         mw = self._mw(monkeypatch, plan_design=True)
-        state = {"messages": [HumanMessage(content="请帮我设计健身计划")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        content = result["messages"][0].content
+        content = self._run(mw, "请帮我设计健身计划")
         # 按钮进入的 plan_design 会话：注入完整队列流程
+        assert content != ""
         assert "闭环待办" in content
 
     def test_plan_design_does_not_leak_button_guide(self, monkeypatch):
         mw = self._mw(monkeypatch, plan_design=True)
-        state = {"messages": [HumanMessage(content="请帮我设计健身计划")]}
-        result = mw.before_model(state, None)
-        assert "按钮" not in result["messages"][0].content
+        content = self._run(mw, "请帮我设计健身计划")
+        assert "按钮" not in content
 
     def test_non_plan_design_other_intents_kept(self, monkeypatch):
         # 非 plan_design 时 plan_creation 替换为按钮引导，其他意图提示词保留
         mw = self._mw(monkeypatch, plan_design=False)
-        state = {"messages": [HumanMessage(content="请帮我设计健身计划，练完了")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        content = result["messages"][0].content
+        content = self._run(mw, "请帮我设计健身计划，练完了")
+        assert content != ""
         assert "按钮" in content
         assert "训练打卡" in content  # checkin 意图提示词仍在
 

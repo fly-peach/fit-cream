@@ -12,7 +12,8 @@ form_id 与已知字段的预填值。前端把已有值渲染为只读（档案
     get_user_summary_tool 查缺 -> present_form_tool 弹表单
     -> 用户填写提交（结构化用户消息回到对话）
     -> body_profile 字段调 update_user_profile_tool 落库；
-       其余维度字段仅用于本次规划，禁止写库
+       五维（health_safety/fitness_level/exercise_history/lifestyle/diet_profile）
+       调 update_fitness_profile_tool 落库；baseline 调 record_baseline_tool 落库
 """
 
 from typing import Any, Dict, Optional
@@ -27,11 +28,12 @@ class PresentFormInput(BaseModel):
     form_id: str = Field(
         description=(
             "前端表单模板 key。可选值以前端 form-templates.ts 的 FORM_TEMPLATES keys "
-            "为准（单一来源，勿在此枚举）：body_profile(基础身体数据，可落库)、"
+            "为准（单一来源，勿在此枚举）：body_profile(基础身体数据，提交后写基础档案)、"
             "health_safety(健康与安全基线)、fitness_level(当前体能水平)、"
             "exercise_history(运动经历与习惯)、diet_profile(饮食偏好与结构)、"
             "baseline(基线评测数据)、lifestyle(生活方式与客观环境)。"
-            "其中 body_profile 提交后写入档案，其余表单仅本次参考、禁止写库。"
+            "其中 body_profile 提交后写基础档案；health_safety/fitness_level/"
+            "exercise_history/lifestyle/diet_profile 提交后写健身画像；baseline 写基线评测。"
         )
     )
     title: str = Field(description="表单卡片标题，如「补充基础身体数据」")
@@ -70,8 +72,10 @@ async def present_form_tool(
     - 发完表单即止步等待用户填写，不要在同一轮继续调用其他收集工具
 
     数据落库边界（重要）：
-    - body_profile 提交的字段 -> 调用 update_user_profile_tool 写入档案
-    - 其余表单提交的字段 -> 仅用于本次计划设计，禁止调用任何工具写入数据库
+    - body_profile 提交的字段 -> 调用 update_user_profile_tool 写入基础档案
+    - health_safety / fitness_level / exercise_history / lifestyle / diet_profile
+      提交的字段 -> 调用 update_fitness_profile_tool 写入健身画像
+    - baseline 提交的字段 -> 调用 record_baseline_tool 写入力量基线与身体指标
 
     Args:
         form_id: 前端表单模板 key

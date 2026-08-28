@@ -14,11 +14,13 @@ from sqlalchemy.orm import selectinload
 
 from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.user import User
+from src.fitme.models.user_fitness_profile import UserFitnessProfile
 from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.user_settings import UserSettings
 from src.fitme.schemas.user import (
     HealthMetricCreate,
     HealthMetricUpdate,
+    UserFitnessProfileUpdate,
     UserGoalsUpdate,
     UserUpdate,
 )
@@ -154,6 +156,39 @@ class UserService:
         await db.flush()
         await db.refresh(info)
         return info
+
+    @staticmethod
+    async def get_fitness_profile(
+        db: AsyncSession, user_id: UUID
+    ) -> UserFitnessProfile:
+        """获取用户健身画像（Intake 五维数据），不存在则创建"""
+        result = await db.execute(
+            select(UserFitnessProfile).where(UserFitnessProfile.user_id == user_id)
+        )
+        profile = result.scalar_one_or_none()
+
+        if not profile:
+            profile = UserFitnessProfile(user_id=user_id)
+            db.add(profile)
+            await db.flush()
+            await db.refresh(profile)
+
+        return profile
+
+    @staticmethod
+    async def update_fitness_profile(
+        db: AsyncSession, user_id: UUID, data: UserFitnessProfileUpdate
+    ) -> UserFitnessProfile:
+        """更新用户健身画像（部分更新）"""
+        profile = await UserService.get_fitness_profile(db, user_id)
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(profile, field, value)
+
+        await db.flush()
+        await db.refresh(profile)
+        return profile
 
     @staticmethod
     async def list_health_metrics(

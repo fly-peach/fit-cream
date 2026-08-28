@@ -102,6 +102,13 @@ class ExerciseOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ExerciseNameOut(BaseModel):
+    """动作名 -> ID 轻量映射（前端把计划提案中的动作名转为详情超链接）"""
+    id: UUID
+    name: str
+    name_en: Optional[str] = None
+
+
 class ExerciseBrief(BaseModel):
     """动作库摘要（嵌入计划动作输出）"""
     name: str
@@ -121,6 +128,7 @@ class ExerciseBrief(BaseModel):
     target: Optional[str] = None
     target_zh: Optional[str] = None
     image: Optional[str] = None
+    gif_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

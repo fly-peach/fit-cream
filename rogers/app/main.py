@@ -66,6 +66,14 @@ async def lifespan(app: FastAPI):
         await seed_admin(session)
         await seed_exercises(session)
         await normalize_exercise_equipment(session)
+        try:
+            from src.fitme.services.goal_knowledge_seed import seed_goal_knowledge
+
+            await seed_goal_knowledge(session)
+        except Exception as exc:
+            # 知识层种子容错：表缺失（生产未执行迁移 SQL）或种子文件缺失时
+            # 记录错误不阻断启动，其余功能照常可用
+            logger.warning("goal 知识层种子跳过（表未就绪或数据异常）: %s", exc)
         await session.commit()
 
     try:

@@ -1,13 +1,13 @@
 """
 意图识别中间件（渐进式提示词注入）
 
-基于 LangChain AgentMiddleware 的 before_model hook：
+基于 LangChain AgentMiddleware 的 wrap_model_call hook（F1 迁移后为临时注入）：
 1. 检测最新用户消息的意图（关键词多意图匹配 + 图片检测 + 可选 LLM 兜底）
-2. 注入命中的所有意图专项提示词（按优先级拼接，SystemMessage）
+2. 把命中的所有意图专项提示词临时合并进 request.system_message（不落 checkpoint）
 3. 实现"渐进式披露"——仅注入与当前意图相关的规则
 
 架构：
-    用户消息 -> IntentMiddleware.before_model
+    用户消息 -> IntentMiddleware.wrap_model_call
                     |
                     v
               detect_intents(message)
@@ -20,7 +20,7 @@
                     |
                     v
           注入 INTENT_PROMPTS[intent_1] + INTENT_PROMPTS[intent_2] + ...
-          (SystemMessage -> messages)
+          (合并进 request.system_message -> 临时、不持久化)
 
 效果：
 - 基础提示词始终存在（身份、能力概览、核心规则）
@@ -28,6 +28,8 @@
 - 每次用户新消息时重新检测意图
 - 多意图按 INTENT_KEYWORDS 顺序（优先级）拼接注入，解决 plan_creation 的
   「计划」与 diet_record 的「饮食计划」等歧义——都命中就都注入，让模型自行取舍
+- F1：注入走 wrap_model_call + system_message 合并，不再经 messages reducer
+  持久化，长期线程不会逐轮累积 SystemMessage（token 膨胀 / 陈旧提示污染）
 
 知识库耦合：knowledge_query 意图的注入需 KB 开关开启（configurable.kb_enabled），
 该判断统一走 runtime/config_flags.get_config_flag，不再 import kb_gate_middleware
@@ -40,9 +42,8 @@ LLM 兜底：默认关闭。仅当 configurable.intent_classify_llm 为真且关
 import logging
 from typing import Any, Optional
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain.messages import HumanMessage, SystemMessage
-from langgraph.runtime import Runtime
+from langchain.agents.middleware import AgentMiddleware
+from langchain.messages import HumanMessage
 
 from src.agents.harness.orchestration.prompts.system import (
     INTENT_CLASSIFY_PROMPT,
@@ -52,6 +53,7 @@ from src.agents.harness.orchestration.prompts.system import (
     MEAL_IMAGE_KEYWORDS,
 )
 from src.agents.harness.runtime.config_flags import get_config_flag
+from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -141,10 +143,10 @@ class IntentMiddleware(AgentMiddleware):
     """
     意图识别中间件 - 渐进式提示词注入（多意图）。
 
-    在 before_model 阶段：
+    在 wrap_model_call 阶段（F1 临时注入）：
     1. 检查最新消息是否为用户消息（HumanMessage）
     2. 检测用户意图（图片检测 + 多意图关键词匹配 + 可选 LLM 兜底）
-    3. 注入命中的全部意图专项提示词（按优先级拼接）
+    3. 把命中的全部意图专项提示词临时合并进 request.system_message（不落 checkpoint）
 
     注入时机：仅在最新消息为 HumanMessage 时注入（即用户刚发送新消息时）。
     后续 model 调用（tool 执行后）不会重复注入，因为最新消息为 ToolMessage。
@@ -186,16 +188,12 @@ class IntentMiddleware(AgentMiddleware):
             logger.warning("[Intent] LLM 兜底分类失败: %s", e)
         return None
 
-    def before_model(
-        self, state: AgentState, runtime: Runtime
-    ) -> dict[str, Any] | None:
-        """
-        在模型调用前注入意图专项提示词。
+    def _compute_prompt(self, messages: list) -> Optional[str]:
+        """计算本轮需要注入的意图提示词（无命中/门控拦截时返回 None）。
 
-        检测最新用户消息的意图，注入对应的 INTENT_PROMPTS[section]。
-        仅当最新消息为 HumanMessage 时触发（避免 tool 循环中重复注入）。
+        语义与迁移前 before_model 一致：仅最新消息为 HumanMessage 时检测并注入，
+        tool 循环（ToolMessage/AIMessage）不重复注入。
         """
-        messages = state.get("messages", [])
         if not messages:
             return None
 
@@ -240,5 +238,19 @@ class IntentMiddleware(AgentMiddleware):
 
         logger.info(f"[Intent] Detected: {intents}")
 
-        # 注入意图专项 SystemMessage（多意图拼接为一个 SystemMessage，避免多条）
-        return {"messages": [SystemMessage(content="\n\n".join(prompts))]}
+        # 多意图提示词合并为一个字符串，经 system_message 临时注入（不落 checkpoint）
+        return "\n\n".join(prompts)
+
+    def wrap_model_call(self, request, handler):
+        """临时注入意图专项提示词（合并进 request.system_message，不持久化）。"""
+        prompt = self._compute_prompt(request.messages)
+        if not prompt:
+            return handler(request)
+        return handler(merge_system_prompt(request, prompt))
+
+    async def awrap_model_call(self, request, handler):
+        """异步路径（生产 SSE 走这里）：同 wrap_model_call。"""
+        prompt = self._compute_prompt(request.messages)
+        if not prompt:
+            return await handler(request)
+        return await handler(merge_system_prompt(request, prompt))

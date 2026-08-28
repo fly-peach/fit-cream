@@ -6,25 +6,40 @@
 每个 present_plan_queue_tool / update_plan_queue_item_tool 调用都会留下
 AIMessage.tool_calls（含完整 queue 入参）。
 
-before_model 在用户新消息（HumanMessage）时，扫描消息历史重建当前队列快照，
-注入 SystemMessage，让 agent 始终知道：哪些日已完成、当前在推进哪一日、
-下一步该做什么，避免多轮对话后失忆或重复设计已完成日。
+wrap_model_call 在用户新消息（HumanMessage）时，扫描消息历史重建当前队列快照，
+临时合并进 request.system_message（F1：不落 checkpoint），让 agent 始终知道：
+哪些日已完成、当前在推进哪一日、下一步该做什么，避免多轮对话后失忆或重复设计
+已完成日。
 
 架构与 IntentMiddleware 一致：
 - 仅在最新消息为 HumanMessage 时注入（跳过 ToolMessage/AIMessage，避免 tool 循环重复注入）
 - 无实例级可变状态，编译进共享 graph，并发运行互不影响
+- F3：队列快照经 get_queue_snapshot 单次计算并在同一 model 调用内被
+  ContentValidationMiddleware 复用（进程级消息对象 id 键请求级缓存，每轮由本中间件清空）
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain.messages import HumanMessage, SystemMessage
-from langgraph.runtime import Runtime
+from langchain.agents.middleware import AgentMiddleware
+from langchain.messages import HumanMessage
 
 from src.agents.harness.tools.plan.plan_queue_tools import QUEUE_TOOLS
+from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
 
 logger = logging.getLogger("fitcream.agent")
+
+# 未命中缓存的哨兵（区分「未缓存」与「缓存了 None」）
+_MISSING = object()
+
+# F3：队列快照在单个 model 调用内被 PlanQueue / ContentValidation 共享。
+# 键为消息对象 id 元组——同一 wrap 链内 PlanQueue 与 ContentValidation 拿到的是
+# 同一个 messages 列表（消息对象完全一致，id 元组相同即命中）。不同内容的列表
+# 必然含不同消息对象，id 元组不同则重算；生产运行时消息对象在 checkpoint 存活
+# 期间 id 不会被复用，无跨轮脏数据。容量超限整体清空（条目极小，丢失只触发一次
+# 重扫）。无实例级可变状态，并发 run 互不影响。
+_queue_snapshot_cache: dict[tuple, Any] = {}
+_QUEUE_SNAPSHOT_CACHE_MAX = 1024
 
 
 def _extract_queue_from_tool_call(name: str, args: dict) -> dict | None:
@@ -64,6 +79,23 @@ def _reconstruct_queue(messages: list) -> dict | None:
     return None
 
 
+def get_queue_snapshot(messages: list) -> dict | None:
+    """返回消息历史中的最新队列快照（同一 messages 对象复用首次扫描结果）。
+
+    供 PlanQueueMiddleware / ContentValidationMiddleware 共享，避免同一 model
+    调用内对完整消息历史重复后向扫描（F3 单次计算）。
+    """
+    key = tuple(id(m) for m in messages)
+    cached = _queue_snapshot_cache.get(key, _MISSING)
+    if cached is not _MISSING:
+        return cached
+    snapshot = _reconstruct_queue(messages)
+    if len(_queue_snapshot_cache) >= _QUEUE_SNAPSHOT_CACHE_MAX:
+        _queue_snapshot_cache.clear()
+    _queue_snapshot_cache[key] = snapshot
+    return snapshot
+
+
 def _render_snapshot(queue: dict) -> str:
     """把队列快照渲染成注入给模型的简明文本。"""
     title = queue.get("title", "计划设计")
@@ -97,25 +129,36 @@ def _render_snapshot(queue: dict) -> str:
 class PlanQueueMiddleware(AgentMiddleware):
     """计划设计队列上下文注入（无状态，编译进共享 graph）。
 
-    before_model：仅当最新消息为 HumanMessage 时，从消息历史重建队列快照并注入
-    SystemMessage。队列工具调用本身是 AIMessage（非 HumanMessage），故 tool 循环
-    中不会重复注入，只在用户每轮新消息时刷新一次快照，token 开销可控。
+    wrap_model_call：仅当最新消息为 HumanMessage 时，从消息历史重建队列快照并
+    临时合并进 request.system_message（F1 不落 checkpoint）。队列工具调用本身是
+    AIMessage（非 HumanMessage），故 tool 循环中不会重复注入，只在用户每轮新消息
+    时刷新一次快照，token 开销可控。
     """
 
-    def before_model(
-        self, state: AgentState, runtime: Runtime
-    ) -> dict[str, Any] | None:
-        messages = state.get("messages", [])
+    def _snapshot_prompt(self, messages: list) -> Optional[str]:
         if not messages:
             return None
-
-        last_msg = messages[-1]
-        if not isinstance(last_msg, HumanMessage):
+        if not isinstance(messages[-1], HumanMessage):
             return None
-
-        snapshot = _reconstruct_queue(messages)
+        # 每轮用户新消息首次读取前清空缓存：PlanQueue 是本轮 wrap 链第一个
+        # 消费者（先于 ContentValidation），清空后本调用只计算一次；跨轮/跨线程
+        # 即使消息对象 id 复用也不会命中上一轮的陈旧快照。
+        _queue_snapshot_cache.clear()
+        snapshot = get_queue_snapshot(messages)
         if not snapshot:
             return None
+        return _render_snapshot(snapshot)
 
+    def wrap_model_call(self, request, handler):
+        prompt = self._snapshot_prompt(request.messages)
+        if not prompt:
+            return handler(request)
         logger.info("[PlanQueue] Injected queue snapshot into context")
-        return {"messages": [SystemMessage(content=_render_snapshot(snapshot))]}
+        return handler(merge_system_prompt(request, prompt))
+
+    async def awrap_model_call(self, request, handler):
+        prompt = self._snapshot_prompt(request.messages)
+        if not prompt:
+            return await handler(request)
+        logger.info("[PlanQueue] Injected queue snapshot into context")
+        return await handler(merge_system_prompt(request, prompt))

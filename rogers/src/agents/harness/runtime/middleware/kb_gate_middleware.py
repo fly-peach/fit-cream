@@ -2,13 +2,17 @@
 知识库回答开关中间件（按请求门控 KB 工具 + 注入 KB 优先提示词）
 
 前端输入栏「知识库回答」开关（默认关闭，localStorage 全局偏好）：
-- 开启：本轮请求模型可见 3 个 KB 工具，且在用户新消息时注入
-  CONTEXT_PROMPTS["kb_answer"]（优先检索用户订阅的知识库作答，带站内出处链接）
+- 开启：本轮请求模型可见 3 个 KB 工具，且在用户新消息时临时合并
+  CONTEXT_PROMPTS["kb_answer"] 到 request.system_message（优先检索用户订阅的
+  知识库作答，带站内出处链接）
 - 关闭：wrap_model_call 从 request.tools 移除 3 个 KB 工具（模型完全看不到），
   等价于未注入
 
 共享 graph 架构：工具在 create_fitcream_agent 编译时固化，无法按请求真正增删，
 故通过 wrap_model_call 过滤本轮模型可见工具实现等价效果。
+
+F1：KB 优先提示词迁移到 wrap_model_call 经 system_message 临时注入（不落
+checkpoint），不再经 before_model 持久化到消息历史。
 
 运行时标志解析：chat.py 把请求体 kb_enabled 写入 RunnableConfig.configurable，
 本中间件经 langgraph.config.get_config() 读取（仿 memory_update._resolve_ids 模式），
@@ -21,14 +25,14 @@
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain.messages import HumanMessage, SystemMessage
-from langgraph.runtime import Runtime
+from langchain.agents.middleware import AgentMiddleware
 
 from src.agents.harness.runtime.config_flags import get_config_flag
 from src.agents.harness.orchestration.prompts.system import CONTEXT_PROMPTS
+from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
+from langchain.messages import HumanMessage
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -56,33 +60,24 @@ class KBGateMiddleware(AgentMiddleware):
     """知识库回答开关中间件 - 按请求过滤 KB 工具 + 注入 KB 优先提示词。
 
     - wrap_model_call：kb_enabled 为 falsy 时从 request.tools 移除 3 个 KB 工具
-      （仅影响本轮模型可见工具，checkpoint 中已存消息不受影响）
-    - before_model：kb_enabled 为 truthy 且最新消息为 HumanMessage 时注入
-      KB_ANSWER_PROMPT（仅用户新消息时注入一次，避免 tool 循环重复注入，
-      同 IntentMiddleware 模式）
+      （仅影响本轮模型可见工具，checkpoint 中已存消息不受影响）；
+      kb_enabled 为 truthy 且最新消息为 HumanMessage 时，把 KB 优先提示词临时
+      合并进 request.system_message（F1：不落 checkpoint，同 IntentMiddleware 模式）
 
     无实例级可变状态：中间件被编译进共享 graph，并发运行互不影响。
     """
 
-    def wrap_model_call(self, request, handler):
+    def _filter_tools(self, request):
+        """kb_enabled 关闭时从本轮模型可见工具中移除 KB 工具（无变化则原样返回）。"""
         if kb_enabled_from_config():
-            return handler(request)
+            return request
         filtered = [t for t in request.tools if _tool_name(t) not in KB_TOOLS]
         if len(filtered) == len(request.tools):
-            return handler(request)
-        return handler(request.override(tools=filtered))
+            return request
+        return request.override(tools=filtered)
 
-    async def awrap_model_call(self, request, handler):
-        if kb_enabled_from_config():
-            return await handler(request)
-        filtered = [t for t in request.tools if _tool_name(t) not in KB_TOOLS]
-        if len(filtered) == len(request.tools):
-            return await handler(request)
-        return await handler(request.override(tools=filtered))
-
-    def before_model(
-        self, state: AgentState, runtime: Runtime
-    ) -> dict[str, Any] | None:
+    def _kb_prompt(self, messages: list) -> Optional[str]:
+        """kb_enabled 开启且最新消息为 HumanMessage 时返回 KB 优先提示词。"""
         if not kb_enabled_from_config():
             return None
 
@@ -92,7 +87,6 @@ class KBGateMiddleware(AgentMiddleware):
             logger.warning("[KBGate] context_prompt/kb_answer.md 缺失，跳过注入")
             return None
 
-        messages = state.get("messages", [])
         if not messages:
             return None
 
@@ -101,4 +95,18 @@ class KBGateMiddleware(AgentMiddleware):
             return None
 
         logger.info("[KBGate] 知识库回答已开启，注入 KB 优先提示词")
-        return {"messages": [SystemMessage(content=kb_answer_prompt)]}
+        return kb_answer_prompt
+
+    def wrap_model_call(self, request, handler):
+        request = self._filter_tools(request)
+        prompt = self._kb_prompt(request.messages)
+        if prompt:
+            request = merge_system_prompt(request, prompt)
+        return handler(request)
+
+    async def awrap_model_call(self, request, handler):
+        request = self._filter_tools(request)
+        prompt = self._kb_prompt(request.messages)
+        if prompt:
+            request = merge_system_prompt(request, prompt)
+        return await handler(request)

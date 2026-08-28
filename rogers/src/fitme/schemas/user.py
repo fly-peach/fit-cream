@@ -28,6 +28,111 @@ class UserGoalsOut(BaseModel):
     updated_at: datetime
 
 
+class UserFitnessProfileOut(BaseModel):
+    """用户健身画像输出（Intake 五维数据全字段）"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    user_id: UUID
+    # health_safety 健康与安全基线
+    medical_history: Optional[str] = None
+    injuries: Optional[str] = None
+    allergies: Optional[str] = None
+    pregnancy: Optional[str] = None
+    medication: Optional[str] = None
+    parq_result: Optional[str] = None
+    doctor_advice: Optional[str] = None
+    # fitness_level 当前体能水平
+    training_experience: Optional[str] = None
+    cardio_level: Optional[str] = None
+    strength_level: Optional[str] = None
+    flexibility: Optional[str] = None
+    body_fat_pct: Optional[float] = None
+    # exercise_history 运动经历与习惯
+    weekly_frequency: Optional[str] = None
+    session_duration: Optional[str] = None
+    preferred_types: Optional[str] = None
+    past_results: Optional[str] = None
+    # lifestyle 生活方式与客观环境
+    occupation_schedule: Optional[str] = None
+    diet_habits: Optional[str] = None
+    sleep_quality: Optional[str] = None
+    stress_level: Optional[str] = None
+    equipment: Optional[str] = None
+    preferred_time: Optional[str] = None
+    # diet_profile 饮食偏好与结构
+    diet_preferences: Optional[str] = None
+    food_allergies: Optional[str] = None
+    cooking_condition: Optional[str] = None
+    meals_per_day: Optional[str] = None
+    eating_out_ratio: Optional[str] = None
+    budget: Optional[str] = None
+    updated_at: datetime
+
+
+class UserFitnessProfileUpdate(BaseModel):
+    """用户健身画像更新（部分更新，仅传需要修改的字段）"""
+
+    # health_safety 健康与安全基线
+    medical_history: Optional[str] = Field(default=None, max_length=2000)
+    injuries: Optional[str] = Field(default=None, max_length=2000)
+    allergies: Optional[str] = Field(default=None, max_length=500)
+    pregnancy: Optional[str] = Field(default=None, max_length=200)
+    medication: Optional[str] = Field(default=None, max_length=500)
+    parq_result: Optional[str] = Field(
+        default=None, pattern="^(low|uncertain|high)$"
+    )
+    doctor_advice: Optional[str] = Field(default=None, max_length=500)
+    # fitness_level 当前体能水平
+    training_experience: Optional[str] = Field(
+        default=None, pattern="^(never|beginner|intermediate|advanced)$"
+    )
+    cardio_level: Optional[str] = Field(
+        default=None, pattern="^(beginner|intermediate|advanced)$"
+    )
+    strength_level: Optional[str] = Field(
+        default=None, pattern="^(beginner|intermediate|advanced)$"
+    )
+    flexibility: Optional[str] = Field(
+        default=None, pattern="^(limited|normal|good)$"
+    )
+    body_fat_pct: Optional[float] = Field(default=None, ge=0, le=100)
+    # exercise_history 运动经历与习惯
+    weekly_frequency: Optional[str] = Field(
+        default=None, pattern="^(0|1-2|3-4|5\\+)$"
+    )
+    session_duration: Optional[str] = Field(
+        default=None, pattern="^(<30|30-60|>60)$"
+    )
+    preferred_types: Optional[str] = Field(default=None, max_length=500)
+    past_results: Optional[str] = Field(default=None, max_length=2000)
+    # lifestyle 生活方式与客观环境
+    occupation_schedule: Optional[str] = Field(default=None, max_length=500)
+    diet_habits: Optional[str] = Field(default=None, max_length=2000)
+    sleep_quality: Optional[str] = Field(
+        default=None, pattern="^(poor|normal|good)$"
+    )
+    stress_level: Optional[str] = Field(
+        default=None, pattern="^(low|medium|high)$"
+    )
+    equipment: Optional[str] = Field(default=None, max_length=500)
+    preferred_time: Optional[str] = Field(
+        default=None, pattern="^(morning|noon|evening|flexible)$"
+    )
+    # diet_profile 饮食偏好与结构
+    diet_preferences: Optional[str] = Field(default=None, max_length=500)
+    food_allergies: Optional[str] = Field(default=None, max_length=500)
+    cooking_condition: Optional[str] = Field(default=None, max_length=500)
+    meals_per_day: Optional[str] = Field(
+        default=None, pattern="^(2|3|4|5\\+)$"
+    )
+    eating_out_ratio: Optional[str] = Field(
+        default=None, pattern="^(mostly_out|half|mostly_home)$"
+    )
+    budget: Optional[str] = Field(default=None, max_length=100)
+
+
 class UserGoalsUpdate(BaseModel):
     """用户目标更新（部分更新）"""
 

@@ -20,6 +20,15 @@ from src.fitme.models.checkin import Checkin, CheckinExercise
 from src.fitme.models.diet_meal import CustomFoodItem, DailyDietSummary, DietMeal
 from src.fitme.models.diet_plan import DietPlan, DietPlanDay, DietPlanMeal
 from src.fitme.models.exercise import Exercise, UserExerciseFavorite
+from src.fitme.models.goal import (
+    GoalArchetype,
+    GoalMilestone,
+    GoalRoadmap,
+    GoalSafetyLimit,
+    PerformanceTest,
+    ProgressRate,
+    StrengthStandard,
+)
 from src.fitme.models.health_metric import HealthMetric
 from src.fitme.models.mood_log import MoodLog
 from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
@@ -27,6 +36,7 @@ from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
 from src.agents.models.user_token_usage import UserTokenUsage
 from src.fitme.models.user import User
+from src.fitme.models.user_fitness_profile import UserFitnessProfile
 from src.fitme.models.user_goals import UserGoals
 from src.fitme.models.user_settings import UserSettings
 
@@ -54,6 +64,11 @@ from src.fitme.services.checkin_service import CheckinService
 from src.fitme.services.diet_meal_service import CustomFoodItemService, DietMealService
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.exercise_service import ExerciseService
+from src.fitme.services.goal_service import (
+    GoalKnowledgeService,
+    GoalRoadmapService,
+    PerformanceTestService,
+)
 from src.fitme.services.mood_service import MoodService
 from src.fitme.services.plan_service import PlanService
 from src.fitme.services.sms_service import SmsService
@@ -69,6 +84,7 @@ __all__ = [
     "User",
     "UserGoals",
     "UserSettings",
+    "UserFitnessProfile",
     "HealthMetric",
     "MoodLog",
     "Plan",
@@ -84,6 +100,13 @@ __all__ = [
     "CheckinExercise",
     "Exercise",
     "UserExerciseFavorite",
+    "GoalRoadmap",
+    "GoalMilestone",
+    "PerformanceTest",
+    "GoalArchetype",
+    "StrengthStandard",
+    "ProgressRate",
+    "GoalSafetyLimit",
     "ThreadUsage",
     "ThreadMeta",
     "UserTokenUsage",
@@ -114,6 +137,9 @@ __all__ = [
     "CheckinService",
     "MoodService",
     "ExerciseService",
+    "GoalKnowledgeService",
+    "GoalRoadmapService",
+    "PerformanceTestService",
     "StatsService",
     "DietPlanService",
     "DietMealService",

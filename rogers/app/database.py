@@ -212,6 +212,22 @@ def _ensure_enum_check_constraints(sync_conn, logger_=None) -> list[str]:
         ("diet_plan_meals", "meal_type", "('breakfast','lunch','dinner','snack')"),
         ("plan_day_exercises", "exercise_type", "('strength','cardio')"),
         ("health_metrics", "bmi_status", "('偏瘦','正常','偏胖','肥胖')"),
+        ("user_fitness_profiles", "parq_result", "('low','uncertain','high')"),
+        (
+            "user_fitness_profiles",
+            "training_experience",
+            "('never','beginner','intermediate','advanced')",
+        ),
+        ("user_fitness_profiles", "cardio_level", "('beginner','intermediate','advanced')"),
+        ("user_fitness_profiles", "strength_level", "('beginner','intermediate','advanced')"),
+        ("user_fitness_profiles", "flexibility", "('limited','normal','good')"),
+        ("user_fitness_profiles", "weekly_frequency", "('0','1-2','3-4','5+')"),
+        ("user_fitness_profiles", "session_duration", "('<30','30-60','>60')"),
+        ("user_fitness_profiles", "sleep_quality", "('poor','normal','good')"),
+        ("user_fitness_profiles", "stress_level", "('low','medium','high')"),
+        ("user_fitness_profiles", "preferred_time", "('morning','noon','evening','flexible')"),
+        ("user_fitness_profiles", "meals_per_day", "('2','3','4','5+')"),
+        ("user_fitness_profiles", "eating_out_ratio", "('mostly_out','half','mostly_home')"),
     ]
     existing_tables = set(inspect(sync_conn).get_table_names())
     added: list[str] = []

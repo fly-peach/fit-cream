@@ -1,0 +1,197 @@
+{
+  "archetypes": [
+    {
+      "key": "lean_aesthetic",
+      "name": "薄肌有线条",
+      "tagline": "低体脂 + 匀称肌肉线条，健康紧致",
+      "description": "以低体脂与清晰线条为核心，兼顾上肢力量与整体匀称。体脂压到可见腹肌水平，力量达标即可，不求极限重量。",
+      "female_only": false,
+      "target_metrics": {
+        "male": [
+          {"metric": "body_fat_pct", "min": 10, "max": 14},
+          {"metric": "bench_ratio", "min": 0.9, "max": 1.1},
+          {"metric": "waist_cm", "max": 80}
+        ],
+        "female": [
+          {"metric": "body_fat_pct", "min": 18, "max": 22},
+          {"metric": "squat_ratio", "min": 0.9, "max": 1.1},
+          {"metric": "waist_cm", "max": 68}
+        ]
+      },
+      "training_bias": "增肌优先+控体脂",
+      "diet_bias": "小幅赤字转维持",
+      "stage_hint": {"male": "2-3 关", "female": "2-3 关"},
+      "stage_narrative_hint": {
+        "male": "第1关动作模式+体脂降到18%；第2关卧推0.9×体重+体脂压到14%；第3关精修线条 10-12%",
+        "female": "第1关动作模式+体脂降到24%；第2关深蹲0.9×体重+体脂压到20%；第3关精修线条 18-20%"
+      }
+    },
+    {
+      "key": "v_taper",
+      "name": "倒三角宽肩",
+      "tagline": "宽肩窄腰，V 字轮廓",
+      "description": "以上半身肩背宽度为视觉核心，肩/背/引体能力突出，腰围控制到较窄水平，形成倒三角轮廓。",
+      "female_only": false,
+      "target_metrics": {
+        "male": [
+          {"metric": "body_fat_pct", "min": 12, "max": 16},
+          {"metric": "bench_ratio", "min": 1.1, "max": 1.3},
+          {"metric": "pull_ups", "min": 8}
+        ],
+        "female": [
+          {"metric": "body_fat_pct", "min": 18, "max": 22},
+          {"metric": "bench_ratio", "min": 0.65, "max": 0.85},
+          {"metric": "pull_ups", "min": 3}
+        ]
+      },
+      "training_bias": "上肢容量偏重（肩/背）",
+      "diet_bias": "小幅赤字",
+      "stage_hint": {"male": "3-4 关", "female": "3-4 关"},
+      "stage_narrative_hint": {
+        "male": "第1关动作模式+肩背基础容量；第2关引体到 5 个+体脂 16%；第3关卧推 1.1×体重+引体 8 个；第4关精修比例 12-14%",
+        "female": "第1关动作模式+肩背基础容量；第2关引体到 1 个+体脂 20%；第3关卧推 0.7×体重+引体 3 个"
+      }
+    },
+    {
+      "key": "strength_power",
+      "name": "力量型",
+      "tagline": "三大项力量优先，追求极限重量",
+      "description": "以卧推/深蹲/硬拉三大项绝对力量为核心目标，体脂维持中高区间即可，力量周期化训练为主。",
+      "female_only": false,
+      "target_metrics": {
+        "male": [
+          {"metric": "bench_ratio", "min": 1.5},
+          {"metric": "squat_ratio", "min": 2.0},
+          {"metric": "deadlift_ratio", "min": 2.5},
+          {"metric": "body_fat_pct", "min": 15, "max": 22}
+        ],
+        "female": [
+          {"metric": "bench_ratio", "min": 1.0},
+          {"metric": "squat_ratio", "min": 1.5},
+          {"metric": "deadlift_ratio", "min": 2.0},
+          {"metric": "body_fat_pct", "min": 22, "max": 28}
+        ]
+      },
+      "training_bias": "力量周期化（储备→转化）",
+      "diet_bias": "维持或小幅盈余",
+      "stage_hint": {"male": "4-6 关", "female": "4-6 关"},
+      "stage_narrative_hint": {
+        "male": "第1关动作模式+三大项基础；第2关卧推1.0×深蹲1.3×硬拉1.5×；第3关卧推1.2×深蹲1.6×硬拉1.9×；第4关卧推1.5×深蹲2.0×硬拉2.5×",
+        "female": "第1关动作模式+三大项基础；第2关卧推0.7×深蹲1.0×硬拉1.3×；第3关卧推0.9×深蹲1.3×硬拉1.6×；第4关卧推1.0×深蹲1.5×硬拉2.0×"
+      }
+    },
+    {
+      "key": "muscular_mass",
+      "name": "魁梧大维度",
+      "tagline": "高肌肉量，粗壮厚实",
+      "description": "以大肌群围度与整体肌肉量为核心，高容量增肌训练为主，配合精瘦盈余饮食逐步堆量。",
+      "female_only": false,
+      "target_metrics": {
+        "male": [
+          {"metric": "body_fat_pct", "min": 12, "max": 18},
+          {"metric": "bench_ratio", "min": 1.3, "max": 1.6},
+          {"metric": "squat_ratio", "min": 1.8}
+        ],
+        "female": [
+          {"metric": "body_fat_pct", "min": 20, "max": 25},
+          {"metric": "bench_ratio", "min": 0.85, "max": 1.05},
+          {"metric": "squat_ratio", "min": 1.3}
+        ]
+      },
+      "training_bias": "高容量增肌",
+      "diet_bias": "精瘦盈余",
+      "stage_hint": {"male": "4-6 关", "female": "4-6 关"},
+      "stage_narrative_hint": {
+        "male": "第1关动作模式+基础容量；第2关卧推1.0×深蹲1.2×体脂16%；第3关卧推1.2×深蹲1.5×；第4关卧推1.4×深蹲1.8×体脂14%",
+        "female": "第1关动作模式+基础容量；第2关卧推0.7×深蹲0.9×体脂24%；第3关卧推0.9×深蹲1.1×；第4关卧推1.0×深蹲1.3×体脂22%"
+      }
+    },
+    {
+      "key": "healthy_balanced",
+      "name": "匀称健康",
+      "tagline": "均衡力量与有氧，健康体态",
+      "description": "力量、有氧与体态均衡发展，体脂适中，腰围健康，不追求极端，长期可持续。",
+      "female_only": false,
+      "target_metrics": {
+        "male": [
+          {"metric": "body_fat_pct", "min": 15, "max": 20},
+          {"metric": "bench_ratio", "min": 0.9, "max": 1.1},
+          {"metric": "waist_cm", "max": 85}
+        ],
+        "female": [
+          {"metric": "body_fat_pct", "min": 22, "max": 26},
+          {"metric": "squat_ratio", "min": 0.8, "max": 1.0},
+          {"metric": "waist_cm", "max": 72}
+        ]
+      },
+      "training_bias": "均衡力量+有氧",
+      "diet_bias": "维持",
+      "stage_hint": {"male": "2-3 关", "female": "2-3 关"},
+      "stage_narrative_hint": {
+        "male": "第1关动作模式+基础力量与有氧；第2关卧推0.9×+腰围85cm内；第3关体脂15-20%稳定",
+        "female": "第1关动作模式+基础力量与有氧；第2关深蹲0.8×+腰围72cm内；第3关体脂22-26%稳定"
+      }
+    },
+    {
+      "key": "toned_curves",
+      "name": "紧致线条",
+      "tagline": "臀腿塑形 + 上肢轻量，女性向",
+      "description": "以臀腿塑形为核心，配合上肢轻量训练与控制体脂，打造紧致线条。仅适用于女性用户。",
+      "female_only": true,
+      "target_metrics": {
+        "female": [
+          {"metric": "body_fat_pct", "min": 20, "max": 24},
+          {"metric": "squat_ratio", "min": 1.0, "max": 1.4},
+          {"metric": "waist_cm", "max": 70}
+        ]
+      },
+      "training_bias": "臀腿塑形+上肢轻量",
+      "diet_bias": "小幅赤字",
+      "stage_hint": {"male": null, "female": "2-3 关"},
+      "stage_narrative_hint": {
+        "male": null,
+        "female": "第1关动作模式+臀腿基础；第2关深蹲1.0×+体脂24%；第3关深蹲1.2×+腰围70cm内"
+      }
+    }
+  ],
+  "strength_standards": {
+    "male": {
+      "bench": {"untrained": 0.50, "novice": 0.75, "intermediate": 1.00, "advanced": 1.50, "elite": 2.00},
+      "squat": {"untrained": 0.75, "novice": 1.25, "intermediate": 1.50, "advanced": 2.25, "elite": 2.75},
+      "deadlift": {"untrained": 1.00, "novice": 1.50, "intermediate": 1.75, "advanced": 2.50, "elite": 3.00},
+      "ohp": {"untrained": 0.35, "novice": 0.55, "intermediate": 0.70, "advanced": 0.95, "elite": 1.20}
+    },
+    "female": {
+      "bench": {"untrained": 0.25, "novice": 0.50, "intermediate": 0.70, "advanced": 1.00, "elite": 1.40},
+      "squat": {"untrained": 0.50, "novice": 0.90, "intermediate": 1.20, "advanced": 1.80, "elite": 2.20},
+      "deadlift": {"untrained": 0.75, "novice": 1.10, "intermediate": 1.40, "advanced": 2.10, "elite": 2.50},
+      "ohp": {"untrained": 0.15, "novice": 0.35, "intermediate": 0.50, "advanced": 0.70, "elite": 0.90}
+    }
+  },
+  "progress_rates": [
+    {"experience_level": "beginner", "metric": "bench_kg", "monthly_min": 4, "monthly_max": 8, "unit": "kg/月"},
+    {"experience_level": "beginner", "metric": "squat_kg", "monthly_min": 7.5, "monthly_max": 15, "unit": "kg/月"},
+    {"experience_level": "beginner", "metric": "deadlift_kg", "monthly_min": 7.5, "monthly_max": 15, "unit": "kg/月"},
+    {"experience_level": "beginner", "metric": "ohp_kg", "monthly_min": 2, "monthly_max": 4, "unit": "kg/月"},
+    {"experience_level": "beginner", "metric": "body_fat_pct", "monthly_min": -2.0, "monthly_max": -1.0, "unit": "%/月"},
+    {"experience_level": "beginner", "metric": "bodyweight_pct", "monthly_min": -4.0, "monthly_max": 1.0, "unit": "%体重/月"},
+    {"experience_level": "intermediate", "metric": "bench_kg", "monthly_min": 1.5, "monthly_max": 3, "unit": "kg/月"},
+    {"experience_level": "intermediate", "metric": "squat_kg", "monthly_min": 2.5, "monthly_max": 5, "unit": "kg/月"},
+    {"experience_level": "intermediate", "metric": "deadlift_kg", "monthly_min": 2.5, "monthly_max": 5, "unit": "kg/月"},
+    {"experience_level": "intermediate", "metric": "ohp_kg", "monthly_min": 1, "monthly_max": 2, "unit": "kg/月"},
+    {"experience_level": "intermediate", "metric": "body_fat_pct", "monthly_min": -1.0, "monthly_max": -0.5, "unit": "%/月"},
+    {"experience_level": "intermediate", "metric": "bodyweight_pct", "monthly_min": -4.0, "monthly_max": 1.0, "unit": "%体重/月"},
+    {"experience_level": "advanced", "metric": "bench_kg", "monthly_min": 0.5, "monthly_max": 1.5, "unit": "kg/月"},
+    {"experience_level": "advanced", "metric": "squat_kg", "monthly_min": 1, "monthly_max": 2.5, "unit": "kg/月"},
+    {"experience_level": "advanced", "metric": "deadlift_kg", "monthly_min": 1, "monthly_max": 2.5, "unit": "kg/月"},
+    {"experience_level": "advanced", "metric": "ohp_kg", "monthly_min": 0.5, "monthly_max": 1, "unit": "kg/月"},
+    {"experience_level": "advanced", "metric": "body_fat_pct", "monthly_min": -0.5, "monthly_max": -0.25, "unit": "%/月"},
+    {"experience_level": "advanced", "metric": "bodyweight_pct", "monthly_min": -3.0, "monthly_max": 0.5, "unit": "%体重/月"}
+  ],
+  "safety_limits": [
+    {"metric": "body_fat_pct", "gender": "male", "floor_value": 8, "ceiling_value": null, "note": "体脂下限（健康风险）"},
+    {"metric": "body_fat_pct", "gender": "female", "floor_value": 16, "ceiling_value": null, "note": "体脂下限（健康风险）"},
+    {"metric": "bodyweight_pct", "gender": "both", "floor_value": -4, "ceiling_value": 1, "note": "月度体重变化上限（%体重/月）"},
+    {"metric": "bench_kg", "gender": "both", "floor_value": null, "ceiling_value": 15, "note": "单关总增量硬上限（防止激进跳跃）"}
+  ]
+}

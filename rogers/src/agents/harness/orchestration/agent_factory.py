@@ -21,6 +21,7 @@ FitCream Agent Factory
 
 from typing import Optional, Sequence
 
+from langchain.agents.middleware import ModelRetryMiddleware, ToolErrorMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langchain.agents import create_agent
@@ -214,6 +215,14 @@ MEMORY_UPDATE_TRIGGER_TOKENS = 100_000
 SUMMARIZE_KEEP_MESSAGES = 10
 
 
+def _tool_error_message(exc: BaseException, request) -> str:
+    """工具异常兜底文案：只透异常类型名，不泄内部细节（模型据 error 状态自纠）。"""
+    return (
+        f"工具调用失败（{type(exc).__name__}）。"
+        "请检查参数后重试，或换一种方式完成该请求。"
+    )
+
+
 def _get_default_middleware(include_hitl: bool = False) -> list:
     """
     获取默认中间件列表（共享 graph 默认版本）。
@@ -230,17 +239,23 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     RunnableConfig.configurable 解析（chat.py 已传 user_id/thread_id），
     以 user_id 为键防重入，并发用户互不干扰。
 
-    中间件顺序（before_model 执行顺序）：
-    1. IntentMiddleware：检测用户意图，注入专项提示词（渐进式披露）
+    中间件顺序（wrap_model_call 嵌套，先注册者最外层）：
+    1. IntentMiddleware：检测用户意图，临时注入专项提示词（渐进式披露，F1）
     2. SkillsMiddleware：纯占位（catalog 已烘焙进 system_prompt）
-    3. PlanQueueMiddleware：计划设计队列进度快照注入（仅 plan_design 流程有队列时生效）
-    4. KBGateMiddleware：知识库回答开关（关闭时过滤 KB 工具 / 开启时注入 KB 优先提示词）
-    5. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
-    6. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
-    7. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
-    8. TokenUsageMiddleware：Token 用量追踪
-    9. SummarizationMiddleware：会话压缩
-    10. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
+    3. PlanQueueMiddleware：计划设计队列进度快照临时注入（仅 plan_design 流程有队列时生效）
+    4. ContentValidationMiddleware：大纲/当日设计/提案的确定性兜底提示（复用队列快照）
+    5. KBGateMiddleware：知识库回答开关（关闭时过滤 KB 工具 / 开启时临时注入 KB 优先提示词）
+    6. ContextMessageGateMiddleware：队列入参视图级裁剪（只动 request.messages，
+       不影响经 system_message 注入的提示词）
+    7. ModelRoutingMiddleware：按请求切换 qwen / 用户 DeepSeek key（401/403 回退）
+    8. ModelRetryMiddleware：瞬态异常指数退避重试（retry_on 过滤，认证类不回退重试）
+    9. ToolErrorMiddleware：工具异常转 error ToolMessage 供模型自纠
+    10. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
+    11. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    12. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    13. TokenUsageMiddleware：Token 用量追踪
+    14. SummarizationMiddleware：会话压缩
+    15. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
 
     会话压缩策略：
     - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
@@ -259,6 +274,9 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
     from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
     from src.agents.harness.runtime.middleware.plan_queue_middleware import PlanQueueMiddleware
+    from src.agents.harness.runtime.middleware.content_validation_middleware import (
+        ContentValidationMiddleware,
+    )
     from src.agents.harness.runtime.middleware.kb_gate_middleware import KBGateMiddleware
     from src.agents.harness.runtime.middleware.context_message_gate import (
         ContextMessageGateMiddleware,
@@ -272,6 +290,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
     )
     from src.agents.harness.runtime.middleware.model_routing import (
         ModelRoutingMiddleware,
+        is_transient_error,
     )
 
     # 用于压缩摘要的模型（低温度确保摘要稳定，不开启思考）
@@ -290,6 +309,10 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         IntentMiddleware(),
         SkillsMiddleware(),
         PlanQueueMiddleware(),
+        # AI 信息校验：计划设计流程中，对大纲/当日设计/计划提案做确定性兜底——
+        # 确认前必须已调用对应展示工具、结构化内容禁止写成正文（依赖队列快照判定阶段）。
+        # 放在 PlanQueue 注入之后，可叠加其快照提示；HITL 之前（不涉及中断）。
+        ContentValidationMiddleware(),
         # 知识库回答开关：kb_enabled falsy 时过滤 KB 工具，truthy 时注入 KB 优先提示词；
         # 注册在意图之后（KB 提示词可叠加意图规则），HITL 之前（不涉及中断）
         KBGateMiddleware(),
@@ -300,6 +323,21 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         # 模型路由：按请求切换 qwen / 用户自备 DeepSeek key（读 configurable 的
         # deepseek_api_key；401/403 自动回退 qwen + 一次性警示）。
         ModelRoutingMiddleware(),
+        # 模型可靠性（P1）：瞬态异常（网络/限流 429/5xx）指数退避重试；401/403 已由
+        # ModelRoutingMiddleware 负缓存回退，不在此重试（retry_on=is_transient_error
+        # 过滤）。注册在 ModelRouting 之后（wrap 链内层，紧贴模型调用）。重试仅由
+        # after_model 计次，不放大 ModelCallLimit 的 run_limit 计数。
+        ModelRetryMiddleware(
+            max_retries=2,
+            retry_on=is_transient_error,
+            on_failure="error",
+            backoff_factor=2.0,
+            initial_delay=0.5,
+            jitter=True,
+        ),
+        # 工具错误兜底（P1）：工具抛异常转 ToolMessage(status="error") 供模型自纠；
+        # on_error 只透出异常类型名（不泄内部细节，隐私安全风格）。
+        ToolErrorMiddleware(on_error=_tool_error_message),
     ]
 
     # HITL：仅在有 checkpointer 时启用。对副作用工具（创建/编辑/删除计划）中断等待用户审批。
@@ -315,6 +353,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
                     "remove_plan_day_tool": {"allowed_decisions": ["approve", "reject"]},
                     "remove_exercise_tool": {"allowed_decisions": ["approve", "reject"]},
                     "sync_plan_day_tool": {"allowed_decisions": ["approve", "reject"]},
+                    "create_roadmap_tool": {"allowed_decisions": ["approve", "reject"]},
                 },
                 description_prefix="即将执行计划操作，需要你确认",
             )
@@ -332,6 +371,7 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
                 "present_plan_queue_tool": 2,
                 "present_outline_tool": 2,
                 "present_form_tool": 1,
+                "present_roadmap_tool": 2,
             },
         ),
         TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
@@ -385,6 +425,7 @@ def _get_default_tools() -> list:
             get_exercises_tool,
             get_user_profile_tool,
             update_user_profile_tool,
+            update_fitness_profile_tool,
             record_meal_tool,
             query_diet_summary_tool,
             manage_meal_tool,
@@ -410,6 +451,7 @@ def _get_default_tools() -> list:
             get_exercises_tool,
             get_user_profile_tool,
             update_user_profile_tool,
+            update_fitness_profile_tool,
             record_meal_tool,
             query_diet_summary_tool,
             manage_meal_tool,
@@ -451,6 +493,15 @@ def _get_default_tools() -> list:
             present_day_design_tool,
             update_plan_queue_item_tool,
         )
+        from src.agents.harness.tools.goal.goal_knowledge_tools import (
+            get_goal_knowledge_tool,
+        )
+        from src.agents.harness.tools.goal.roadmap_tools import (
+            create_roadmap_tool,
+            get_roadmap_tool,
+            present_roadmap_tool,
+            record_baseline_tool,
+        )
 
         tools.extend([
             skill_load_tool,
@@ -461,6 +512,11 @@ def _get_default_tools() -> list:
             present_outline_tool,
             present_day_design_tool,
             update_plan_queue_item_tool,
+            get_goal_knowledge_tool,
+            present_roadmap_tool,
+            create_roadmap_tool,
+            get_roadmap_tool,
+            record_baseline_tool,
         ])
     except ImportError:
         pass

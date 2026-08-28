@@ -18,7 +18,6 @@ from langchain_core.messages import (
     AnyMessage,
     HumanMessage,
     RemoveMessage,
-    SystemMessage,
     ToolMessage,
 )
 
@@ -103,6 +102,25 @@ class _Resp:
         self.text = text
 
 
+def _run_intent(mw, messages) -> str:
+    """跑一轮 wrap_model_call，返回最终合并进 system_message 的意图提示词文本。
+
+    F1 迁移后 IntentMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
+    """
+    from langchain.agents.middleware.types import ModelRequest
+
+    request = ModelRequest(model=None, messages=messages)
+    captured = {}
+
+    def handler(req):
+        captured["req"] = req
+        return "ok"
+
+    mw.wrap_model_call(request, handler)
+    sys_msg = captured["req"].system_message
+    return sys_msg.content if sys_msg else ""
+
+
 class TestIntentMiddleware:
     def test_injects_multiple_intent_prompts(self, monkeypatch):
         from src.agents.harness.runtime.middleware import intent_middleware as im
@@ -111,37 +129,30 @@ class TestIntentMiddleware:
         monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: name == "kb_enabled")
         mw = IntentMiddleware()
         # 同时命中 knowledge_query 与 exercise_query（两个都有注入提示词文件）
-        state = {"messages": [HumanMessage(content="什么是正确姿势")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        sys_msgs = [m for m in result["messages"] if isinstance(m, SystemMessage)]
-        assert len(sys_msgs) == 1
-        joined = sys_msgs[0].content
+        joined = _run_intent(mw, [HumanMessage(content="什么是正确姿势")])
+        assert joined != ""
         assert INTENT_PROMPTS["knowledge_query"] in joined
         assert INTENT_PROMPTS["exercise_query"] in joined
 
     def test_skips_non_human(self):
         mw = IntentMiddleware()
-        state = {"messages": [AIMessage(content="ok")]}
-        assert mw.before_model(state, None) is None
+        assert _run_intent(mw, [AIMessage(content="ok")]) == ""
 
     def test_kb_disabled_skips_knowledge_query(self, monkeypatch):
         from src.agents.harness.runtime.middleware import intent_middleware as im
 
         monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: False)
         mw = IntentMiddleware()
-        state = {"messages": [HumanMessage(content="什么是肌肥大")]}
-        assert mw.before_model(state, None) is None
+        assert _run_intent(mw, [HumanMessage(content="什么是肌肥大")]) == ""
 
     def test_kb_enabled_injects_knowledge_query(self, monkeypatch):
         from src.agents.harness.runtime.middleware import intent_middleware as im
 
         monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: name == "kb_enabled")
         mw = IntentMiddleware()
-        state = {"messages": [HumanMessage(content="什么是肌肥大")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        assert INTENT_PROMPTS["knowledge_query"] in result["messages"][0].content
+        joined = _run_intent(mw, [HumanMessage(content="什么是肌肥大")])
+        assert joined != ""
+        assert INTENT_PROMPTS["knowledge_query"] in joined
 
     def test_llm_fallback_disabled_by_default(self, monkeypatch):
         from src.agents.harness.runtime.middleware import intent_middleware as im
@@ -151,10 +162,9 @@ class TestIntentMiddleware:
         monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: False)
         mw = IntentMiddleware(llm_classifier=_StubClassifier("checkin"))
         mw._classify_with_llm = lambda text: called.append(text) or "checkin"
-        state = {"messages": [HumanMessage(content="你好呀")]}
-        result = mw.before_model(state, None)
+        joined = _run_intent(mw, [HumanMessage(content="你好呀")])
         # general_chat 有专项提示词，仍会注入；但分类器不得被调用
-        assert result is not None
+        assert joined != ""
         assert called == []
 
     def test_llm_fallback_enabled_uses_classifier(self, monkeypatch):
@@ -166,10 +176,9 @@ class TestIntentMiddleware:
             lambda name, default=False: name == "intent_classify_llm",
         )
         mw = IntentMiddleware(llm_classifier=_StubClassifier("checkin"))
-        state = {"messages": [HumanMessage(content="你好呀")]}
-        result = mw.before_model(state, None)
-        assert result is not None
-        assert INTENT_PROMPTS["checkin"] in result["messages"][0].content
+        joined = _run_intent(mw, [HumanMessage(content="你好呀")])
+        assert joined != ""
+        assert INTENT_PROMPTS["checkin"] in joined
 
     def test_llm_fallback_ignores_unrecognized_label(self, monkeypatch):
         from src.agents.harness.runtime.middleware import intent_middleware as im
@@ -180,12 +189,11 @@ class TestIntentMiddleware:
             lambda name, default=False: name == "intent_classify_llm",
         )
         mw = IntentMiddleware(llm_classifier=_StubClassifier("不知道"))
-        state = {"messages": [HumanMessage(content="你好呀")]}
-        result = mw.before_model(state, None)
+        joined = _run_intent(mw, [HumanMessage(content="你好呀")])
         # 兜底标签不可识别 -> 回落 general_chat 提示词，而非 checkin
-        assert result is not None
-        assert INTENT_PROMPTS["general_chat"] in result["messages"][0].content
-        assert INTENT_PROMPTS["checkin"] not in result["messages"][0].content
+        assert joined != ""
+        assert INTENT_PROMPTS["general_chat"] in joined
+        assert INTENT_PROMPTS["checkin"] not in joined
 
 
 # ============================================================

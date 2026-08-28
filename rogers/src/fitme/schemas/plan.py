@@ -153,6 +153,9 @@ class PlanCreate(BaseModel):
         pattern="^(beginner|intermediate|advanced)$",
     )
     weeks: Optional[int] = Field(default=None, ge=1, le=52)
+    milestone_id: Optional[UUID] = Field(
+        default=None, description="关联闯关关卡 ID（goal_milestones.id），可空"
+    )
     days: List[PlanDayCreate] = Field(default_factory=list)
 
 

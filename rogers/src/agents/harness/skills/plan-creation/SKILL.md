@@ -28,10 +28,12 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 > 以下为信息收集的**表单机制**（form_id/落库分流/安全研判），具体执行节奏由待办队列驱动：
 > 每个收集维度对应一个待办项（5.1），标 in_progress -> 弹表单 -> 提交后打勾。
 
-先调用 `get_user_summary_tool` 读取后端已有数据与 `missing_fields`，然后按以下原则收集：
+先调用 `get_user_summary_tool` 读取后端已有数据（body + `intake`/`intake_dimensions`）
+与 `missing_fields`，然后按以下原则收集：
 
 **原则一：有数据就不打扰。** 后端档案已有的字段（身高/体重/年龄/性别/目标等）直接复用，
-不要询问、不要弹表单让用户修改。
+不要询问、不要弹表单让用户修改。健身画像五维同理：`intake_dimensions` 中某维度
+`complete` 直接复用、不弹对应表单，只有缺失字段才收集。
 
 **原则二：缺失的可落库字段用 `body_profile` 表单补全。**
 当 `missing_fields` 非空时，调用 `present_form_tool(form_id="body_profile")`，
@@ -39,7 +41,7 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 「[表单提交: body_profile]」回到对话，读取其中**新补充的字段**，调用
 `update_user_profile_tool` 写入档案，再重新调 `get_user_summary_tool` 确认。
 
-**原则三：规划参考维度逐卡收集（不落库）。** 科学安全的计划需要多维度数据，
+**原则三：规划参考维度逐卡收集（提交后落库）。** 科学安全的计划需要多维度数据，
 按**必须 / 可选 / 不需要**取舍后，对以下维度调用 `present_form_tool` 收集。
 **每个对话轮次只发送一个表单**：当前表单用户提交（收到「[表单提交: <form_id>]」）
 后再进入下一个表单；**禁止同一轮内连续调用多次 `present_form_tool`**（会触发限流拦截）。
@@ -67,10 +69,19 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 
 ### 3. 表单提交后的数据分流（重要）
 
-用户提交表单后，消息以「[表单提交: <form_id>]」结构化文本回到对话：
+用户提交表单后，消息以「[表单提交: <form_id>]」结构化文本回到对话，
+读取其中**新补充的字段**（消息中标注「已复用档案中的字段」无需重复写入），
+按表单类型分流调用工具落库：
 
-- 标注「写入档案」的字段（仅 body_profile）-> 调用 `update_user_profile_tool` 落库
-- 标注「仅本次参考」的字段（其余各维度表单）-> **只用于本次计划设计，禁止调用任何工具写入数据库**
+- `body_profile` 字段 -> 调用 `update_user_profile_tool` 写入基础身体档案
+- `health_safety` / `fitness_level` / `exercise_history` / `lifestyle` / `diet_profile`
+  字段 -> 调用 `update_fitness_profile_tool` 写入健身画像（一次调用可传该表单全部新字段）
+- `baseline` 表单（无活跃路线图时）-> 解析 `reference_lifts`/`circumference`
+  调用 `record_baseline_tool` 写入力量基线与身体指标（作为闯关路线图的起点；
+  近 30 天已记录的动作自动跳过重复录入）
+
+落库后重新调 `get_user_summary_tool` 复核对应维度（`intake_dimensions` 标 complete），
+再进入下一个表单。
 
 ### 3.5 用药与安全风险评估（重要）
 
@@ -126,7 +137,14 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 
 收到计划设计意图后，**第一件事**就调用 `present_plan_queue_tool` 创建一份覆盖「从信息收集到计划落库」的**完整闭环待办清单**。待办面板只显示 todo（标题+状态），不含别的内容；所有表单与当日方案都在对话消息流内渲染。
 
-初始清单（信息收集项数视用户档案已有数据裁剪，已有则直接打勾跳过；每个 todo 可带可选 `description` 短说明，如「填写伤病与安全基线」）：
+初始清单（信息收集项数视用户档案已有数据裁剪：`get_user_summary_tool` 返回的
+`intake_dimensions` 中 `complete` 的维度对应 todo 直接打勾跳过、不弹表单；每个 todo
+可带可选 `description` 短说明，如「填写伤病与安全基线」）：
+
+**流程开始先调 `get_roadmap_tool()` 判定分支**：
+- **已有 active 路线图**：vision/baseline/roadmap 三项**直接标 skipped**（不复收集），
+  按当前关的 `training_focus` 与 `exit_criteria` 继续走 analyze 及之后流程。
+- **无路线图**（默认走完整闯关流程）：加入以下初始清单：
 
 ```
 title: "<目标>计划设计"
@@ -136,12 +154,18 @@ todos:
   - intake-fitness:     收集当前体能水平
   - intake-history:     收集运动经历与习惯
   - intake-lifestyle:   收集生活方式与客观环境
+  - vision:             确认目标身材原型与最终指标
+  - baseline:           记录力量与身体基线（落库）
+  - roadmap:            设计闯关路线图
   - analyze:            分析信息并确定训练类型
   - outline:            生成训练大纲
   - assemble:           装配完整计划提案
   - approve:            审批并落库
 ```
 
+> 用户明确拒绝闯关（如「不用闯关，直接给计划」）时：vision/baseline/roadmap 三项标
+> `skipped`，回退旧行为，从 analyze 继续。
+>
 > 逐日设计 todo（如 `design-day-1`...）在大纲确认后由 `present_plan_queue_tool` **重组清单**插入 `outline` 与 `assemble` 之间（见 5.3）。
 
 **用户移除待办**：用户可点面板删除按钮，收到「`[移除待办: <id>]`」结构化消息时，从队列中移除该 todo（或标 `skipped`），并用 `present_plan_queue_tool` 重渲染更新后的清单。若移除的是必选 intake 项，需补问一句是否真的不需要该项信息。
@@ -178,9 +202,45 @@ todos:
 
 - 标记该项 in_progress -> 调 `present_form_tool(form_id=...)` 在对话内弹表单
   （**每次对话轮次只发一个表单**：发完即止步等待提交，收到「[表单提交: ...]」后再发下一个）
-- 用户提交（「[表单提交: ...]」）后：body_profile 字段调 `update_user_profile_tool` 落库，其余维度仅本次参考
-- 调 `get_user_summary_tool` 复核 -> 该项打勾 completed
-- 档案已有数据的维度直接打勾跳过，不打扰用户
+- 用户提交（「[表单提交: ...]」）后：body_profile 字段调 `update_user_profile_tool` 落库；
+  其余维度（health_safety/fitness_level/exercise_history/lifestyle/diet_profile）字段
+  调 `update_fitness_profile_tool` 落库
+- 调 `get_user_summary_tool` 复核（`intake_dimensions` 该维度标 complete）-> 该项打勾 completed
+- 档案已有数据（`intake_dimensions` complete）的维度直接打勾跳过，不打扰用户
+
+#### 5.1.1 愿景项（vision：确认身材原型与最终指标）
+
+- 调 `get_goal_knowledge_tool()` 取按用户性别过滤的原型目录（含量化区间）
+- 正文以**列表**呈现各原型（名称/tagline/量化区间/关数提示），明确标注「以上为人群参考值，非承诺」
+- 用户选定某原型（如「薄肌」）或混合微调：目标值可在原型区间 **±10%** 内调整；
+  超出区间按用户口径但须在 `create_roadmap_tool` 结果里记录 warnings
+- 用户明确拒绝闯关（「直接给计划」）-> vision/baseline/roadmap 标 `skipped`，回退旧行为
+- 完成后打勾 vision
+
+#### 5.1.2 基线项（baseline：记录力量与身体基线，落库）
+
+- 调 `present_form_tool(form_id="baseline")`（现有表单）收集力量参考动作与身体围度
+- 用户提交后解析 `reference_lifts` / `circumference` -> 调 `record_baseline_tool`
+  （lifts + body_fat_pct/waist_cm/weight_kg）落库为**闯关路线图起点**
+- 30 天内已有 PerformanceTest 的动作自动跳过重复录入；无力量训练史可跳过
+  （路线图从 untrained 档起算）
+- 完成后打勾 baseline
+
+#### 5.1.3 路线图项（roadmap：设计闯关路线图）
+
+- 再调 `get_goal_knowledge_tool(archetype_key=选中原型, experience_level=<用户层级>)`
+  取当前档位、进度速率、安全限值作为数字依据
+- 分解关卡：
+  - 关数参考 `archetype.stage_hint` 与「档位差」（从当前档到末关目标的距离）
+  - 每关 `exit_criteria` 2-4 条：绝对 kg 由 `ratio × 当前体重` 换算；
+    体脂/腰围直接给绝对值；可测项优先（体脂无法自测可留空，至少保留可测项）
+  - `expected_weeks = 增量 ÷ 月速率`（如卧推 +5kg ÷ 6kg/月 ≈ 3.5 周向上取整到 4-5 周）
+- 调用 `present_roadmap_tool(title, description, stages)` 展示（前端渲染 RoadmapCard 关卡时间线）
+  **禁止在回复正文里输出路线图表格**
+- 用户点确认 / 发「`[确认路线图]`」-> 调 `create_roadmap_tool`（HITL 审批中断）-> 打勾 roadmap
+- 用户要求调整 -> 修改后重新 present + create；用户 reject 带修改稿同理
+- **关卡是检查点而非日期承诺**：expected_weeks 仅作排期参考，出关以复测达标为准，
+  措辞一律避免「X 周后你一定达标」这类承诺
 
 #### 5.2 分析项（确定训练类型）
 
@@ -203,6 +263,10 @@ todos:
 
   频率低于分化要求时降级：每周只能 2 次 -> 全身×2；三分化是 3 天一循环，
   频率不足一周两循环就降级为全身/上下分化，不硬套。
+- **有 active 路线图时**：训练类型/周期策略须**服从当前关** `training_focus` 与
+  `exit_criteria`——如减体脂关（exit_criteria 含 body_fat_pct）计划基调偏
+  「维持力量 + 热量赤字」；力量关（exit_criteria 含 kg 类）偏力量周期化。
+  无路线图时维持现状逻辑。
 - 完成后打勾 analyze
 
 #### 5.3 大纲项（生成大纲 + 重组清单）
@@ -253,10 +317,13 @@ todos:
   1. `present_plan_tool(title, description, content=完整表格, changes=[...])`
      （content 含各训练日动作/组次/重量表格 + 经验层级说明；changes 覆盖会落库的全部变更）
   2. **紧接着** `create_plan_tool`，**必须传入 `days`**（各日 `day_design` 装配的 `PlanDayCreate`），
-     后端直接落库、不再模板重新生成 -> 提案与落库一致。**禁止**不传 `days` 走后端模板路径
+     后端直接落库、不再模板重新生成 -> 提案与落库一致。**禁止**不传 `days` 走后端模板路径。
+     有 active 路线图时**同时传入 `milestone_id=<当前关 id>`**（来自 `get_roadmap_tool` 的
+     `current_milestone.id`），把计划挂到当前关。
 - **`changes` 变更总览必须逐项覆盖本次将写入数据库的全部变更**（这是用户审批的决策依据）：
   - 至少包含：计划主体（新增训练计划 + 目标/难度/天数/周期）、各训练日（新增训练日 + 分化 focus）、
     各动作（新增动作 + 组次/重量 + RPE/要点 notes）、以及同步更新的用户档案字段（如体重）。
+  - 有 active 路线图时加一行「关联闯关关卡：<当前关标题>」。
   - 一项一行为宜，`detail` 写清具体内容（如「每周4天力量训练」「卧推 4组×8次 @RPE 8」）。
   - 宁可多列，不可漏列——漏列会导致用户在批准时看不到真实将要发生的变更。
 - **装配映射（预览==落库，务必遵守）**：
@@ -303,16 +370,18 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 整个计划设计流程是一个**多轮推进循环**，沿待办清单一步一步做、做了打勾，直到审批落库才结束。每轮回复必须推进到下一个交互点，禁止开放式收尾。
 
 **每轮必须结束于以下状态之一：**
-1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息（intake 项）
-2. **大纲待确认**：已调用 `present_outline_tool` 展示大纲并用 `present_plan_queue_tool` 重组清单插入逐日 todo，等待用户确认大纲
-3. **当日方案待确认**：已调用 `present_day_design_tool` 等待用户确认当日设计（逐日项）
-4. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool`/`create_diet_plan_tool` 触发 HITL 中断
+1. **表单待填**：已调用 `present_form_tool` 等待用户提交信息（intake 项 / baseline 基线项）
+2. **路线图待确认**：已调用 `present_roadmap_tool` 展示路线图，等待用户确认「[确认路线图]」（roadmap 项）
+3. **大纲待确认**：已调用 `present_outline_tool` 展示大纲并用 `present_plan_queue_tool` 重组清单插入逐日 todo，等待用户确认大纲
+4. **当日方案待确认**：已调用 `present_day_design_tool` 等待用户确认当日设计（逐日项）
+5. **计划待审批**：已调用 `present_plan_tool` + `create_plan_tool`/`create_diet_plan_tool` 触发 HITL 中断
 
 **禁止的收尾方式：**
 - 禁止以开放式文案收尾，如「需要时告诉我」「还有什么想问的吗」「随时找我」
 - 禁止在未到审批就停止并等待用户主动开口
-- 禁止调用创建工具之前跳过 `present_plan_tool` 提案展示
+- 禁止在调用创建工具之前跳过 `present_plan_tool` 提案展示
 - 禁止在单轮内批量设计多日（逐日循环须一日一轮，等用户确认当日后再进入次日）
+- 禁止在 roadmap 项把路线图表格写进正文（必须走 `present_roadmap_tool` 渲染 RoadmapCard）
 
 **拒绝后的处理：**
 - 用户 reject（无修改）：主动询问调整方向；训练计划回到对应日重新走 5.4 当日设计，再装配提案
@@ -333,6 +402,7 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 | `remove_plan_day_tool` | 中断 | 删除训练日 | 待删除训练日 |
 | `remove_exercise_tool` | 中断 | 删除动作 | 待删除动作 |
 | `sync_plan_day_tool` | 中断 | 同步训练日（覆盖目标日动作） | 源日/目标日概览 |
+| `create_roadmap_tool` | 中断 | 创建/整体替换闯关路线图 | 路线图关卡卡片 + 出口条件 |
 
 其余编辑类工具（`update_plan_tool` / `add_plan_day_tool` / `add_exercise_tool` / `update_exercise_tool`）不中断，直接执行；编辑/删除动作前先用 `get_plan_detail_tool` 获取 `plan_day_id` / `exercise_id`。
 
@@ -347,4 +417,6 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 - `present_day_design_tool` 与 `update_plan_queue_item_tool` 配合：展示方案后等用户确认，确认消息收到后再调 update 打勾；一日一轮，勿批量
 - 审批通过后**不要**再次请求用户输入，直接总结执行结果
 - 若用户在 intake 阶段已提供足够信息，不要重复询问
-- 若采集了 baseline 基线数据，可在计划总结中建议用户按周期（如 4 周）复测力量/围度，用于下一步调整依据（本期仅文案引导，不落库）
+- 若用户走完整闯关流程，baseline 已通过 `record_baseline_tool` 落库；可在计划总结中建议
+  用户按关卡 `expected_weeks`（或 4 周）复测力量/围度，作为出关评估依据（复测同样走
+  `record_baseline_tool`，30 天内重复动作自动跳过）

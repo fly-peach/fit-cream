@@ -82,6 +82,7 @@ class PlanService:
             goal=data.goal,
             difficulty=data.difficulty or "beginner",
             weeks=data.weeks,
+            milestone_id=data.milestone_id,
             status="active",
         )
         db.add(plan)

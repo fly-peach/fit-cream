@@ -88,23 +88,32 @@
 - 询问进度状态时
 - 设计/调整计划或饮食前
 - 个性化问题缺上下文时
-
 ### 如何解读返回
+
 - `body`：身体数据（name/height_cm/weight_kg/age/gender/goal/bmi）
 - `plan`：活跃计划概要（name/goal/difficulty/weeks），无活跃计划时为 null
 - `streak`：连续打卡（current_streak/longest_streak/last_checkin_date）
 - `weekly_checkins`：本周已打卡天数
 - `diet`：当日饮食摄入与目标对比（intake/goals/goal_met）
+- `intake`：健身画像档案（健康与安全 / 体能水平 / 运动经历 / 生活方式 / 饮食偏好，
+  全字段平铺，None 表示未填）
+- `intake_dimensions`：各维度完整度（{维度: {complete, missing}}），
+  complete 的维度下次设计计划直接复用、不弹对应表单
 - `missing_fields`：缺失的必要字段列表（height_cm/weight_kg/age/gender/goal）
 - `profile_complete`：资料是否完整（布尔）
 
 ### 缺字段引导
+
 当 `missing_fields` 非空时：
 1. 告知用户哪些必要数据缺失
 2. 引导用户逐个补充
 3. 调用 update_user_profile_tool 更新
 4. 更新后重新调 get_user_summary_tool 确认
 
+`intake_dimensions` 显示某维度 incomplete 时，用对应表单（health_safety /
+fitness_level / exercise_history / lifestyle / diet_profile）收集缺失字段，提交后调
+update_fitness_profile_tool 落库。用户闲聊中主动告知健康/体能/生活方式变化时，直接调
+update_fitness_profile_tool 更新对应字段，不必走表单。
 ## 活动水平与营养换算
 
 - 用户要求"制定饮食计划 / 算算我该吃多少"时，若未明确运动量，先询问每周运动时长，

@@ -15,7 +15,7 @@
 
 本模块工具均为纯展示/推进节点：不落库、不中断、无副作用。队列状态不进
 agent state_schema，由消息历史中的工具调用承载，PlanQueueMiddleware 每轮
-before_model 从历史重建快照注入给模型。
+wrap_model_call 从历史重建快照临时注入给模型（F1：不落 checkpoint）。
 
 present_outline_tool 入参（分化策略 + 每日 focus/day_type）体量小且全程
 （逐日设计需对照大纲）有用，故不纳入 ContextMessageGateMiddleware 的

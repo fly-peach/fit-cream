@@ -51,6 +51,10 @@ _ds_fallback_threads: set[str] = set()
 _DS_CIRCUIT_BREAKER_THRESHOLD = 2
 _ds_fail_counts: dict[str, int] = {}
 
+# 可安全重试的瞬态模型错误状态码（网络/限流/服务端抖动）：
+# 401/403 属认证类已由 ModelRoutingMiddleware 负缓存回退，不视为瞬态。
+_TRANSIENT_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+
 
 def _thread_id() -> Optional[str]:
     tid = get_config_value("thread_id")
@@ -126,6 +130,25 @@ def _auth_status_code(exc: BaseException) -> Optional[int]:
     if cause is not None and cause is not exc:
         return _auth_status_code(cause)
     return None
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    """判断模型调用异常是否为可重试的瞬态错误（供 ModelRetryMiddleware.retry_on 过滤）。
+
+    瞬态：网络连接/超时、限流（429）、服务端错误（5xx）。认证类（401/403）
+    不视为瞬态——已由本中间件的负缓存回退处理，重试只会重复无效调用。
+    """
+    if _auth_status_code(exc) in (401, 403):
+        return False
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and status in _TRANSIENT_STATUS_CODES:
+        return True
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "from_exception", None)
+    if cause is not None and cause is not exc:
+        return is_transient_error(cause)
+    return False
 
 
 class ModelRoutingMiddleware(AgentMiddleware):

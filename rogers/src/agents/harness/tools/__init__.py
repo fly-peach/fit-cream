@@ -8,7 +8,8 @@ FitCream Agent Tools
 - plan/      计划类（create_plan / create_diet_plan / list_plans / get_plan_detail / update_plan / delete_plan / add_plan_day / remove_plan_day / add_exercise / update_exercise / remove_exercise / present_plan / present_form）
 - training/  训练类（checkin / get_streak / get_exercises / query_stats）
 - diet/      饮食类（record_meal / query_diet_summary / manage_meal / set_nutrition_goals）
-- user/      用户类（get_user_profile / update_user_profile / get_user_summary）
+- user/      用户类（get_user_profile / update_user_profile / update_fitness_profile /
+             get_user_summary）
 - knowledge/ 知识库（search_knowledge_base / read_kb_document / list_my_knowledge_bases）
 - memory/    记忆工具（create_memory_tools：recall_memory / save_preference / save_user_fact / list_user_profile / save_event）
 - skill/     技能加载（skill_load_tool）
@@ -48,6 +49,7 @@ from src.agents.harness.tools.diet import (
 )
 from src.agents.harness.tools.user import (
     get_user_profile_tool,
+    update_fitness_profile_tool,
     update_user_profile_tool,
     get_user_summary_tool,
 )
@@ -57,6 +59,13 @@ from src.agents.harness.tools.knowledge import (
     search_knowledge_base,
 )
 from src.agents.harness.tools.skill import skill_load_tool
+from src.agents.harness.tools.goal import (
+    create_roadmap_tool,
+    get_goal_knowledge_tool,
+    get_roadmap_tool,
+    present_roadmap_tool,
+    record_baseline_tool,
+)
 
 __all__ = [
     "create_plan_tool",
@@ -77,6 +86,7 @@ __all__ = [
     "get_exercises_tool",
     "get_user_profile_tool",
     "update_user_profile_tool",
+    "update_fitness_profile_tool",
     "search_knowledge_base",
     "read_kb_document",
     "list_my_knowledge_bases",
@@ -92,4 +102,9 @@ __all__ = [
     "present_outline_tool",
     "present_day_design_tool",
     "update_plan_queue_item_tool",
+    "get_goal_knowledge_tool",
+    "present_roadmap_tool",
+    "create_roadmap_tool",
+    "get_roadmap_tool",
+    "record_baseline_tool",
 ]

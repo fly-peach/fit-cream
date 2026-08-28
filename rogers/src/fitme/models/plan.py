@@ -40,6 +40,12 @@ class Plan(Base):
     status: Mapped[str] = mapped_column(
         String(20), default="active"
     )  # active / archived / completed
+    milestone_id: Mapped[Optional[UUID]] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("goal_milestones.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )  # 关联闯关关卡（可空，向后兼容）
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

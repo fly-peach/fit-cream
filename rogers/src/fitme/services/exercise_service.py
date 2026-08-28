@@ -29,6 +29,17 @@ class ExerciseService:
         return list(result.scalars().all())
 
     @staticmethod
+    async def list_name_map(db: AsyncSession) -> List[Dict[str, str]]:
+        """全量动作名 -> ID 映射（id/name/name_en），供前端把计划提案中的动作名转为详情链接。"""
+        result = await db.execute(
+            select(Exercise.id, Exercise.name, Exercise.name_en).order_by(Exercise.name)
+        )
+        return [
+            {"id": str(eid), "name": name, "name_en": name_en}
+            for eid, name, name_en in result.all()
+        ]
+
+    @staticmethod
     async def get_by_id(db: AsyncSession, exercise_id: UUID) -> Optional[Exercise]:
         result = await db.execute(
             select(Exercise).where(Exercise.id == exercise_id)
