@@ -244,6 +244,39 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
             logger.warning("[Summarization] 摘要生成失败，保留原消息: %s", e)
             raise
 
+    @staticmethod
+    def _last_input_tokens(messages: list[AnyMessage]) -> int:
+        """取最近一次模型调用的实际 input_tokens（真实上下文大小）。
+
+        count_tokens_approximately（len//4）对中文/JSON 工具输出严重低估，
+        导致真实 198k 上下文的线程不触发 100k 压缩（Bug 10/11）。
+        AIMessage.usage_metadata.input_tokens 随 checkpoint 持久化，新 run 首轮
+        before_model 即可读到上次上下文大小，跨 run 触发。
+        """
+        for msg in reversed(messages):
+            if not isinstance(msg, AIMessage):
+                continue
+            usage = getattr(msg, "usage_metadata", None) or {}
+            input_tokens = int(usage.get("input_tokens") or 0)
+            if input_tokens > 0:
+                return input_tokens
+        return 0
+
+    @staticmethod
+    def _sanitize_preserved_usage(preserved: list[AnyMessage]) -> None:
+        """压缩后清空保留消息携带的陈旧 usage_metadata。
+
+        压缩前的超大 input_tokens 若残留在保留消息上，下一轮 before_model 会
+        误判上下文仍超限、每轮重复压缩（thrash）。清空后 _last_input_tokens
+        回退到近似估算（对压缩后的小上下文不会再触发）。
+        """
+        for msg in preserved:
+            if isinstance(msg, AIMessage):
+                usage = getattr(msg, "usage_metadata", None)
+                if isinstance(usage, dict):
+                    usage.pop("input_tokens", None)
+                    usage.pop("total_tokens", None)
+
     def _summarize_plan(
         self, state: StructuredSummarizationState
     ) -> Optional[tuple[list[AnyMessage], list[AnyMessage], str, int]]:
@@ -256,9 +289,13 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
         self._ensure_message_ids(messages)
 
         try:
-            total_tokens = self.token_counter(messages)
+            approx = self.token_counter(messages)
         except Exception:
-            total_tokens = 0
+            approx = 0
+        # 优先用真实 usage 上下文大小（上次模型调用 input_tokens），无 usage 时
+        # 回退近似估算（首次调用 / 模型未回传 usage_metadata）
+        last_input = self._last_input_tokens(messages)
+        total_tokens = last_input if last_input > 0 else approx
 
         if total_tokens < self.trigger_tokens:
             return None
@@ -267,9 +304,13 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
         if cutoff <= 0:
             return None
 
+        preserved = messages[cutoff:]
+        # 清理保留消息的陈旧 usage，防压缩后每轮重复触发（thrash）
+        self._sanitize_preserved_usage(preserved)
+
         return (
             messages[:cutoff],
-            messages[cutoff:],
+            preserved,
             state.get("conversation_summary") or "",
             total_tokens,
         )
