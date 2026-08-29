@@ -72,8 +72,8 @@ class Settings(BaseSettings):
 
     # ---------- DashScope (通义千问) ----------
     DASHSCOPE_API_KEY: str = ""
-    # 默认统一为 qwen3.7-plus（多模态，兼容文本+图片），不再区分文本/视觉模型切换
-    DASHSCOPE_MODEL: str = "qwen3.7-plus"
+    # 默认统一为 qwen3.8-flash（多模态，兼容文本+图片），不再区分文本/视觉模型切换
+    DASHSCOPE_MODEL: str = "qwen3.8-flash"
     DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"  # 视觉模型（图片识别，兜底备选）
     DASHSCOPE_TEMPERATURE: float = 0.7
     DASHSCOPE_ENABLE_THINKING: bool = True

@@ -1163,7 +1163,7 @@ export default function ChatPage() {
   }, [setThreadId, clearMessages, setTab]);
 
   // 「为我设计健身计划」弹窗确认：新开线程 + 标记 plan_design（仅线程徽标语义，
-  // 不再承载模型路由——默认统一 qwen3.7-plus，BYOK 用户 key 时走 DeepSeek）
+  // 不再承载模型路由——默认统一 qwen3.8-flash，BYOK 用户 key 时走 DeepSeek）
   const handleDesignPlanConfirm = useCallback(() => {
     setDesignPlanOpen(false);
     handleNewChat();

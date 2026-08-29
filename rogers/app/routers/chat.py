@@ -119,7 +119,7 @@ async def _clean_expired_image_urls(checkpointer, thread_id: str) -> None:
     """Agent 发送前清理 checkpoint 中的过期 OSS 签名图片 URL。
 
     仅替换**已过期**的 OSS 签名 URL（已无法被模型读取）为占位文本，避免每轮
-    重复发送无效图片浪费 token。统一 qwen3.7-plus / deepseek 视觉模型后所有模型
+    重复发送无效图片浪费 token。统一 qwen3.8-flash / deepseek 视觉模型后所有模型
     均支持多模态，不再有非视觉模型强剥图片分支。无修改则不写 checkpoint。
     """
     if checkpointer is None:
@@ -807,7 +807,7 @@ async def send_message(
     _inject_request_config(config, req)
 
     # 清理 checkpoint 中过期的 OSS 签名图片 URL（已无法被模型读取，避免浪费 token）；
-    # 统一 qwen3.7-plus / deepseek 视觉模型均支持多模态，不再强剥图片
+    # 统一 qwen3.8-flash / deepseek 视觉模型均支持多模态，不再强剥图片
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
     # 修复 checkpoint 中悬空的 tool_calls（缺 ToolMessage 响应）：
     # 崩溃残留会导致 DeepSeek resume/续聊 400（Bug B1），先修复再进流

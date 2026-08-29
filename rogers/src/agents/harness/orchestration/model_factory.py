@@ -53,8 +53,8 @@ def _get_setting(key: str, default: str = "") -> str:
         return os.getenv(key, default)
 
 
-# 默认统一为 qwen3.7-plus（多模态），不再区分文本/视觉模型切换
-DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.7-plus")
+# 默认统一为 qwen3.8-flash（多模态），不再区分文本/视觉模型切换
+DEFAULT_MODEL = _get_setting("DASHSCOPE_MODEL", "qwen3.8-flash")
 
 # DeepSeek 视觉模型（官方端点；DashScope 未托管，且 DashScope 上的 deepseek
 # 文本模型收到 image_url 块会静默丢弃，不报错也不识图）
@@ -306,7 +306,7 @@ def resolve_chat_model(
 
     - 有 user DS key：deepseek 视觉模型（LRU 缓存；若该 key 曾 401/403 命中负
       缓存则回退 qwen）
-    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.7-plus）；``enable_thinking``
+    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.8-flash）；``enable_thinking``
       可 per-call 覆盖（plan_design 纯 tool-calling 轮传 False 省 reasoning tokens）
 
     返回的模型一律 ``streaming=True``：本函数主要供 Agent 对话路径（SSE 流式
