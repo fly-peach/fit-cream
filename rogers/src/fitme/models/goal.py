@@ -49,6 +49,7 @@ class GoalArchetype(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     tagline: Mapped[Optional[str]] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
+    female_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     target_metrics: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {"male": [...], "female": [...]}
     training_bias: Mapped[Optional[str]] = mapped_column(String(50))
     diet_bias: Mapped[Optional[str]] = mapped_column(String(50))
@@ -164,6 +165,7 @@ class GoalMilestone(Base):
     description: Mapped[Optional[str]] = mapped_column(Text)
     exit_criteria: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     expected_weeks: Mapped[Optional[int]] = mapped_column(Integer)
+    training_focus: Mapped[Optional[str]] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="locked")
     achieved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

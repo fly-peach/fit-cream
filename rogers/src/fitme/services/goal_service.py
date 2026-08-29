@@ -79,7 +79,7 @@ class GoalKnowledgeService:
         rows = (await db.execute(q)).scalars().all()
         result = []
         for a in rows:
-            if gender and gender.lower() in ("male", "m", "男") and getattr(a, "female_only", False):
+            if gender and gender.lower() in ("male", "m", "男") and a.female_only:
                 continue
             result.append(
                 {
@@ -87,6 +87,7 @@ class GoalKnowledgeService:
                     "name": a.name,
                     "tagline": a.tagline,
                     "description": a.description,
+                    "female_only": a.female_only,
                     "target_metrics": a.target_metrics,
                     "training_bias": a.training_bias,
                     "diet_bias": a.diet_bias,
@@ -454,6 +455,7 @@ class GoalRoadmapService:
                     description=st.description,
                     exit_criteria=[c.model_dump() for c in st.exit_criteria],
                     expected_weeks=st.expected_weeks,
+                    training_focus=st.training_focus,
                     status="active" if i == 0 else "locked",
                 )
             )
@@ -496,6 +498,138 @@ class GoalRoadmapService:
             if m.status == "active":
                 return m
         return None
+
+    @staticmethod
+    async def _current_metric_values(db: AsyncSession, user_id: UUID) -> Dict[str, float]:
+        """指标 key -> 当前测量值（力量测试 / 身体指标 / ratio 派生）。"""
+        values: Dict[str, float] = {}
+        tests = await GoalRoadmapService._latest_tests_map(db, user_id)
+        for lift, test in tests.items():
+            values[lift + "_kg"] = float(test.value)
+            if lift == "pull_up":
+                values["pull_ups"] = float(test.value)
+        health = await GoalRoadmapService._latest_health_metric(db, user_id)
+        if health:
+            if health.body_fat_pct is not None:
+                values["body_fat_pct"] = float(health.body_fat_pct)
+            if health.waist_cm is not None:
+                values["waist_cm"] = float(health.waist_cm)
+            if health.weight_kg is not None:
+                values["bodyweight_kg"] = float(health.weight_kg)
+        bw = values.get("bodyweight_kg")
+        if bw:
+            for ratio, abs_metric in _RATIO_TO_ABS.items():
+                if abs_metric in values:
+                    values[ratio] = values[abs_metric] / bw
+        return values
+
+    @staticmethod
+    async def evaluate_current_milestone(
+        db: AsyncSession, user_id: UUID
+    ) -> dict:
+        """复测出关判定：比对当前关出口条件与最新测量值。
+
+        全部达标 → 当前关置 achieved，解锁下一关（第一个 locked 置 active），
+        返回 achieved=True；否则返回逐条未达标明细（不落库变更）。
+        无 active 路线图或无进行中关卡时返回 evaluated=False。
+        """
+        roadmap = await GoalRoadmapService.get_active_roadmap(db, user_id)
+        if not roadmap:
+            return {
+                "has_roadmap": False,
+                "evaluated": False,
+                "message": "当前没有活跃闯关路线图",
+            }
+        current = next(
+            (m for m in roadmap.milestones if m.status == "active"), None
+        )
+        if current is None:
+            return {
+                "has_roadmap": True,
+                "evaluated": False,
+                "message": "当前没有进行中的关卡",
+            }
+
+        values = await GoalRoadmapService._current_metric_values(db, user_id)
+        criteria: List[dict] = []
+        all_met = True
+        for c in current.exit_criteria or []:
+            metric = c.get("metric")
+            op = c.get("op")
+            target = c.get("value")
+            unit = c.get("unit")
+            val = values.get(metric)
+            met = False
+            reason = None
+            if val is None:
+                all_met = False
+                reason = "缺少测量数据"
+            else:
+                met = (val >= target) if op == ">=" else (val <= target)
+                if not met:
+                    all_met = False
+            criteria.append(
+                {
+                    "metric": metric,
+                    "op": op,
+                    "target": target,
+                    "unit": unit,
+                    "current": round(val, 2) if val is not None else None,
+                    "met": met,
+                    "reason": reason,
+                }
+            )
+
+        if all_met:
+            current.status = "achieved"
+            current.achieved_at = _now()
+            next_milestone = None
+            remaining = [m for m in roadmap.milestones if m.status == "locked"]
+            if remaining:
+                next_milestone = min(remaining, key=lambda m: m.stage_index)
+                next_milestone.status = "active"
+            await db.flush()
+            await db.refresh(current)
+            return {
+                "has_roadmap": True,
+                "evaluated": True,
+                "achieved": True,
+                "milestone": {
+                    "id": str(current.id),
+                    "stage_index": current.stage_index,
+                    "title": current.title,
+                },
+                "criteria": criteria,
+                "next_milestone": (
+                    {
+                        "id": str(next_milestone.id),
+                        "stage_index": next_milestone.stage_index,
+                        "title": next_milestone.title,
+                        "training_focus": next_milestone.training_focus,
+                    }
+                    if next_milestone
+                    else None
+                ),
+                "message": f"「{current.title}」出口条件全部达成，已通关！"
+                + (
+                    f"下一关「{next_milestone.title}」已解锁。"
+                    if next_milestone
+                    else "路线图全部通关！"
+                ),
+            }
+
+        return {
+            "has_roadmap": True,
+            "evaluated": True,
+            "achieved": False,
+            "milestone": {
+                "id": str(current.id),
+                "stage_index": current.stage_index,
+                "title": current.title,
+            },
+            "criteria": criteria,
+            "message": f"「{current.title}」尚未达到出关条件，继续加油。",
+        }
 
 
 class PerformanceTestService:

@@ -60,6 +60,7 @@ from src.agents.harness.tools.knowledge import (
 )
 from src.agents.harness.tools.skill import skill_load_tool
 from src.agents.harness.tools.goal import (
+    check_milestone_tool,
     create_roadmap_tool,
     get_goal_knowledge_tool,
     get_roadmap_tool,
@@ -107,4 +108,5 @@ __all__ = [
     "create_roadmap_tool",
     "get_roadmap_tool",
     "record_baseline_tool",
+    "check_milestone_tool",
 ]

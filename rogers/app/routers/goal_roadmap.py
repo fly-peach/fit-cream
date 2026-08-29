@@ -3,6 +3,8 @@
 
 - GET /goal-roadmap：当前用户的 active 路线图（含里程碑）+ 当前关 + 最新力量基线 + 最新身体指标。
   供前端训练计划页（完整路线图）与 Dashboard（当前关节点）读取。
+- POST /goal-roadmap/check：复测出关判定。比对当前关出口条件与最新测量值，
+  全部达标则当前关置 achieved 并解锁下一关（落库），未达标返回逐条缺口。
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,11 +57,28 @@ async def get_goal_roadmap(
                 "title": current.title,
                 "exit_criteria": current.exit_criteria,
                 "expected_weeks": current.expected_weeks,
+                "training_focus": current.training_focus,
                 "status": current.status,
             }
             if current
             else None,
             "latest_tests": tests,
             "body_metrics": body_metrics,
+        }
+    )
+
+
+@router.post("/check", response_model=ResponseModel[dict], operation_id="check_goal_roadmap")
+async def check_goal_roadmap(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """复测出关判定：达标自动通关当前关并解锁下一关，未达标返回逐条缺口。"""
+    evaluation = await GoalRoadmapService.evaluate_current_milestone(db, user.id)
+    roadmap = await GoalRoadmapService.get_active_roadmap(db, user.id)
+    return ResponseModel(
+        data={
+            "roadmap": roadmap_to_dict(roadmap) if roadmap else None,
+            "evaluation": evaluation,
         }
     )

@@ -14,7 +14,7 @@ import json
 import logging
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.fitme.models.goal import (
@@ -53,6 +53,7 @@ async def seed_goal_knowledge(db: AsyncSession) -> None:
                     name=arch["name"],
                     tagline=arch.get("tagline"),
                     description=arch.get("description"),
+                    female_only=arch.get("female_only", False),
                     target_metrics=arch.get("target_metrics", {}),
                     training_bias=arch.get("training_bias"),
                     diet_bias=arch.get("diet_bias"),
@@ -64,6 +65,17 @@ async def seed_goal_knowledge(db: AsyncSession) -> None:
             )
         await db.flush()
         logger.info("goal_archetypes 种子完成：%d 条", len(data.get("archetypes", [])))
+
+    # 存量行同步 female_only（幂等：种子 JSON 为唯一真源，兼容补列后既有行未回填的情况）
+    for arch in data.get("archetypes", []):
+        await db.execute(
+            update(GoalArchetype)
+            .where(
+                GoalArchetype.key == arch["key"],
+                GoalArchetype.female_only != arch.get("female_only", False),
+            )
+            .values(female_only=arch.get("female_only", False))
+        )
 
     # ---- strength_standards（按 gender -> lift -> level -> multiplier 展平）----
     if (await db.execute(select(StrengthStandard.id))).first() is None:

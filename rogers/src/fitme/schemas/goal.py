@@ -84,6 +84,7 @@ class GoalMilestoneOut(BaseModel):
     description: Optional[str] = None
     exit_criteria: List[dict] = Field(default_factory=list)
     expected_weeks: Optional[int] = None
+    training_focus: Optional[str] = None
     status: str
     achieved_at: Optional[datetime] = None
 

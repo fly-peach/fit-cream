@@ -497,6 +497,7 @@ def _get_default_tools() -> list:
             get_goal_knowledge_tool,
         )
         from src.agents.harness.tools.goal.roadmap_tools import (
+            check_milestone_tool,
             create_roadmap_tool,
             get_roadmap_tool,
             present_roadmap_tool,
@@ -517,6 +518,7 @@ def _get_default_tools() -> list:
             create_roadmap_tool,
             get_roadmap_tool,
             record_baseline_tool,
+            check_milestone_tool,
         ])
     except ImportError:
         pass

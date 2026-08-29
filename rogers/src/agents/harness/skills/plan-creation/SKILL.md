@@ -420,3 +420,6 @@ protein_g, carbs_g, fat_g, portion}]`）。提供 `days` 后后端直接落库�
 - 若用户走完整闯关流程，baseline 已通过 `record_baseline_tool` 落库；可在计划总结中建议
   用户按关卡 `expected_weeks`（或 4 周）复测力量/围度，作为出关评估依据（复测同样走
   `record_baseline_tool`，30 天内重复动作自动跳过）
+- 复测落库后 `record_baseline_tool` 会自动返回 `milestone_progress` 出关判定；用户主动问
+  「是否达到出关条件」时调 `check_milestone_tool`。判定达标会自动置当前关 achieved 并解锁
+  下一关（无需再建路线图），未达标则按 `criteria[].reason/缺口` 指导补足并建议下次复测时间

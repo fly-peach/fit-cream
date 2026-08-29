@@ -75,6 +75,10 @@ FITME_OPERATIONS = [
     "get_body_stats",
     "get_overview_stats",
     "get_diet_trend",
+    # goal roadmap / knowledge（只读 + 出关判定）
+    "get_goal_roadmap",
+    "check_goal_roadmap",
+    "get_goal_knowledge",
     # exercises（仅读，写端点为 curated 数据不暴露）
     "list_exercises",
     "get_exercise",

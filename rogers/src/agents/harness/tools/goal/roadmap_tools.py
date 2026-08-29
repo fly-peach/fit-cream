@@ -6,7 +6,9 @@
 - create_roadmap_tool：调 GoalRoadmapService 确定性校验 + 落库；加入 HITL 审批中断
 - get_roadmap_tool：返回 active 路线图全量 + 最新力量基线 + 最新身体指标；流程开始
   判定「是否已有路线图」也用它
-- record_baseline_tool：基线/复测落库（performance_tests + HealthMetric）
+- record_baseline_tool：基线/复测落库（performance_tests + HealthMetric），
+  落库后自动做复测出关判定
+- check_milestone_tool：复测出关判定（比对当前关出口条件，达标自动通关并解锁下一关）
 """
 from typing import List, Optional
 
@@ -74,6 +76,9 @@ class CreateRoadmapInput(BaseModel):
     target_metrics: List[MetricCriterion] = Field(
         default_factory=list, description="最终目标（末关近似，含 op/value/unit）"
     )
+    horizon_months: Optional[int] = Field(
+        default=None, ge=1, le=24, description="预计达成周期（月），用于前端展示"
+    )
     stages: List[StageDesign] = Field(min_length=2, max_length=8)
     experience_level: Optional[str] = Field(
         default="beginner",
@@ -88,6 +93,7 @@ async def create_roadmap_tool(
     title: str,
     description: Optional[str] = None,
     target_metrics: List[MetricCriterion] = None,  # type: ignore[assignment]
+    horizon_months: Optional[int] = None,
     stages: List[StageDesign] = None,  # type: ignore[assignment]
     experience_level: str = "beginner",
     config: "RunnableConfig" = None,  # type: ignore[assignment]
@@ -124,7 +130,7 @@ async def create_roadmap_tool(
                 description=description,
                 target_metrics=target_metrics or [],
                 stages=stages or [],
-                horizon_months=None,
+                horizon_months=horizon_months,
             )
             roadmap = await GoalRoadmapService.create_roadmap(
                 db, user_id, data, gender=gender, experience_level=experience_level
@@ -238,7 +244,7 @@ async def record_baseline_tool(
         body_fat_pct / waist_cm / weight_kg: 可选身体指标（写 HealthMetric）
 
     Returns:
-        已记录 / 已跳过（30 天内重复）的动作清单
+        已记录 / 已跳过（30 天内重复）的动作清单 + milestone_progress（复测出关判定）
     """
     user_id = extract_user_id(config)
     if not user_id:
@@ -259,6 +265,32 @@ async def record_baseline_tool(
             msg = f"已记录基线：{', '.join(result['recorded'])}"
             if result["skipped"]:
                 msg += f"（{', '.join(result['skipped'])} 近 30 天已有记录，未重复录入）"
-            return {"success": True, **result, "message": msg}
+            progress = await GoalRoadmapService.evaluate_current_milestone(db, user_id)
+            return {"success": True, **result, "milestone_progress": progress, "message": msg}
+    except Exception as e:
+        return error_response(e)
+
+
+@tool
+async def check_milestone_tool(config: "RunnableConfig" = None) -> dict:  # type: ignore[assignment]
+    """
+    复测出关判定：比对当前关出口条件与最新力量基线/身体指标。
+
+    使用场景：
+    - 用户问「我达到出关条件了吗」「现在能通关吗」时调用
+    - 复测数据落库后，向用户汇报是否出关；全部达标会自动置当前关 achieved
+      并解锁下一关（落库），未达标返回逐条缺口明细
+
+    Returns:
+        has_roadmap / evaluated / achieved / milestone / criteria（逐条达标情况）/ next_milestone
+    """
+    user_id = extract_user_id(config)
+    if not user_id:
+        return {"success": False, "error": "缺少用户身份信息"}
+
+    try:
+        async with session_scope() as db:
+            result = await GoalRoadmapService.evaluate_current_milestone(db, user_id)
+            return {"success": True, **result}
     except Exception as e:
         return error_response(e)
