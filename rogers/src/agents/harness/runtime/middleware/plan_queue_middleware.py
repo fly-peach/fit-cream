@@ -11,7 +11,7 @@ wrap_model_call 在用户新消息（HumanMessage）时，扫描消息历史重�
 哪些日已完成、当前在推进哪一日、下一步该做什么，避免多轮对话后失忆或重复设计
 已完成日。
 
-架构与 IntentMiddleware 一致：
+架构与 RequestGateMiddleware 一致：
 - 仅在最新消息为 HumanMessage 时注入（跳过 ToolMessage/AIMessage，避免 tool 循环重复注入）
 - 无实例级可变状态，编译进共享 graph，并发运行互不影响
 - F3：队列快照经 get_queue_snapshot 单次计算并在同一 model 调用内被
@@ -21,14 +21,12 @@ wrap_model_call 在用户新消息（HumanMessage）时，扫描消息历史重�
 import logging
 from typing import Any, Optional
 
-from langchain.agents.middleware import AgentMiddleware
 from langchain.messages import HumanMessage
 
 from src.agents.harness.tools.plan.plan_queue_tools import QUEUE_TOOLS
-from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
-from src.agents.harness.runtime.middleware.robust import (
-    model_hook_fail_open,
-    msg_tool_calls,
+from src.agents.harness.runtime.middleware.robust import msg_tool_calls
+from src.agents.harness.runtime.middleware.transient_prompt import (
+    TransientPromptMiddleware,
 )
 
 logger = logging.getLogger("fitcream.agent")
@@ -144,16 +142,16 @@ def _render_snapshot(queue: dict) -> str:
     return "\n".join(lines)
 
 
-class PlanQueueMiddleware(AgentMiddleware):
+class PlanQueueMiddleware(TransientPromptMiddleware):
     """计划设计队列上下文注入（无状态，编译进共享 graph）。
 
-    wrap_model_call：仅当最新消息为 HumanMessage 时，从消息历史重建队列快照并
-    临时合并进 request.system_message（F1 不落 checkpoint）。队列工具调用本身是
-    AIMessage（非 HumanMessage），故 tool 循环中不会重复注入，只在用户每轮新消息
-    时刷新一次快照，token 开销可控。
+    wrap_model_call（基类 TransientPromptMiddleware 统一实现）：仅当最新消息为
+    HumanMessage 时，从消息历史重建队列快照并临时合并进 request.system_message
+    （F1 不落 checkpoint）。队列工具调用本身是 AIMessage（非 HumanMessage），故
+    tool 循环中不会重复注入，只在用户每轮新消息时刷新一次快照，token 开销可控。
     """
 
-    def _snapshot_prompt(self, messages: list) -> Optional[str]:
+    def _prompt(self, messages: list) -> Optional[str]:
         if not messages:
             return None
         if not isinstance(messages[-1], HumanMessage):
@@ -165,20 +163,5 @@ class PlanQueueMiddleware(AgentMiddleware):
         snapshot = get_queue_snapshot(messages)
         if not snapshot:
             return None
+        logger.info("[PlanQueue] Injected queue snapshot into context")
         return _render_snapshot(snapshot)
-
-    @model_hook_fail_open
-    def wrap_model_call(self, request, handler):
-        prompt = self._snapshot_prompt(request.messages)
-        if not prompt:
-            return handler(request)
-        logger.info("[PlanQueue] Injected queue snapshot into context")
-        return handler(merge_system_prompt(request, prompt))
-
-    @model_hook_fail_open
-    async def awrap_model_call(self, request, handler):
-        prompt = self._snapshot_prompt(request.messages)
-        if not prompt:
-            return await handler(request)
-        logger.info("[PlanQueue] Injected queue snapshot into context")
-        return await handler(merge_system_prompt(request, prompt))

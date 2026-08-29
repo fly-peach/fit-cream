@@ -2,106 +2,91 @@
 
 中间件在 `create_fitcream_agent()` 编译时注入 LangGraph Graph，以下是按执行顺序排列的完整中间件管道。
 
+## 核心思想
+
+共享 graph 编译时固化了 model/tools；所有 per-request 差异通过中间件在「请求视图层」做临时变换（`wrap_model_call` 里 `request.override(...)`，不落 checkpoint），生命周期动作走 node-style hook（计数/日志/终结/压缩）。两条铁律贯穿：
+
+- **fail-open**：消费 checkpoint 历史 / 运行时附带数据（tool_calls、usage_metadata）的钩子异常一律降级而非炸请求（`robust.py` 围栏）
+- **无实例级可变状态**：并发安全，计数走 `UntrackedValue` 随 run 重置
+
 ## 执行顺序
 
-| 序号 | 中间件 | 作用域 | 核心功能 |
-|------|--------|--------|----------|
-| 1 | IntentMiddleware | before_model | 检测用户意图，注入意图专用提示词 |
-| 2 | SkillsMiddleware | 占位 | 纯占位（catalog 已静态烘焙进 system_prompt） |
-| 3 | PlanQueueMiddleware | before_model | 计划设计队列进度快照注入（仅 plan_design 流程有队列时生效） |
-| 4 | AgentLoggingMiddleware | 全生命周期 | 记录 Agent / LLM / Tool 调用日志 |
-| 5 | ModelCallLimitMiddleware | before_model | LLM 调用次数限制（默认 15 次/轮） |
-| 6 | ToolCallLimitMiddleware | wrap_tool_call | 工具调用次数限制（默认 10 次/轮） |
-| 7 | SameToolLimitMiddleware | wrap_tool_call | 同一工具重复调用限制（默认 5 次） |
-| 8 | TokenUsageMiddleware | after_model | 追踪 Token 用量，超限警告 |
-| 9 | SummarizationMiddleware | after_model | Token 超量时压缩对话历史 |
-| 10 | MemoryUpdateMiddleware | after_model | 达到阈值时触发记忆提取 |
+| 序号 | 中间件 | Hook | 核心功能 |
+|------|--------|------|----------|
+| 1 | RequestGateMiddleware | wrap_model_call | 用户请求门控：意图识别渐进式注入 + plan_design 按钮门控 + 知识库回答开关（关闭时过滤 KB 工具 / 开启时注入 KB 优先提示词） |
+| 2 | PlanQueueMiddleware | wrap_model_call | 计划设计队列进度快照注入（仅 plan_design 流程有队列时生效） |
+| 3 | ContentValidationMiddleware | wrap_model_call | 大纲/当日设计/提案的确定性校验兜底（复用队列快照） |
+| 4 | ContextMessageGateMiddleware | wrap_model_call | 队列入参视图级裁剪（只动 request.messages，不落 checkpoint） |
+| 5 | ModelRoutingMiddleware | wrap_model_call | 模型路由（qwen / 用户 DeepSeek key）+ 思考开关（默认不思考，kb/plan_design 开思考） |
+| 6 | ModelRetryMiddleware | wrap_model_call | 瞬态异常指数退避重试 |
+| 7 | ToolErrorMiddleware | wrap_tool_call | 工具异常转 error ToolMessage 供模型自纠 |
+| 8 | HumanInTheLoopMiddleware（可选） | wrap_tool_call | 副作用工具中断等待审批（仅 checkpointer 存在时） |
+| 9 | AgentLoggingMiddleware | node + wrap_tool_call | 记录 Agent / LLM / Tool 调用日志 |
+| 10 | ModelCallLimit / ToolCallLimit / SameToolLimitMiddleware | node + wrap_tool_call | 三层限流 |
+| 11 | TokenUsageMiddleware | after_model | Token 用量追踪（上限按 plan_design 动态 150K/200K） |
+| 12 | FitCreamSummarizationMiddleware | before_model | 会话压缩（150K / plan_design 200K）+ 压缩后记忆提炼（D3） |
 
 > 注：对话持久化不在此管道内，由 SSE 流（chat.py `_run_agent_sse`）同步落库到 `conversations` 表。
+> Skills 无独立中间件：catalog 在 agent_factory 构建时静态烘焙进 system_prompt（纯占位中间件已删）。
+
+## 共享基类：TransientPromptMiddleware
+
+「按用户最新消息临时注入提示词」一族中间件（RequestGate / PlanQueue / ContentValidation）的 wrap 样板收敛到 `transient_prompt.py` 基类：
+
+- 子类只实现 `_prompt(messages) -> Optional[str]` 纯函数（None = 不注入），可选实现 `_filter_tools(request)`（如 RequestGate 的 KB 工具过滤）
+- 基类统一 `wrap_model_call` / `awrap_model_call`（自动 sync/async 桥接 + `@model_hook_fail_open` 围栏 + `merge_system_prompt` 合并，不落 checkpoint）
+- 三个子类行为差异收束到各自几十行的纯函数
 
 ## 各中间件详情
 
-### IntentMiddleware
+### RequestGateMiddleware
 
-意图检测中间件。在每次 LLM 调用前检测用户输入意图，注入对应意图的 `SystemMessage`。
+用户请求门控中间件（合并自 IntentMiddleware + KBGateMiddleware）。基类 wrap 实现中：
 
-检测逻辑：
-1. 检查最后一条消息是否为 HumanMessage（跳过 ToolMessage/AIMessage 场景）
-2. 多模态消息（包含 `image_url`）→ 返回 `image_analysis` 意图
-3. 关键词匹配 → 返回匹配的意图
-4. 无匹配 → 返回 `general_chat`
+1. `_filter_tools`：kb_enabled 关闭时从 request.tools 移除 3 个 KB 工具（模型完全不可见）
+2. `_prompt`：检测最新 HumanMessage 的意图（图片检测 + 多意图关键词 + 可选 LLM 兜底），合并所有命中意图的专项提示词 + KB 优先提示词（开启时）
 
-| 意图 | 触发关键词 | 行为 |
-|------|-----------|------|
-| plan_creation | 计划、制定、创建、调整、减脂计划、增肌计划 | 注入计划创建指南 |
-| checkin | 打卡、训练了、今天练了、练了 | 注入打卡引导 |
-| stats_analysis | 统计、数据、进度、趋势、分析 | 注入数据分析方法 |
-| exercise_query | 动作、推荐动作、怎么练、正确姿势 | 注入动作推荐逻辑 |
-| image_analysis | （多模态消息自动检测） | 注入图片分析要求 |
-| memory_operation | 记得、上次、之前、偏好、习惯 | 注入记忆检索引导 |
-| profile_update | 更新、修改、身高、体重、目标 | 注入信息更新步骤 |
-| knowledge_query | 什么是、原理、为什么、知识、解释 | 注入知识库搜索要求 |
-| general_chat | （默认 fallback） | 注入通用对话指南 |
+plan_design 门控：完整计划设计流程（plan-execute）只允许「设计计划」按钮进入的会话（configurable.plan_design）触发；普通聊天里用户提及计划设计时，替换为「引导点击按钮」的轻量提示词。
 
 ### PlanQueueMiddleware
 
-计划设计待办队列上下文注入中间件（无状态）。与 IntentMiddleware 架构一致：
-
-- 仅在最新消息为 **HumanMessage** 时注入（跳过 ToolMessage/AIMessage，避免 tool 循环重复注入）
-- 从消息历史中扫描 `AIMessage.tool_calls`，取最后一个 `present_plan_queue_tool`（入参整体即队列）或 `update_plan_queue_item_tool`（入参 `.queue` 字段）的队列快照，重建当前进度
-- 渲染成 SystemMessage 注入（目标/训练类型/频率/难度 + 各 phase 完成数 + 当前应推进的日），防止多轮对话后失忆或重复设计已完成日
-- 无实例级可变状态，编译进共享 graph，并发运行互不影响
+计划设计待办队列上下文注入中间件（无状态）。`_prompt` 从消息历史扫描 `AIMessage.tool_calls`，取最后一个队列工具调用的快照重建当前进度，渲染成提示词注入，防止多轮对话后失忆或重复设计已完成日。
 
 队列工具调用本身是 AIMessage，故只在用户每轮新消息时刷新一次快照，token 开销可控。
 
+### ContentValidationMiddleware
+
+计划设计流程的确定性兜底（生产实测暴露的失败模式：模型未调用展示工具却把结构化内容写进正文、把用户手打的确认当作已展示）。`_prompt` 按当前阶段与历史生成校验提示：确认类（确认了大纲但从未展示 → 要求先补展示）+ 阶段类（大纲/逐日/路线图/审批阶段的展示工具约束）。
+
+非 plan-design 流程（无队列快照）直接跳过，零开销。队列快照复用 PlanQueueMiddleware 的单次扫描结果（F3）。
+
+### ContextMessageGateMiddleware
+
+模型视图级上下文裁剪：把历史中冗余的完整队列快照入参替换为轻量占位（保留最新一份完整供模型构造下次入参），用 `request.override(messages=...)` 返回。只影响模型请求视图，不落 checkpoint、不改前端契约。裁剪失败 fallback 原消息。
+
+### ModelRoutingMiddleware
+
+按请求切换模型：有用户 DeepSeek key 用 deepseek 视觉模型，否则 qwen；`think = kb_enabled or plan_design`（默认不思考）。**无条件** override（无 key 也按思考开关路由 qwen think/nothink）。401/403 标记负缓存并回退 qwen + 一次性警示；同 run 连续失败断路器短路。
+
 ### AgentLoggingMiddleware
 
-全生命周期日志中间件。记录以下关键节点：
+全生命周期日志中间件，记录 Agent / LLM / Tool 调用关键节点。每轮计数（LLM/Tool 调用数、开始时间）存 `AgentLoggingState`（UntrackedValue，随 run 重置）。日志级别 INFO，Logger `fitcream.agent`。
 
-| 钩子 | 记录内容 |
-|------|----------|
-| before_agent | Agent 启动 |
-| before_model | LLM 调用次数、输入消息数量 |
-| after_model | 响应摘要、累积 Token 用量 |
-| wrap_tool_call | 工具名称、输入参数、执行耗时、输出预览 |
-| after_agent | 总耗时、LLM 调用次数、Tool 调用次数、总 Token |
+### 三层限流
 
-日志级别为 INFO，Logger 名称为 `fitcream.agent`。user_id / thread_id 不再拼入 message 文本，改由 ContextVar 经格式化器注入为顶层字段/前缀（见后端日志体系）。
-
-### RateLimit 三层限流
-
-三层递进式限流策略：
-
-1. **ModelCallLimitMiddleware**: LLM 调用次数上限，触发后结束本轮对话
-2. **ToolCallLimitMiddleware**: 工具调用总次数上限，触发后不再执行新工具但允许 LLM 继续
-3. **SameToolLimitMiddleware**: 同一工具的重复调用上限，触发后返回错误状态 ToolMessage，提示 LLM 更换方案
-
-SameToolLimitMiddleware 内部维护每次运行的 `_tool_history` 字典，按工具名累加调用次数。
+1. **ModelCallLimitMiddleware**（内置）：LLM 调用次数上限（30），触发后结束本轮
+2. **ToolCallLimitMiddleware**（内置）：工具调用总次数上限（10），触发后不再执行新工具但允许 LLM 继续
+3. **SameToolLimitMiddleware**（自定义）：同一工具重复调用上限（默认 5，展示类工具可覆盖），after_model 计数 + wrap_tool_call 执行前短路返回错误 ToolMessage
 
 ### TokenUsageMiddleware
 
-Token 用量追踪中间件。无状态，每次 after_model 钩子中从最后一条 AI 消息的 `usage_metadata` 中累加：
+Token 用量追踪中间件（无状态）。after_model 从最后一条 AI 消息的 `usage_metadata` 累加，存入 `TokenUsageState`（UntrackedValue）。上下文上限按 `configurable.plan_design` 动态取 200K/150K（D2），仅日志/告警，压缩由 FitCreamSummarizationMiddleware 处理。
 
-| 计数器 | 来源字段 |
-|--------|----------|
-| prompt_tokens | usage_metadata.input_tokens |
-| completion_tokens | usage_metadata.output_tokens |
-| total_tokens | usage_metadata.total_tokens |
+### FitCreamSummarizationMiddleware
 
-超限时记录 WARNING 日志，不中断 Agent。Token 限流阈值与 SummarizationMiddleware 的压缩阈值一致（100,000）。
+会话压缩 + 记忆提炼中间件（内置 SummarizationMiddleware 子类，D1-D9）：
 
-### MemoryUpdateMiddleware
-
-记忆提取触发器。在 after_model 钩子中累积 token 用量，达到阈值（100,000）时异步触发记忆提取：
-
-1. 通过全局 `MemoryPipeline` 实例调用 `process_conversation()`
-2. 传入当前用户的所有对话消息
-3. 提取结果分类存储到 episodic / semantic / procedural 三张表
-4. 内部 `_is_processing` 标记防止并发提取
-
-### SummarizationMiddleware
-
-使用 LangChain 内置中间件，在 token 总量超过 100,000 时触发对话压缩：
-- 使用独立的 DashScope 实例（低温 `0.3` + 非流式 + 禁用思考）生成摘要
-- 摘要替换旧消息的位置
-- 保留最近 10 条原始消息以维持对话连贯性
+- 触发：真实 `usage_metadata.input_tokens` ≥ 阈值（默认 150K / plan_design 200K），无 usage 回退近似估算
+- 摘要：健身域 7 节结构化提示词（用户目标/身体数据/活跃计划/进度/偏好伤病/待办队列/下一步）
+- 压缩：RemoveMessage(ALL) + 重注入系统提示词 SystemMessage + 摘要占位 + 保留尾 10 条，清空保留消息陈旧 usage 防 thrash
+- 记忆提炼（D3）：摘要生成成功后，用摘要文本后台跑 MemoryPipeline 写回三层（episodic/semantic/procedural）；lifespan shutdown 经 `get_shared_memory_middleware()` 排空后台任务

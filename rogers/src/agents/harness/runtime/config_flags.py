@@ -3,8 +3,8 @@
 
 中间件/工具需要读取 RunnableConfig.configurable 中的布尔开关时，
 统一走 ``get_config_flag``，避免各中间件重复手写 get_config() 解析、
-也避免中间件之间互相 import（如 intent_middleware 曾 import
-kb_gate_middleware 的 kb_enabled_from_config 造成耦合）。
+也避免中间件之间互相 import（如 request_gate_middleware 内部同时读意图与
+知识库开关均走 config_flags，不跨中间件 import）。
 
 缺失 / falsy / 解析异常（如 LangGraph Studio 无 configurable）一律返回 default，
 保证旧客户端与开发环境行为不变。

@@ -1,20 +1,23 @@
 """
 模型路由中间件（ModelRoutingMiddleware）—— 按请求切换 qwen / 用户自备 DeepSeek
++ 思考开关
 
 背景：LangChain 1.3 的 ``create_agent`` 把 model 烘焙进 graph，但中间件
 ``wrap_model_call`` / ``awrap_model_call`` 的 ``request.override(model=...)`` 可
 每调用替换模型。因此单一共享 graph + 本中间件即可按请求路由，无需为每个用户
 编译多份 graph。
 
-路由规则（读取 ``RunnableConfig.configurable["deepseek_api_key"]``）：
-- 有用户 DeepSeek key：``resolve_chat_model(user_ds_key=key)`` → 用 deepseek
-  视觉模型（官方端点）覆盖本轮 model
-- 无 key：不覆盖，保持 graph 默认 qwen 模型
+路由规则（读取 ``RunnableConfig.configurable``）：
+- provider：有 ``deepseek_api_key`` 用 deepseek 视觉模型（官方端点），否则 qwen
+- 思考开关（D1，2026-08-29 反转）：``think = kb_enabled or plan_design``；
+  默认对话不思考，仅「知识库回答」或「plan-design」开思考
+- **无条件** override：无 DS key 也按 think 值路由 qwen（think/nothink 两个
+  缓存实例），不再放行 graph 默认模型
 
 失效回退（BYOK key 无效 / 中途 401/403）：
 - 捕获认证类异常（401/403）：``mark_ds_key_invalid(key)`` 写入负缓存（后续请求
   直接回退 qwen），置「本轮已回退」ContextVar 标志（chat.py 据此发
-  ``ds_key_invalid`` SSE 事件），并用 qwen model 重试一次。
+  ``ds_key_invalid`` SSE 事件），并用 qwen model（按思考开关）重试一次。
 - 日志一律脱敏：不打印 key 本体。
 
 无实例级可变状态：并发 run 互不影响（模型实例与负缓存均在 model_factory 进程级
@@ -27,7 +30,7 @@ from typing import Optional
 
 from langchain.agents.middleware import AgentMiddleware
 
-from src.agents.harness.runtime.config_flags import get_config_value
+from src.agents.harness.runtime.config_flags import get_config_flag, get_config_value
 from src.agents.harness.orchestration.model_factory import (
     mark_ds_key_invalid,
     resolve_chat_model,
@@ -104,6 +107,11 @@ def _ds_key() -> Optional[str]:
     return None
 
 
+def _thinking_enabled() -> bool:
+    """思考策略（2026-08-29 反转）：默认不思考，仅 KB 回答或 plan-design 开思考。"""
+    return get_config_flag("kb_enabled") or get_config_flag("plan_design")
+
+
 def _auth_status_code(exc: BaseException) -> Optional[int]:
     """从异常提取认证类状态码（401/403）；非认证类返回 None。"""
     status = getattr(exc, "status_code", None)
@@ -148,32 +156,41 @@ def is_transient_error(exc: BaseException) -> bool:
 
 
 class ModelRoutingMiddleware(AgentMiddleware):
-    """按请求路由模型（qwen 默认 / 用户自备 DeepSeek key）。"""
+    """按请求路由模型：provider（qwen / 用户自备 DeepSeek key）+ 思考开关。
+
+    思考策略（2026-08-29 反转）：默认对话不思考（D1），仅「知识库回答
+    (kb_enabled)」或「plan-design(plan_design)」开启思考。**无条件** override
+    模型：无 DS key 也按 think 值路由 qwen（think/nothink 两个缓存实例），
+    不再放行 graph 默认模型。
+    """
 
     def _breaker_open(self) -> bool:
         """断路器是否已断开（同 run 连续 DS 失败达阈值 -> 直接走 qwen）。"""
         tid = _thread_id()
         return bool(tid and _ds_fail_counts.get(tid, 0) >= _DS_CIRCUIT_BREAKER_THRESHOLD)
 
+    def _qwen_for_request(self):
+        """按当前 run 思考开关解析 qwen 模型（think/nothink）。"""
+        return resolve_chat_model(user_ds_key=None, enable_thinking=_thinking_enabled())
+
     @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         ds_key = _ds_key()
-        if not ds_key:
-            return handler(request)
+        think = _thinking_enabled()
 
-        # 断路器已断开：本轮剩余调用直接走 qwen，不再尝试 DS（避免反复无效调用烧 token）
+        # 断路器已断开：本轮剩余调用直接走 qwen（按思考开关），不再尝试 DS
         if self._breaker_open():
             logger.warning("[ModelRouting] DS 连续失败达阈值，本轮剩余调用直接走 qwen")
-            return handler(request)
+            return handler(request.override(model=self._qwen_for_request()))
 
         try:
-            model = resolve_chat_model(user_ds_key=ds_key)
+            model = resolve_chat_model(user_ds_key=ds_key, enable_thinking=think)
             return handler(request.override(model=model))
         except Exception as e:
             # 负缓存命中时 resolve_chat_model 已回退 qwen；这里兜底 401/403 重试
             status = _auth_status_code(e)
             if status in (401, 403):
-                return self._fallback(request, handler, ds_key, e)
+                return self._fallback(request, handler, ds_key, e, think)
             # 非认证类失败：记一次连续失败（达阈值后同 run 剩余调用短路）
             _mark_ds_fail()
             logger.error(
@@ -181,50 +198,49 @@ class ModelRoutingMiddleware(AgentMiddleware):
                 _ds_fail_counts.get(_thread_id(), 0),
                 e,
             )
-            return handler(request)
+            return handler(request.override(model=self._qwen_for_request()))
 
     @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         ds_key = _ds_key()
-        if not ds_key:
-            return await handler(request)
+        think = _thinking_enabled()
 
         if self._breaker_open():
             logger.warning("[ModelRouting] DS 连续失败达阈值，本轮剩余调用直接走 qwen")
-            return await handler(request)
+            return await handler(request.override(model=self._qwen_for_request()))
 
         try:
-            model = resolve_chat_model(user_ds_key=ds_key)
+            model = resolve_chat_model(user_ds_key=ds_key, enable_thinking=think)
             return await handler(request.override(model=model))
         except Exception as e:
             status = _auth_status_code(e)
             if status in (401, 403):
-                return await self._afallback(request, handler, ds_key, e)
+                return await self._afallback(request, handler, ds_key, e, think)
             _mark_ds_fail()
             logger.error(
                 "[ModelRouting] DS 模型调用异常（第 %s 次失败）: %s",
                 _ds_fail_counts.get(_thread_id(), 0),
                 e,
             )
-            return await handler(request)
+            return await handler(request.override(model=self._qwen_for_request()))
 
-    def _fallback(self, request, handler, ds_key: str, exc: BaseException):
-        """401/403：标记 key 无效 + 置回退标志 + 用 qwen 重试一次。"""
+    def _fallback(self, request, handler, ds_key: str, exc: BaseException, think: bool):
+        """401/403：标记 key 无效 + 置回退标志 + 用 qwen（按思考开关）重试一次。"""
         _mark_ds_fallback()
         mark_ds_key_invalid(ds_key)
         logger.warning(
             "[ModelRouting] deepseek key 无效（%s），已标记负缓存并回退 qwen",
             exc.__class__.__name__,
         )
-        qwen = resolve_chat_model(user_ds_key=None)
+        qwen = resolve_chat_model(user_ds_key=None, enable_thinking=think)
         return handler(request.override(model=qwen))
 
-    async def _afallback(self, request, handler, ds_key: str, exc: BaseException):
+    async def _afallback(self, request, handler, ds_key: str, exc: BaseException, think: bool):
         _mark_ds_fallback()
         mark_ds_key_invalid(ds_key)
         logger.warning(
             "[ModelRouting] deepseek key 无效（%s），已标记负缓存并回退 qwen",
             exc.__class__.__name__,
         )
-        qwen = resolve_chat_model(user_ds_key=None)
+        qwen = resolve_chat_model(user_ds_key=None, enable_thinking=think)
         return await handler(request.override(model=qwen))

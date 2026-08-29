@@ -27,7 +27,7 @@ from langchain_core.tools import BaseTool
 from langchain.agents import create_agent
 from langgraph.graph.state import CompiledStateGraph
 
-from src.agents.harness.orchestration.model_factory import create_qwen, resolve_chat_model
+from src.agents.harness.orchestration.model_factory import create_qwen
 from src.agents.harness.orchestration.prompts.system import SYSTEM_PROMPT, build_system_prompt
 
 import logging
@@ -142,7 +142,11 @@ def create_fitcream_agent(
     if middleware is None:
         # HITL 仅在存在 checkpointer 时启用（中断状态需 checkpoint 持久化）；
         # 无 checkpointer 的 dev_graph / graph 会跳过 HITL，副作用工具自动放行。
-        middleware = _get_default_middleware(include_hitl=checkpointer is not None)
+        # 传入最终 system_prompt：压缩 RemoveMessage(ALL) 后据此重注入 SystemMessage（D8）
+        middleware = _get_default_middleware(
+            include_hitl=checkpointer is not None,
+            system_prompt=system_prompt,
+        )
 
     # 5. 构建 ReAct Agent（middleware 在编译时注入，运行时无需 callbacks）
     agent = create_agent(
@@ -202,14 +206,9 @@ def create_fitcream_agent_with_context(
 # Summarization 配置常量
 # ============================================================
 
-# 触发会话压缩的 token 阈值：检查同一 thread 累积消息的 token 数
-# （checkpointer 跨 run 累积，非单次 run）。qwen3.8-flash 上下文窗口 ~128K，
-# 在 100K 时压缩以防溢出。注意：这是"防上下文溢出"的会话压缩，与
-# MemoryUpdateMiddleware（100K 触发的记忆提取/整合）是独立子系统。
-SUMMARIZE_TRIGGER_TOKENS = 100_000
-
-# 触发记忆更新的 token 阈值（每 100K token 触发一次记忆提取）
-MEMORY_UPDATE_TRIGGER_TOKENS = 100_000
+# 触发会话压缩的 token 阈值（2026-08-29 D2 动态化）：默认 150K，plan_design 200K。
+# 单一来源在 fitcream_summarization.py（FitCreamSummarizationMiddleware._threshold
+# 与 callbacks.TokenUsageMiddleware 复用），此处不再重复定义。
 
 # 压缩后保留的最近消息数（保留足够上下文让对话连贯）
 SUMMARIZE_KEEP_MESSAGES = 10
@@ -223,61 +222,50 @@ def _tool_error_message(exc: BaseException, request) -> str:
     )
 
 
-def _get_default_middleware(include_hitl: bool = False) -> list:
+def _get_default_middleware(include_hitl: bool = False, system_prompt: Optional[str] = None) -> list:
     """
     获取默认中间件列表（共享 graph 默认版本）。
 
-    包含：意图识别、技能占位、日志、限流、Token 追踪、会话压缩、记忆更新。
+    包含：意图识别、技能占位、日志、限流、Token 追踪、会话压缩。
     不含对话持久化--对话消息由 SSE 流（chat.py _run_agent_sse）同步落库。
+    记忆提炼（D3）：不再由中间件累计触发，压缩发生时由
+    FitCreamSummarizationMiddleware 内部后台提炼（压缩与提炼同一中间件）。
 
     Args:
         include_hitl: 是否启用 HumanInTheLoopMiddleware。仅在存在 checkpointer
             （生产 graph）时启用——中断状态依赖 checkpoint 持久化，dev_graph /
             graph（无 checkpointer）下应保持 False，副作用工具自动放行。
-
-    记忆更新中间件以共享实例接入，user_id 在运行时从
-    RunnableConfig.configurable 解析（chat.py 已传 user_id/thread_id），
-    以 user_id 为键防重入，并发用户互不干扰。
+        system_prompt: 与 create_agent 一致的完整系统提示词（含 skills catalog）。
+            压缩 RemoveMessage(ALL) 后据此重注入 SystemMessage（D8），缺省用
+            SYSTEM_PROMPT（无 catalog 的开发路径）。
 
     中间件顺序（wrap_model_call 嵌套，先注册者最外层）：
-    1. IntentMiddleware：检测用户意图，临时注入专项提示词（渐进式披露，F1）
-    2. SkillsMiddleware：纯占位（catalog 已烘焙进 system_prompt）
-    3. PlanQueueMiddleware：计划设计队列进度快照临时注入（仅 plan_design 流程有队列时生效）
-    4. ContentValidationMiddleware：大纲/当日设计/提案的确定性兜底提示（复用队列快照）
-    5. KBGateMiddleware：知识库回答开关（关闭时过滤 KB 工具 / 开启时临时注入 KB 优先提示词）
-    6. ContextMessageGateMiddleware：队列入参视图级裁剪（只动 request.messages，
+    1. RequestGateMiddleware：用户请求门控（意图识别渐进式注入 + plan_design 门控
+       + 知识库回答开关：关闭时过滤 KB 工具 / 开启时注入 KB 优先提示词）
+    2. PlanQueueMiddleware：计划设计队列进度快照临时注入（仅 plan_design 流程有队列时生效）
+    3. ContentValidationMiddleware：大纲/当日设计/提案的确定性兜底提示（复用队列快照）
+    4. ContextMessageGateMiddleware：队列入参视图级裁剪（只动 request.messages，
        不影响经 system_message 注入的提示词）
-    7. ModelRoutingMiddleware：按请求切换 qwen / 用户 DeepSeek key（401/403 回退）
-    8. ModelRetryMiddleware：瞬态异常指数退避重试（retry_on 过滤，认证类不回退重试）
-    9. ToolErrorMiddleware：工具异常转 error ToolMessage 供模型自纠
-    10. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
-    11. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
-    12. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
-    13. TokenUsageMiddleware：Token 用量追踪
-    14. SummarizationMiddleware：会话压缩
-    15. MemoryUpdateMiddleware：分层记忆自动提取（每 100K token / 对话结束触发）
-
-    会话压缩策略：
-    - 当对话 token 数超过 SUMMARIZE_TRIGGER_TOKENS 时触发
-    - 使用 LLM 将历史消息压缩为摘要
-    - 保留最近 SUMMARIZE_KEEP_MESSAGES 条消息
-
-    记忆更新策略：
-    - 累计 token 超过 MEMORY_UPDATE_TRIGGER_TOKENS 时触发
-    - 对话结束（after_agent）兜底触发一次
-    - 异步提取分层记忆（情景/语义/程序性），不阻塞对话
+    5. ModelRoutingMiddleware：按请求切换 qwen / 用户 DeepSeek key + 思考开关
+       （默认不思考，kb_enabled/plan_design 开思考）
+    6. ModelRetryMiddleware：瞬态异常指数退避重试（retry_on 过滤，认证类不回退重试）
+    7. ToolErrorMiddleware：工具异常转 error ToolMessage 供模型自纠
+    8. HumanInTheLoopMiddleware（可选）：对副作用工具中断等待审批
+    9. AgentLoggingMiddleware：记录 LLM/Tool 调用日志
+    10. RateLimit：限流（ModelCallLimit / ToolCallLimit / SameToolLimit）
+    11. TokenUsageMiddleware：Token 用量追踪（上限按 plan_design 动态 150K/200K）
+    12. FitCreamSummarizationMiddleware：会话压缩 + 记忆提炼（150K / plan_design 200K）
     """
     from src.agents.harness.runtime.middleware.logging_middleware import AgentLoggingMiddleware
     from src.agents.harness.runtime.middleware.rate_limit import create_rate_limit_middleware
     from src.agents.harness.runtime.middleware.callbacks import TokenUsageMiddleware
-    from src.agents.harness.runtime.middleware.intent_middleware import IntentMiddleware
-    from src.agents.harness.runtime.middleware.memory_update import MemoryUpdateMiddleware
-    from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
+    from src.agents.harness.runtime.middleware.request_gate_middleware import (
+        RequestGateMiddleware,
+    )
     from src.agents.harness.runtime.middleware.plan_queue_middleware import PlanQueueMiddleware
     from src.agents.harness.runtime.middleware.content_validation_middleware import (
         ContentValidationMiddleware,
     )
-    from src.agents.harness.runtime.middleware.kb_gate_middleware import KBGateMiddleware
     from src.agents.harness.runtime.middleware.context_message_gate import (
         ContextMessageGateMiddleware,
     )
@@ -285,8 +273,8 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         TERMINAL_TOOLS,
         TerminalToolMiddleware,
     )
-    from src.agents.harness.runtime.middleware.structured_summarization import (
-        StructuredSummarizationMiddleware,
+    from src.agents.harness.runtime.middleware.fitcream_summarization import (
+        FitCreamSummarizationMiddleware,
     )
     from src.agents.harness.runtime.middleware.model_routing import (
         ModelRoutingMiddleware,
@@ -300,22 +288,18 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
         enable_thinking=False,
     )
 
-    # 会话压缩的模型解析器：带用户 DS key 时用 deepseek（决策 Q2：压缩走用户
-    # deepseek），无 key 时回退 summary_model（qwen）。模型实例按 key 缓存。
-    def resolve_summary_model(*, user_ds_key=None):
-        return resolve_chat_model(user_ds_key=user_ds_key)
-
     middleware = [
-        IntentMiddleware(),
-        SkillsMiddleware(),
+        # 用户请求门控：意图识别渐进式注入 + plan_design 按钮门控 + 知识库回答开关
+        # （kb_enabled falsy 时过滤 KB 工具并跳过 knowledge_query 意图，truthy 时
+        # 注入 KB 优先提示词）。注册在最外层，HITL 之前（不涉及中断）。
+        RequestGateMiddleware(),
+        # 计划设计队列快照：仅 plan_design 流程有队列时注入「待办进度」，
+        # 让 agent 知道哪些日已完成、当前推进哪日、下一步做什么。
         PlanQueueMiddleware(),
         # AI 信息校验：计划设计流程中，对大纲/当日设计/计划提案做确定性兜底——
         # 确认前必须已调用对应展示工具、结构化内容禁止写成正文（依赖队列快照判定阶段）。
         # 放在 PlanQueue 注入之后，可叠加其快照提示；HITL 之前（不涉及中断）。
         ContentValidationMiddleware(),
-        # 知识库回答开关：kb_enabled falsy 时过滤 KB 工具，truthy 时注入 KB 优先提示词；
-        # 注册在意图之后（KB 提示词可叠加意图规则），HITL 之前（不涉及中断）
-        KBGateMiddleware(),
         # 模型视图级裁剪：把历史中队列工具的完整快照入参替换为轻量占位（仅影响
         # 模型请求，不落 checkpoint / 不改前端契约）。放在 PlanQueue 注入之后、
         # 日志 / 限流之前。
@@ -374,20 +358,18 @@ def _get_default_middleware(include_hitl: bool = False) -> list:
                 "present_roadmap_tool": 2,
             },
         ),
-        TokenUsageMiddleware(max_tokens_per_conversation=SUMMARIZE_TRIGGER_TOKENS),
+        TokenUsageMiddleware(max_tokens_per_conversation=0),
         # 终结工具：白名单工具批全部成功后结束 run，跳过后续自动 LLM 总结。
         # 默认白名单为空（保守起步），按 3.3 与产品对齐后逐工具灰度启用。
         TerminalToolMiddleware(terminal_tools=TERMINAL_TOOLS, enabled=bool(TERMINAL_TOOLS)),
-        # 结构化增量压缩（替换内置 SummarizationMiddleware）：健身域结构化 markdown
-        # 摘要 + 跨 run 增量更新（conversation_summary 持久化通道），防上下文溢出。
-        StructuredSummarizationMiddleware(
+        # 会话压缩（内置 SummarizationMiddleware 子类）：健身域结构化摘要 +
+        # 压缩后重注入系统提示词（D8）+ 压缩后清空保留消息陈旧 usage 防 thrash。
+        # 阈值动态：默认 150K，plan_design 200K（D2）；触发时后台提炼记忆（D3）。
+        FitCreamSummarizationMiddleware(
             model=summary_model,
-            model_resolver=resolve_summary_model,
-            trigger_tokens=SUMMARIZE_TRIGGER_TOKENS,
+            system_prompt=system_prompt or SYSTEM_PROMPT,
             keep_messages=SUMMARIZE_KEEP_MESSAGES,
         ),
-        # 记忆更新：共享实例，user_id 运行时从 configurable 解析（见 memory_update.py）
-        MemoryUpdateMiddleware(trigger_tokens=MEMORY_UPDATE_TRIGGER_TOKENS),
     ])
     return middleware
 

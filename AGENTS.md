@@ -30,7 +30,7 @@ Notes for AI agents working in this repo.
   - L2 指令：AI 调 `skill_load_tool(skill_name)` 懒加载 `SKILL.md` 正文。
   - L3 资源：`skill_load_tool(skill_name, resource_path)` 读 `references/`。
   - 新增技能：在 `harness/skills/<name>/` 下放 `SKILL.md`（frontmatter + markdown 正文），无需改代码即被 catalog 自动扫描。
-  - `SkillsMiddleware` 是纯占位（catalog 已静态烘焙，`before_model` 返回 None）。
+  - 无独立 SkillsMiddleware（已删，纯占位）：catalog 静态烘焙即可。
 
 ## HITL（Human-in-the-Loop）审批
 

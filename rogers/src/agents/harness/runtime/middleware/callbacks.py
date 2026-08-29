@@ -20,6 +20,7 @@ from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
+from src.agents.harness.runtime.config_flags import get_config_flag
 from src.agents.harness.runtime.middleware.robust import state_hook_fail_open
 
 logger = logging.getLogger("fitcream.agent")
@@ -40,18 +41,29 @@ class TokenUsageMiddleware(AgentMiddleware):
 
     通过 after_model hook 追踪每次 LLM 调用的 Token 消耗。
     计数存入 AgentState，随每次 run 重置（UntrackedValue），并发安全。
+
+    上限动态化（2026-08-29 D2）：max_tokens_per_conversation 构造传 0，
+    after_model 内按 configurable.plan_design 取 150K/200K 计算 pct 与超限告警，
+    与 FitCreamSummarizationMiddleware 的压缩阈值保持一致（仅影响日志/告警，不中断）。
     """
 
     state_schema = TokenUsageState  # type: ignore[assignment]
 
     def __init__(
         self,
-        max_tokens_per_conversation: int = 50000,
+        max_tokens_per_conversation: int = 0,
         user_id: Optional[str] = None,
     ):
         super().__init__()
         self.max_tokens = max_tokens_per_conversation
         self.user_id = user_id
+
+    @staticmethod
+    def _dynamic_limit() -> int:
+        """当前会话类型的上下文上限：plan_design 200K，其余 150K（D2）。"""
+        if get_config_flag("plan_design"):
+            return 200_000
+        return 150_000
 
     def before_agent(self, state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
         # 计数由 UntrackedValue 保证随 run 重置，此处仅日志
@@ -78,18 +90,19 @@ class TokenUsageMiddleware(AgentMiddleware):
         new_completion = state.get("token_completion", 0) + completion
         new_total = state.get("token_total", 0) + total
 
-        pct = round(new_total / self.max_tokens * 100, 1) if self.max_tokens > 0 else 0
+        limit = self._dynamic_limit()
+        pct = round(new_total / limit * 100, 1) if limit > 0 else 0
         logger.info(
             f"[TokenTracker] LLM #{llm_calls} tokens | "
             f"input={prompt} output={completion} "
-            f"total={new_total}/{self.max_tokens} ({pct}%)"
+            f"total={new_total}/{limit} ({pct}%)"
         )
 
-        # 超限时记录警告（不中断，由 SummarizationMiddleware 处理压缩）
-        if new_total > self.max_tokens:
+        # 超限时记录警告（不中断，由 FitCreamSummarizationMiddleware 处理压缩）
+        if new_total > limit:
             logger.warning(
                 f"[TokenTracker] Token limit exceeded: "
-                f"{new_total}/{self.max_tokens} | user={self.user_id}"
+                f"{new_total}/{limit} | user={self.user_id}"
             )
 
         return {

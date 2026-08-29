@@ -3,7 +3,7 @@ FitCream Agent System Prompt（渐进式提示词架构）
 
 采用"渐进式披露"(Progressive Disclosure) 设计：
 - BASE_SYSTEM_PROMPT: 从 agent.md 加载的 L0 静态层（身份、规则、操作边界、user-summary 段）
-- INTENT_PROMPTS: 按意图动态注入的专项提示词（由 IntentMiddleware 触发），
+- INTENT_PROMPTS: 按意图动态注入的专项提示词（由 RequestGateMiddleware 触发），
   内容存放于 injection_prompt/<intent>.md，文件名即意图键，启动时扫描加载
 - build_system_prompt(): 组装 base + intent + 用户上下文
 
@@ -43,7 +43,7 @@ SYSTEM_PROMPT = BASE_SYSTEM_PROMPT
 
 
 # ============================================================
-# 意图专项提示词（由 IntentMiddleware 渐进式注入）
+# 意图专项提示词（由 RequestGateMiddleware 渐进式注入）
 # ============================================================
 
 _INJECTION_DIR = Path(__file__).parent / "injection_prompt"

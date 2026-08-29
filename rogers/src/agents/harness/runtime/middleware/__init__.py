@@ -5,8 +5,8 @@ FitCream Agent Middleware
 - 日志记录：记录所有 LLM 调用和 Tool 执行
 - 限流：限制单次对话的 Tool/LLM 调用次数
 - Token 追踪：追踪和限制 Token 使用量
-- 意图识别：渐进式提示词注入（IntentMiddleware）
-- 技能管理：catalog 烘焙进 system_prompt（SkillsMiddleware，纯占位）
+- 用户请求门控：意图识别渐进式注入 + 知识库回答开关（RequestGateMiddleware）
+- 技能管理：catalog 烘焙进 system_prompt（无独立中间件，纯静态）
 
 注：对话持久化由 SSE 流（chat.py _run_agent_sse）同步落库，
 不经中间件（历史 ConversationPersistenceMiddleware / create_agent_middleware
@@ -19,18 +19,22 @@ from src.agents.harness.runtime.middleware.rate_limit import (
     create_rate_limit_middleware,
 )
 from src.agents.harness.runtime.middleware.callbacks import TokenUsageMiddleware
-from src.agents.harness.runtime.middleware.intent_middleware import (
-    IntentMiddleware,
+from src.agents.harness.runtime.middleware.request_gate_middleware import (
+    RequestGateMiddleware,
     detect_intent,
+    detect_intents,
 )
-from src.agents.harness.runtime.middleware.skills_middleware import SkillsMiddleware
+from src.agents.harness.runtime.middleware.transient_prompt import (
+    TransientPromptMiddleware,
+)
 
 __all__ = [
     "AgentLoggingMiddleware",
     "SameToolLimitMiddleware",
     "create_rate_limit_middleware",
     "TokenUsageMiddleware",
-    "IntentMiddleware",
+    "RequestGateMiddleware",
     "detect_intent",
-    "SkillsMiddleware",
+    "detect_intents",
+    "TransientPromptMiddleware",
 ]

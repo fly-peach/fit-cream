@@ -113,6 +113,7 @@ def build_model(spec: ModelSpec) -> BaseChatModel:
             stream_usage=spec.stream_usage,
             timeout=spec.timeout,
             max_retries=spec.max_retries,
+            enable_thinking=spec.enable_thinking,
             **spec.extra,
         )
     return create_qwen(
@@ -232,6 +233,7 @@ def create_deepseek_vision(
     timeout: Optional[float] = None,
     max_retries: Optional[int] = None,
     streaming: bool = False,
+    enable_thinking: Optional[bool] = None,
     **kwargs: Any,
 ) -> "ChatDeepSeekVision":
     """
@@ -239,12 +241,19 @@ def create_deepseek_vision(
 
     默认值从 .env 配置读取（DEEPSEEK_VISION_MODEL / DEEPSEEK_TEMPERATURE）。
     ``api_key`` 优先使用调用方传入（BYOK 用户 key），缺省回退环境 DEEPSEEK_API_KEY。
-    需要环境安装 langchain-deepseek。
+    ``enable_thinking`` 映射到 DeepSeek 官方参数 ``thinking: {"type": enabled/disabled}``
+    （通过 extra_body 顶层透传）；None 时用 provider 默认（开启）。需要环境安装
+    langchain-deepseek。
     """
     if not _HAS_LANGCHAIN_DEEPSEEK:
         raise ImportError(
             "ChatDeepSeekVision 需要 langchain-deepseek：pip install langchain-deepseek"
         )
+    extra_body: dict[str, Any] = {}
+    if enable_thinking is not None:
+        extra_body["thinking"] = {
+            "type": "enabled" if enable_thinking else "disabled"
+        }
     return ChatDeepSeekVision(
         model=model or DEEPSEEK_VISION_MODEL_NAME,
         api_key=api_key if api_key is not None else _get_setting("DEEPSEEK_API_KEY"),
@@ -257,6 +266,7 @@ def create_deepseek_vision(
         timeout=timeout,
         max_retries=max_retries,
         streaming=streaming,
+        extra_body=extra_body or None,
         **kwargs,
     )
 
@@ -264,8 +274,8 @@ def create_deepseek_vision(
 # ===== resolve_chat_model（按请求路由 + LRU + 负缓存） =====
 
 _MODEL_CACHE_MAX = 32
-# key: (provider, api_key_hash) -> BaseChatModel（进程内 LRU）
-_model_cache: "OrderedDict[tuple[str, str], BaseChatModel]" = OrderedDict()
+# key: (provider, api_key_hash[, think_flag]) -> BaseChatModel（进程内 LRU）
+_model_cache: "OrderedDict[tuple[str, ...], BaseChatModel]" = OrderedDict()
 # 负缓存：曾 401/403 的 deepseek key hash 集合，命中即回退 qwen
 _invalid_ds_keys: set[str] = set()
 
@@ -274,7 +284,7 @@ def _hash_key(key: Optional[str]) -> str:
     return hashlib.sha256((key or "").encode("utf-8")).hexdigest()[:16]
 
 
-def _cache_get(key: tuple[str, str]) -> Optional[BaseChatModel]:
+def _cache_get(key: tuple[str, ...]) -> Optional[BaseChatModel]:
     model = _model_cache.get(key)
     if model is None:
         return None
@@ -282,7 +292,7 @@ def _cache_get(key: tuple[str, str]) -> Optional[BaseChatModel]:
     return model
 
 
-def _cache_put(key: tuple[str, str], model: BaseChatModel) -> None:
+def _cache_put(key: tuple[str, ...], model: BaseChatModel) -> None:
     _model_cache[key] = model
     _model_cache.move_to_end(key)
     while len(_model_cache) > _MODEL_CACHE_MAX:
@@ -306,8 +316,10 @@ def resolve_chat_model(
 
     - 有 user DS key：deepseek 视觉模型（LRU 缓存；若该 key 曾 401/403 命中负
       缓存则回退 qwen）
-    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.8-flash）；``enable_thinking``
-      可 per-call 覆盖（plan_design 纯 tool-calling 轮传 False 省 reasoning tokens）
+    - 无 key：qwen（DASHSCOPE_MODEL，默认 qwen3.8-flash）
+    - ``enable_thinking`` 双端生效（D1 思考策略反转）：qwen 经 enable_thinking
+      参数，deepseek 经 ``thinking: {"type": enabled/disabled}``（extra_body）；
+      两侧缓存键均含思考维度（think/nothink 分开缓存）
 
     返回的模型一律 ``streaming=True``：本函数主要供 Agent 对话路径（SSE 流式
     逐 token 转发，见 chat.py _run_agent_sse）与记忆提取/摘要解析使用，
@@ -320,10 +332,13 @@ def resolve_chat_model(
                 "[ModelFactory] deepseek key 已标记无效（负缓存），回退 qwen"
             )
             return resolve_chat_model(user_ds_key=None, enable_thinking=enable_thinking)
-        cache_key = ("deepseek", key_hash)
+        # 缓存键含思考维度：同一 key 的 thinking/nothink 两个模型实例分开缓存
+        cache_key = ("deepseek", key_hash, "think" if enable_thinking else "nothink")
         model = _cache_get(cache_key)
         if model is None:
-            model = create_deepseek_vision(api_key=user_ds_key, streaming=True)
+            model = create_deepseek_vision(
+                api_key=user_ds_key, streaming=True, enable_thinking=enable_thinking
+            )
             _cache_put(cache_key, model)
         return model
 

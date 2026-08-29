@@ -20,8 +20,8 @@ from src.agents.harness.orchestration.prompts.system import (  # noqa: E402
     INTENT_KEYWORDS,
     INTENT_PROMPTS,
 )
-from src.agents.harness.runtime.middleware.intent_middleware import (  # noqa: E402
-    IntentMiddleware,
+from src.agents.harness.runtime.middleware.request_gate_middleware import (  # noqa: E402
+    RequestGateMiddleware,
     detect_intents,
 )
 from src.agents.harness.runtime.middleware.model_routing import (  # noqa: E402
@@ -71,17 +71,17 @@ class TestPlanDesignGating:
 
     def _mw(self, monkeypatch, plan_design: bool):
         monkeypatch.setattr(
-            "src.agents.harness.runtime.middleware.intent_middleware.get_config_flag",
+            "src.agents.harness.runtime.middleware.request_gate_middleware.get_config_flag",
             lambda name, default=False: (
                 plan_design if name == "plan_design" else False
             ),
         )
-        return IntentMiddleware()
+        return RequestGateMiddleware()
 
-    def _run(self, mw: IntentMiddleware, text: str) -> str:
+    def _run(self, mw: RequestGateMiddleware, text: str) -> str:
         """跑一轮 wrap_model_call，返回合并进 system_message 的提示词文本。
 
-        F1 迁移后 IntentMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
+        F1 迁移后 RequestGateMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
         """
         from langchain.agents.middleware.types import ModelRequest
         from langchain_core.messages import HumanMessage
@@ -329,9 +329,12 @@ class TestModelRoutingBreaker:
         calls = {"resolve": 0, "handler": 0}
         models_seen = []
 
-        def fake_resolve(user_ds_key=None):
+        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
             calls["resolve"] += 1
-            raise ValueError("deepseek 限流/服务端错误")
+            if user_ds_key:
+                raise ValueError("deepseek 限流/服务端错误")
+            # 无 key 走 qwen（思考开关透传）：短路成功返回
+            return f"qwen-{enable_thinking}"
 
         def handler(request):
             calls["handler"] += 1
@@ -344,23 +347,27 @@ class TestModelRoutingBreaker:
         )
         mw = ModelRoutingMiddleware()
 
-        # 第 1、2 次：尝试 DS -> 失败 -> 回退 handler（原 request，无 override）
+        # 第 1、2 次：尝试 DS -> 失败 -> 回退 qwen（思考开关透传 override）
         assert mw.wrap_model_call(FakeModelRequest(), handler) == "ok"
         assert mw.wrap_model_call(FakeModelRequest(), handler) == "ok"
-        # 第 3 次：断路器打开，直接走 handler，不再尝试 DS
+        # 第 3 次：断路器打开，直接走 qwen，不再尝试 DS
         assert mw.wrap_model_call(FakeModelRequest(), handler) == "ok"
 
-        assert calls["resolve"] == 2, "断路器未生效，DS 被第三次尝试"
+        # 第 1、2 次：DS resolve 失败 + qwen 回退 resolve（各 2 次 = 4）；
+        # 第 3 次：断路器打开只走 qwen resolve（1 次）——DS 未被第三次尝试
+        assert calls["resolve"] == 5, "断路器未生效，DS 被第三次尝试"
         assert calls["handler"] == 3
-        assert models_seen == [None, None, None]
+        assert models_seen == ["qwen-False", "qwen-False", "qwen-False"]
         assert _ds_fail_counts.get("thread-1") == 2
 
     def test_breaker_reset_per_run(self, monkeypatch):
         _fake_config(monkeypatch)
         reset_ds_key_fallback("thread-1")
 
-        def fake_resolve(user_ds_key=None):
-            raise ValueError("boom")
+        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
+            if user_ds_key:
+                raise ValueError("boom")
+            return f"qwen-{enable_thinking}"
 
         def handler(request):
             return "ok"

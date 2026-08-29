@@ -8,8 +8,8 @@ Agent 优化计划离线单测（对应 .kilo/plans/plan-agent-optimize.md）。
   但 token 正常下发
 - P1-3 会话压缩：以真实 usage input_tokens 触发（count_tokens_approximately
   低估中文/JSON 导致 198k 不触发），压缩后清空陈旧 usage 防 thrash
-- P1-4 已撤销（2026-08-29 用户决策）：plan_design 会话同样开思考，
-  无 DS key 时任何会话都不覆盖默认模型
+- D1 思考策略反转（2026-08-29）：默认对话不思考，仅 kb_enabled/plan_design
+  开思考；ModelRoutingMiddleware 无条件 override 模型（qwen think/nothink）
 - 「思考中」状态事件在 on_chat_model_start 发出（不依赖 reasoning_content）
 
 记忆模块依赖 llama_index（→torch），个别环境导入失败时用 skip 兜底。
@@ -285,9 +285,9 @@ class TestThinkingNotStreamed:
         steps = saved["metadata"].get("steps") or []
         assert all(s.get("type") != "thought" for s in steps)
         assert any(s.get("type") == "reply" for s in steps)
-        # full_thinking 仍累积存 metadata（机器调试用）
-        assert saved["metadata"].get("thinking")
-        assert "内部权衡" in saved["metadata"]["thinking"]
+        # D5：思考内容不再累积落库 metadata.thinking（思考 token 仍计入 usage）
+        assert "thinking" not in saved["metadata"]
+        assert "内部权衡" not in str(saved["metadata"])
 
     async def test_thinking_status_on_model_start_without_reasoning(self, monkeypatch):
         """模型调用无 reasoning_content 产出时（如 DeepSeek BYOK / 未来关思考场景），
@@ -339,16 +339,78 @@ class TestThinkingNotStreamed:
 
 
 # ============================================================
-# P1-3 会话压缩以真实 usage 触发
+# usage SSE 事件补字段（D5/D2：reasoning/cache/max_tokens）
 # ============================================================
 
 
-def _mw():
-    from src.agents.harness.runtime.middleware.structured_summarization import (
-        StructuredSummarizationMiddleware,
+class TestUsageEventFields:
+    async def _run(self, monkeypatch, configurable):
+        import app.routers.chat as chat_mod
+
+        output = AIMessage(
+            content="回复",
+            usage_metadata={
+                "input_tokens": 1000,
+                "output_tokens": 200,
+                "total_tokens": 1200,
+                "input_token_details": {"cache_read": 300, "cache_write": 400},
+                "output_token_details": {"reasoning": 50},
+            },
+        )
+        events = [
+            {"event": "on_chat_model_end", "data": {"output": output}, "run_id": "r1"},
+        ]
+
+        async def fake_save(db, user_id, thread_id, role, content, metadata=None):
+            pass
+
+        monkeypatch.setattr(chat_mod.ConversationService, "save_message", fake_save)
+        monkeypatch.setattr(chat_mod, "_upsert_thread_usage", _noop)
+        monkeypatch.setattr(chat_mod, "_upsert_user_token_usage", _noop)
+
+        gen = chat_mod._run_agent_sse(
+            _FakeAgent(events),
+            {"configurable": configurable},
+            {},
+            thread_id="t1",
+            user_id="u1",
+            user=SimpleNamespace(id="u1", name="测试"),
+            stop_event=asyncio.Event(),
+            stream_db=None,
+        )
+        sse_text = ""
+        async for s in gen:
+            sse_text += s
+        return sse_text
+
+    async def test_usage_event_has_reasoning_cache_max_tokens(self, monkeypatch):
+        sse_text = await self._run(monkeypatch, {"plan_design": True})
+        assert "event: usage" in sse_text
+        # D5：思考 token 计入用量（reasoning_tokens）；cache 明细下发
+        assert '"reasoning_tokens": 50' in sse_text
+        assert '"cache_read_tokens": 300' in sse_text
+        assert '"cache_write_tokens": 400' in sse_text
+        # D2：plan_design 会话 max_tokens=200K
+        assert '"max_tokens": 200000' in sse_text
+
+    async def test_usage_event_default_max_tokens_150k(self, monkeypatch):
+        sse_text = await self._run(monkeypatch, {})
+        assert '"max_tokens": 150000' in sse_text
+
+
+# ============================================================
+# P1-3 会话压缩以真实 usage 触发（D9）
+# ============================================================
+
+
+def _mw(keep_messages: int = 10):
+    from src.agents.harness.runtime.middleware.fitcream_summarization import (
+        FitCreamSummarizationMiddleware,
     )
 
-    return StructuredSummarizationMiddleware(model=None, trigger_tokens=100_000)
+    return FitCreamSummarizationMiddleware(
+        None, system_prompt="SYS", keep_messages=keep_messages
+    )
 
 
 def _msgs(usage_input: int | None) -> list:
@@ -372,33 +434,52 @@ def _msgs(usage_input: int | None) -> list:
 class TestSummarizationRealUsageTrigger:
     def test_triggers_on_real_input_above_threshold(self):
         # 真实 input_tokens 150k，count_tokens_approximately 对中文严重低估（可能 <100k）
-        plan = _mw()._summarize_plan({"messages": _msgs(150_000)})
-        assert plan is not None
-        assert plan[3] == 150_000
+        mw = _mw()
+        msgs = _msgs(150_000)
+        assert mw._real_input_tokens(msgs) == 150_000
+        assert mw._should_summarize(msgs, mw._real_input_tokens(msgs)) is True
 
     def test_no_trigger_below_threshold(self):
-        assert _mw()._summarize_plan({"messages": _msgs(50_000)}) is None
+        mw = _mw()
+        msgs = _msgs(50_000)
+        assert mw._real_input_tokens(msgs) == 50_000
+        assert mw._should_summarize(msgs, mw._real_input_tokens(msgs)) is False
 
     def test_fallback_approx_when_no_usage(self):
         # 无 usage_metadata：回退近似估算，短上下文不触发
-        assert _mw()._summarize_plan({"messages": _msgs(None)}) is None
+        mw = _mw()
+        msgs = _msgs(None)
+        assert mw._real_input_tokens(msgs) > 0
+        assert mw._should_summarize(msgs, mw._real_input_tokens(msgs)) is False
+
+    def test_dynamic_threshold_plan_design(self, monkeypatch):
+        import src.agents.harness.runtime.middleware.fitcream_summarization as fsm
+
+        mw = _mw()
+        # D2：plan_design 200K / 默认 150K
+        monkeypatch.setattr(
+            fsm, "get_config_flag", lambda name, default=False: name == "plan_design"
+        )
+        assert mw._threshold() == 200_000
+        monkeypatch.setattr(fsm, "get_config_flag", lambda name, default=False: False)
+        assert mw._threshold() == 150_000
 
     def test_preserved_usage_sanitized_after_compress(self):
-        # 压缩后保留消息里的陈旧超大 input_tokens 必须被清空，防每轮重复压缩
+        # 压缩后保留消息里的陈旧超大 input_tokens 必须被清空，防每轮重复压缩（thrash）
         mw = _mw()
-        plan = mw._summarize_plan({"messages": _msgs(150_000)})
-        assert plan is not None
-        for m in plan[1]:
+        msgs = _msgs(150_000)
+        preserved = msgs[-10:]
+        mw._sanitize_preserved_usage(preserved)
+        for m in preserved:
             usage = getattr(m, "usage_metadata", None)
             if isinstance(usage, dict):
                 assert "input_tokens" not in usage
-        # 压缩后的新列表（保留段）再判定时不再按陈旧 usage 触发
-        assert mw._summarize_plan({"messages": list(plan[1])}) is None
+        # 压缩后（sanitize 后）再判定不再按陈旧 usage 触发
+        assert mw._should_summarize(preserved, mw._real_input_tokens(preserved)) is False
 
 
 # ============================================================
-# P1-4 已撤销：plan_design 会话同样开思考（2026-08-29 用户决策）
-# 无 DS key 时任何会话都不覆盖默认模型（qwen 默认开思考）
+# 思考策略反转（2026-08-29 D1）：默认不思考，kb_enabled/plan_design 开思考
 # ============================================================
 
 
@@ -414,20 +495,29 @@ class _FakeModelRequest:
         return self._model
 
 
-class TestModelRoutingNoKeyPassthrough:
-    def test_no_key_never_overrides_model(self, monkeypatch):
-        """无 DS key 时直接放行默认模型（不关思考、不路由覆盖）。"""
+class TestModelRoutingThinkingReversal:
+    def _mw(self):
+        import src.agents.harness.runtime.middleware.model_routing as mr
+
+        return mr.ModelRoutingMiddleware()
+
+    def test_no_key_still_overrides_with_thinking_off(self, monkeypatch):
+        """无 DS key：无条件 override 为 qwen，默认思考关闭（反转旧行为）。"""
         import src.agents.harness.runtime.middleware.model_routing as mr
 
         monkeypatch.setattr(
             mr, "get_config_value",
             lambda name, default=None: None if name == "deepseek_api_key" else default,
         )
-        called = {"resolve": False}
+        monkeypatch.setattr(
+            mr, "get_config_flag", lambda name, default=False: False
+        )
+        captured = {}
 
         def fake_resolve(*, user_ds_key=None, enable_thinking=True):
-            called["resolve"] = True
-            return "x"
+            captured["user_ds_key"] = user_ds_key
+            captured["enable_thinking"] = enable_thinking
+            return "qwen-model"
 
         monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
         handled = []
@@ -436,6 +526,95 @@ class TestModelRoutingNoKeyPassthrough:
             handled.append(request)
             return "ok"
 
-        assert mr.ModelRoutingMiddleware().wrap_model_call(_FakeModelRequest(), handler) == "ok"
-        assert called["resolve"] is False, "无 DS key 时不应覆盖默认模型"
-        assert handled[0].model is None
+        assert self._mw().wrap_model_call(_FakeModelRequest(), handler) == "ok"
+        assert captured["user_ds_key"] is None
+        assert captured["enable_thinking"] is False, "默认对话不思考"
+        assert handled[0].model == "qwen-model"
+
+    def test_kb_enabled_enables_thinking(self, monkeypatch):
+        """kb_enabled=True：无条件 override 且开思考。"""
+        import src.agents.harness.runtime.middleware.model_routing as mr
+
+        monkeypatch.setattr(
+            mr, "get_config_value",
+            lambda name, default=None: None if name == "deepseek_api_key" else default,
+        )
+        monkeypatch.setattr(
+            mr, "get_config_flag",
+            lambda name, default=False: name == "kb_enabled",
+        )
+        captured = {}
+
+        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
+            captured["user_ds_key"] = user_ds_key
+            captured["enable_thinking"] = enable_thinking
+            return "qwen-model"
+
+        monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
+        handled = []
+
+        def handler(request):
+            handled.append(request)
+            return "ok"
+
+        assert self._mw().wrap_model_call(_FakeModelRequest(), handler) == "ok"
+        assert captured["enable_thinking"] is True, "KB 回答开思考"
+
+    def test_plan_design_enables_thinking(self, monkeypatch):
+        """plan_design=True：无条件 override 且开思考。"""
+        import src.agents.harness.runtime.middleware.model_routing as mr
+
+        monkeypatch.setattr(
+            mr, "get_config_value",
+            lambda name, default=None: None if name == "deepseek_api_key" else default,
+        )
+        monkeypatch.setattr(
+            mr, "get_config_flag",
+            lambda name, default=False: name == "plan_design",
+        )
+        captured = {}
+
+        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
+            captured["enable_thinking"] = enable_thinking
+            return "qwen-model"
+
+        monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
+        handled = []
+
+        def handler(request):
+            handled.append(request)
+            return "ok"
+
+        assert self._mw().wrap_model_call(_FakeModelRequest(), handler) == "ok"
+        assert captured["enable_thinking"] is True, "plan-design 开思考"
+
+    def test_ds_key_routes_to_deepseek_with_thinking(self, monkeypatch):
+        """有 DS key：override 为 deepseek，思考开关透传。"""
+        import src.agents.harness.runtime.middleware.model_routing as mr
+
+        monkeypatch.setattr(
+            mr, "get_config_value",
+            lambda name, default=None: "ds-key-123" if name == "deepseek_api_key" else default,
+        )
+        monkeypatch.setattr(
+            mr, "get_config_flag",
+            lambda name, default=False: False,
+        )
+        captured = {}
+
+        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
+            captured["user_ds_key"] = user_ds_key
+            captured["enable_thinking"] = enable_thinking
+            return "ds-model"
+
+        monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
+        handled = []
+
+        def handler(request):
+            handled.append(request)
+            return "ok"
+
+        assert self._mw().wrap_model_call(_FakeModelRequest(), handler) == "ok"
+        assert captured["user_ds_key"] == "ds-key-123"
+        assert captured["enable_thinking"] is False
+        assert handled[0].model == "ds-model"

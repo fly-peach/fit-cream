@@ -17,7 +17,7 @@ AI 信息校验中间件（对大纲与普通结构化信息的确定性兜底�
 - 阶段类兜底：当前处于大纲/逐日设计/装配审批阶段且对应展示工具尚未调用 ->
   强调用展示工具渲染、禁止把表格写成正文。
 
-架构与 PlanQueueMiddleware / KBGateMiddleware 一致：
+架构与 PlanQueueMiddleware / RequestGateMiddleware 一致：
 - 仅最新消息为 HumanMessage 时注入（跳过 tool 循环，避免重复注入）
 - 无实例级可变状态，编译进共享 graph，并发运行互不影响
 - F3：队列快照经 plan_queue_middleware.get_queue_snapshot 复用 PlanQueue 的
@@ -28,16 +28,14 @@ AI 信息校验中间件（对大纲与普通结构化信息的确定性兜底�
 import logging
 from typing import Optional
 
-from langchain.agents.middleware import AgentMiddleware
 from langchain.messages import HumanMessage
 
 from src.agents.harness.runtime.middleware.plan_queue_middleware import (
     get_queue_snapshot,
 )
-from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
-from src.agents.harness.runtime.middleware.robust import (
-    model_hook_fail_open,
-    msg_tool_calls,
+from src.agents.harness.runtime.middleware.robust import msg_tool_calls
+from src.agents.harness.runtime.middleware.transient_prompt import (
+    TransientPromptMiddleware,
 )
 
 logger = logging.getLogger("fitcream.agent")
@@ -157,16 +155,16 @@ def _build_guards(messages: list, queue: dict) -> list[str]:
     return guards
 
 
-class ContentValidationMiddleware(AgentMiddleware):
+class ContentValidationMiddleware(TransientPromptMiddleware):
     """AI 信息校验中间件 - 计划设计流程的大纲/普通结构化信息确定性兜底。
 
-    wrap_model_call：仅在最新消息为 HumanMessage 时，若处于 plan-design 队列流程
-    （能从历史重建队列快照），按当前阶段与历史临时合并校验提示到
-    request.system_message（F1：不落 checkpoint），约束模型必须走展示工具、不得
-    把结构化内容写成正文。无队列快照时直接跳过（零开销）。
+    wrap_model_call（基类 TransientPromptMiddleware 统一实现）：仅在最新消息为
+    HumanMessage 时，若处于 plan-design 队列流程（能从历史重建队列快照），按
+    当前阶段与历史临时合并校验提示到 request.system_message（F1：不落 checkpoint），
+    约束模型必须走展示工具、不得把结构化内容写成正文。无队列快照时直接跳过（零开销）。
     """
 
-    def _guard_prompt(self, messages: list) -> Optional[str]:
+    def _prompt(self, messages: list) -> Optional[str]:
         if not messages:
             return None
         if not isinstance(messages[-1], HumanMessage):
@@ -193,17 +191,3 @@ class ContentValidationMiddleware(AgentMiddleware):
             _current_stage_id(queue),
         )
         return prompt
-
-    @model_hook_fail_open
-    def wrap_model_call(self, request, handler):
-        prompt = self._guard_prompt(request.messages)
-        if not prompt:
-            return handler(request)
-        return handler(merge_system_prompt(request, prompt))
-
-    @model_hook_fail_open
-    async def awrap_model_call(self, request, handler):
-        prompt = self._guard_prompt(request.messages)
-        if not prompt:
-            return await handler(request)
-        return await handler(merge_system_prompt(request, prompt))

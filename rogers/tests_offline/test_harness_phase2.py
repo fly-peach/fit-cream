@@ -2,7 +2,8 @@
 阶段二：模型上下文质量不变量单测（不依赖真实 LLM、不 import 生产 DB）。
 
 覆盖：
-- 2.1 结构化增量压缩中间件：safe cutoff、触发判定、增量摘要、conversation_summary 通道
+- 2.1 FitCream 会话压缩中间件（内置 SummarizationMiddleware 子类）：safe cutoff、
+  动态阈值（150K/200K）、压缩后 system 重注入、摘要占位
 - 2.2 意图检测升级：多意图、负向关键词、KB gate 解耦、LLM 兜底（默认关）
 
 同 phase1：导入 src.agents.harness.* 会触发 src.agents.__init__ 构建默认 graph
@@ -18,17 +19,18 @@ from langchain_core.messages import (
     AnyMessage,
     HumanMessage,
     RemoveMessage,
+    SystemMessage,
     ToolMessage,
 )
 
-from src.agents.harness.runtime.middleware.intent_middleware import (
-    IntentMiddleware,
+from src.agents.harness.runtime.middleware.request_gate_middleware import (
+    RequestGateMiddleware,
     detect_intent,
     detect_intents,
 )
-from src.agents.harness.runtime.middleware.structured_summarization import (
-    StructuredSummarizationMiddleware,
-    _is_summary_message,
+from src.agents.harness.runtime.middleware.fitcream_summarization import (
+    FitCreamSummarizationMiddleware,
+    STRUCTURED_SUMMARY_PROMPT,
 )
 from src.agents.harness.orchestration.prompts.system import INTENT_PROMPTS
 
@@ -105,7 +107,7 @@ class _Resp:
 def _run_intent(mw, messages) -> str:
     """跑一轮 wrap_model_call，返回最终合并进 system_message 的意图提示词文本。
 
-    F1 迁移后 IntentMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
+    F1 迁移后 RequestGateMiddleware 走 wrap_model_call 临时注入（不落 checkpoint）。
     """
     from langchain.agents.middleware.types import ModelRequest
 
@@ -121,13 +123,13 @@ def _run_intent(mw, messages) -> str:
     return sys_msg.content if sys_msg else ""
 
 
-class TestIntentMiddleware:
+class TestRequestGateMiddleware:
     def test_injects_multiple_intent_prompts(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         # 开启 KB，让 knowledge_query 也能注入（与 exercise_query 叠加）
-        monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: name == "kb_enabled")
-        mw = IntentMiddleware()
+        monkeypatch.setattr(rgm, "get_config_flag", lambda name, default=False: name == "kb_enabled")
+        mw = RequestGateMiddleware()
         # 同时命中 knowledge_query 与 exercise_query（两个都有注入提示词文件）
         joined = _run_intent(mw, [HumanMessage(content="什么是正确姿势")])
         assert joined != ""
@@ -135,32 +137,32 @@ class TestIntentMiddleware:
         assert INTENT_PROMPTS["exercise_query"] in joined
 
     def test_skips_non_human(self):
-        mw = IntentMiddleware()
+        mw = RequestGateMiddleware()
         assert _run_intent(mw, [AIMessage(content="ok")]) == ""
 
     def test_kb_disabled_skips_knowledge_query(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
-        monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: False)
-        mw = IntentMiddleware()
+        monkeypatch.setattr(rgm, "get_config_flag", lambda name, default=False: False)
+        mw = RequestGateMiddleware()
         assert _run_intent(mw, [HumanMessage(content="什么是肌肥大")]) == ""
 
     def test_kb_enabled_injects_knowledge_query(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
-        monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: name == "kb_enabled")
-        mw = IntentMiddleware()
+        monkeypatch.setattr(rgm, "get_config_flag", lambda name, default=False: name == "kb_enabled")
+        mw = RequestGateMiddleware()
         joined = _run_intent(mw, [HumanMessage(content="什么是肌肥大")])
         assert joined != ""
         assert INTENT_PROMPTS["knowledge_query"] in joined
 
     def test_llm_fallback_disabled_by_default(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         # 默认：get_config_flag 对 intent_classify_llm 返回 False -> 不调用分类器
         called = []
-        monkeypatch.setattr(im, "get_config_flag", lambda name, default=False: False)
-        mw = IntentMiddleware(llm_classifier=_StubClassifier("checkin"))
+        monkeypatch.setattr(rgm, "get_config_flag", lambda name, default=False: False)
+        mw = RequestGateMiddleware(llm_classifier=_StubClassifier("checkin"))
         mw._classify_with_llm = lambda text: called.append(text) or "checkin"
         joined = _run_intent(mw, [HumanMessage(content="你好呀")])
         # general_chat 有专项提示词，仍会注入；但分类器不得被调用
@@ -168,27 +170,27 @@ class TestIntentMiddleware:
         assert called == []
 
     def test_llm_fallback_enabled_uses_classifier(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         monkeypatch.setattr(
-            im,
+            rgm,
             "get_config_flag",
             lambda name, default=False: name == "intent_classify_llm",
         )
-        mw = IntentMiddleware(llm_classifier=_StubClassifier("checkin"))
+        mw = RequestGateMiddleware(llm_classifier=_StubClassifier("checkin"))
         joined = _run_intent(mw, [HumanMessage(content="你好呀")])
         assert joined != ""
         assert INTENT_PROMPTS["checkin"] in joined
 
     def test_llm_fallback_ignores_unrecognized_label(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import intent_middleware as im
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         monkeypatch.setattr(
-            im,
+            rgm,
             "get_config_flag",
             lambda name, default=False: name == "intent_classify_llm",
         )
-        mw = IntentMiddleware(llm_classifier=_StubClassifier("不知道"))
+        mw = RequestGateMiddleware(llm_classifier=_StubClassifier("不知道"))
         joined = _run_intent(mw, [HumanMessage(content="你好呀")])
         # 兜底标签不可识别 -> 回落 general_chat 提示词，而非 checkin
         assert joined != ""
@@ -197,7 +199,7 @@ class TestIntentMiddleware:
 
 
 # ============================================================
-# 2.1 结构化增量压缩
+# 2.1 FitCream 会话压缩中间件
 # ============================================================
 
 
@@ -229,13 +231,13 @@ def _build_messages(n_pairs: int = 20) -> list[AnyMessage]:
     return msgs
 
 
-class TestStructuredSummarization:
+class TestFitCreamSummarization:
     def test_find_safe_cutoff_keeps_ai_tool_pairs(self):
-        mw = StructuredSummarizationMiddleware(
-            _StubSummaryModel(), trigger_tokens=1, keep_messages=10
+        mw = FitCreamSummarizationMiddleware(
+            _StubSummaryModel(), system_prompt="SYS", keep_messages=10
         )
         msgs = _build_messages(20)
-        cutoff = mw._find_safe_cutoff(msgs)
+        cutoff = mw._find_safe_cutoff(msgs, 10)
         # 60 条消息，保留 10 条 -> target 50，落在 r16(ToolMessage) 上，应回退到 a16
         assert cutoff == 49
         assert isinstance(msgs[cutoff], AIMessage)
@@ -243,27 +245,33 @@ class TestStructuredSummarization:
         assert len(preserved) >= 10
 
     def test_no_trigger_below_threshold(self):
-        mw = StructuredSummarizationMiddleware(
-            _StubSummaryModel(), trigger_tokens=10**9, keep_messages=10
+        mw = FitCreamSummarizationMiddleware(
+            _StubSummaryModel(), system_prompt="SYS", keep_messages=10
         )
         state = {"messages": _build_messages(5)}
-        assert mw._summarize_plan(state) is None
+        assert mw.before_model(state, None) is None
 
-    def test_before_model_returns_summary_and_channel(self):
-        mw = StructuredSummarizationMiddleware(
+    def test_before_model_reinjects_system_message(self):
+        mw = FitCreamSummarizationMiddleware(
             _StubSummaryModel("## 用户目标\n减脂\n## 下一步\n无"),
-            trigger_tokens=1,
+            system_prompt="SYS-PROMPT",
             keep_messages=10,
         )
+        mw._should_summarize = lambda messages, total_tokens: True
         state = {"messages": _build_messages(20)}
         result = mw.before_model(state, None)
         assert result is not None
-        assert result["conversation_summary"] == "## 用户目标\n减脂\n## 下一步\n无"
 
-        # 消息替换：RemoveMessage + 摘要占位 + 保留尾条
+        # D8：RemoveMessage(ALL) 后重注入系统提示词 SystemMessage
         assert any(isinstance(m, RemoveMessage) for m in result["messages"])
+        assert isinstance(result["messages"][1], SystemMessage)
+        assert result["messages"][1].content == "SYS-PROMPT"
+
+        # 摘要占位（lc_source=summarization）存在且含摘要
         summary_msgs = [
-            m for m in result["messages"] if _is_summary_message(m)
+            m
+            for m in result["messages"]
+            if getattr(m, "additional_kwargs", {}).get("lc_source") == "summarization"
         ]
         assert len(summary_msgs) == 1
         assert "减脂" in summary_msgs[0].content
@@ -271,17 +279,37 @@ class TestStructuredSummarization:
         assert any(getattr(m, "id", None) == "h19" for m in result["messages"])
 
     async def test_abefore_model_async(self):
-        mw = StructuredSummarizationMiddleware(
+        mw = FitCreamSummarizationMiddleware(
             _StubSummaryModel("## 下一步\n继续"),
-            trigger_tokens=1,
+            system_prompt="SYS",
             keep_messages=10,
         )
+        mw._should_summarize = lambda messages, total_tokens: True
         state = {"messages": _build_messages(20)}
         result = await mw.abefore_model(state, None)
         assert result is not None
-        assert result["conversation_summary"] == "## 下一步\n继续"
+        assert isinstance(result["messages"][1], SystemMessage)
+        summary_msgs = [
+            m
+            for m in result["messages"]
+            if getattr(m, "additional_kwargs", {}).get("lc_source") == "summarization"
+        ]
+        assert len(summary_msgs) == 1
+        assert "继续" in summary_msgs[0].content
 
-    def test_incremental_uses_prev_summary(self):
+    def test_dynamic_threshold(self, monkeypatch):
+        import src.agents.harness.runtime.middleware.fitcream_summarization as fsm
+
+        mw = FitCreamSummarizationMiddleware(None)
+        # D2：plan_design 200K，其余 150K
+        monkeypatch.setattr(
+            fsm, "get_config_flag", lambda name, default=False: name == "plan_design"
+        )
+        assert mw._threshold() == 200_000
+        monkeypatch.setattr(fsm, "get_config_flag", lambda name, default=False: False)
+        assert mw._threshold() == 150_000
+
+    def test_summary_prompt_uses_fitness_sections(self):
         captured = {}
 
         class CapturingModel(_StubSummaryModel):
@@ -289,30 +317,51 @@ class TestStructuredSummarization:
                 captured["prompt"] = prompt
                 return super().invoke(prompt, **kwargs)
 
-        mw = StructuredSummarizationMiddleware(
-            CapturingModel("## 下一步\n继续"), trigger_tokens=1, keep_messages=10
+        mw = FitCreamSummarizationMiddleware(
+            CapturingModel("## 下一步\n继续"),
+            system_prompt="SYS",
+            keep_messages=10,
         )
-        state = {"messages": _build_messages(20), "conversation_summary": "旧摘要内容"}
-        mw.before_model(state, None)
-        # 旧摘要被并入提示词（增量更新）
-        assert "旧摘要内容" in captured["prompt"]
+        mw._should_summarize = lambda messages, total_tokens: True
+        mw.before_model({"messages": _build_messages(20)}, None)
+        # D4：健身域 7 节摘要提示词被使用
+        assert "## 用户目标" in captured["prompt"]
+        assert "## 待办队列进度" in captured["prompt"]
+        assert STRUCTURED_SUMMARY_PROMPT.startswith("<role>")
 
-    def test_prev_summary_message_filtered_from_prompt(self):
+    def test_memory_refinement_scheduled_after_summary(self, monkeypatch):
+        # D3：压缩摘要生成后触发后台记忆提炼（同一中间件内 _schedule_memory_refinement）
+        mw = FitCreamSummarizationMiddleware(
+            _StubSummaryModel("## 下一步\n继续"), system_prompt="SYS", keep_messages=10
+        )
         captured = {}
 
-        class CapturingModel(_StubSummaryModel):
-            def invoke(self, prompt, **kwargs):
-                captured["prompt"] = prompt
-                return super().invoke(prompt, **kwargs)
+        def fake_schedule(summary):
+            captured["summary"] = summary
 
-        mw = StructuredSummarizationMiddleware(
-            CapturingModel("ok"), trigger_tokens=1, keep_messages=10
+        monkeypatch.setattr(mw, "_schedule_memory_refinement", fake_schedule)
+        summary = mw._create_summary(_build_messages(5))
+        assert summary == "## 下一步\n继续"
+        assert captured["summary"] == "## 下一步\n继续"
+
+    def test_memory_refinement_skipped_without_user_id(self, monkeypatch):
+        # 无 user_id 时跳过记忆提炼（best-effort）
+        import src.agents.harness.runtime.middleware.fitcream_summarization as fsm
+
+        monkeypatch.setattr(fsm, "get_config_value", lambda name, default=None: None)
+        mw = FitCreamSummarizationMiddleware(
+            _StubSummaryModel("ok"), system_prompt="SYS", keep_messages=10
         )
-        summary_msg = HumanMessage(
-            content="以下是截至目前的对话摘要：\n\n旧摘要",
-            additional_kwargs={"lc_source": "summarization"},
+        summary = mw._create_summary(_build_messages(5))
+        assert summary == "ok"
+
+    def test_memory_refinement_registers_shared_instance(self, monkeypatch):
+        # 共享实例注册：shutdown_agent 排空后台记忆任务依赖 get_shared_memory_middleware
+        import src.agents.harness.runtime.middleware.fitcream_summarization as fsm
+
+        monkeypatch.setattr(fsm, "get_config_value", lambda name, default=None: None)
+        mw = FitCreamSummarizationMiddleware(
+            _StubSummaryModel("ok"), system_prompt="SYS", keep_messages=10
         )
-        msgs = [summary_msg, *(_build_messages(20))]
-        mw.before_model({"messages": msgs}, None)
-        # 旧的摘要占位消息不应作为「新增对话」再喂入
-        assert "以下是截至目前的对话摘要" not in captured["prompt"]
+        assert fsm.get_shared_memory_middleware() is mw
+        assert mw._processing_users == set()

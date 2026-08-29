@@ -7,8 +7,8 @@
    含今日事故现场占位串、args 缺失、tc 非 dict、缺 name，以及合法与畸形快照
    混排时回退到更早有效快照
 2. 畸形 usage：usage_metadata={"input_tokens": "abc"} 喂 Summarization
-   _last_input_tokens / _summarize_plan，断言不抛、回退近似估算
-3. 围栏 fail-open：PlanQueueMiddleware._snapshot_prompt 抛异常时 wrap_model_call
+   _real_input_tokens / _should_summarize，断言不抛、回退近似估算
+3. 围栏 fail-open：PlanQueueMiddleware._prompt 抛异常时 wrap_model_call
    仍返回 handler 结果；state hook（TokenUsage.after_model）内部抛异常返回 None
 4. 语义护栏：handler 自身异常（模型/工具错误）不被围栏吞掉（防二次调用/二次计费）
 5. hook_config 元数据经 fail-open 包装后保留（TerminalTool 的 can_jump_to）
@@ -32,8 +32,8 @@ from src.agents.harness.runtime.middleware.plan_queue_middleware import (
 )
 from src.agents.harness.runtime.middleware.rate_limit import SameToolLimitMiddleware
 from src.agents.harness.runtime.middleware.robust import msg_tool_calls
-from src.agents.harness.runtime.middleware.structured_summarization import (
-    StructuredSummarizationMiddleware,
+from src.agents.harness.runtime.middleware.fitcream_summarization import (
+    FitCreamSummarizationMiddleware,
 )
 from src.agents.harness.runtime.middleware.terminal_tool import TerminalToolMiddleware
 
@@ -187,22 +187,21 @@ class TestMalformedUsage:
         ai.usage_metadata = {"input_tokens": "abc", "total_tokens": "xyz"}
         return ai
 
-    def test_last_input_tokens_malformed_usage_returns_zero(self):
-        assert (
-            StructuredSummarizationMiddleware._last_input_tokens(
-                [self._ai_with_malformed_usage()]
-            )
-            == 0
+    def test_real_input_tokens_malformed_usage_falls_back_to_approx(self):
+        # 畸形 usage -> 回退近似估算（count_tokens_approximately），不抛异常
+        tokens = FitCreamSummarizationMiddleware._real_input_tokens(
+            [self._ai_with_malformed_usage("some context line for token estimation " * 20)]
         )
+        assert tokens > 0
 
-    def test_last_input_tokens_numeric_ok(self):
+    def test_real_input_tokens_numeric_ok(self):
         ai = AIMessage(
             content="",
             usage_metadata={"input_tokens": 12345, "output_tokens": 1, "total_tokens": 12346},
         )
-        assert StructuredSummarizationMiddleware._last_input_tokens([ai]) == 12345
+        assert FitCreamSummarizationMiddleware._real_input_tokens([ai]) == 12345
 
-    def test_summarize_plan_malformed_usage_falls_back_to_approx(self):
+    def test_should_summarize_malformed_usage_falls_back_to_approx(self):
         messages = []
         for _ in range(12):
             messages.append(
@@ -210,13 +209,12 @@ class TestMalformedUsage:
                     "some context line for token estimation " * 20
                 )
             )
-        state = {"messages": messages}
-        mw = StructuredSummarizationMiddleware(model=None, trigger_tokens=1, keep_messages=5)
-        plan = mw._summarize_plan(state)
-        assert plan is not None
-        _to_summarize, _preserved, _prev_summary, total_tokens = plan
-        # usage 畸形 -> 回退近似估算（count_tokens_approximately），仍 > 0 触发压缩
-        assert total_tokens > 0
+        mw = FitCreamSummarizationMiddleware(None, keep_messages=5)
+        total = mw._real_input_tokens(messages)
+        # usage 畸形 -> 回退近似估算（count_tokens_approximately），仍 > 0 可参与触发判定
+        assert total > 0
+        mw._threshold = lambda: 1  # 小阈值验证回退估算仍可触发压缩
+        assert mw._should_summarize(messages, total) is True
 
 
 class TestFailOpen:
@@ -226,7 +224,7 @@ class TestFailOpen:
         def boom(messages):
             raise RuntimeError("snapshot boom")
 
-        monkeypatch.setattr(PlanQueueMiddleware, "_snapshot_prompt", boom)
+        monkeypatch.setattr(PlanQueueMiddleware, "_prompt", boom)
         request = ModelRequest(model=None, messages=[HumanMessage(content="你好")])
 
         def handler(req):
@@ -240,7 +238,7 @@ class TestFailOpen:
         def boom(messages):
             raise RuntimeError("snapshot boom")
 
-        monkeypatch.setattr(PlanQueueMiddleware, "_snapshot_prompt", boom)
+        monkeypatch.setattr(PlanQueueMiddleware, "_prompt", boom)
         request = ModelRequest(model=None, messages=[HumanMessage(content="你好")])
 
         async def handler(req):

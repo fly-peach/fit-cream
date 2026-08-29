@@ -2,7 +2,7 @@
 F1 提示词临时注入 + F3 队列快照去重 回归单测（不依赖真实 LLM、不 import 生产 DB）。
 
 覆盖（对应 .kilo/plans/middleware-optimization-plan.md）：
-- F1 迁移后 Intent/PlanQueue/ContentValidation/KBGate 走 wrap_model_call 临时注入：
+- F1 迁移后 RequestGate/PlanQueue/ContentValidation 走 wrap_model_call 临时注入：
   提示词合并进 request.system_message，不写入 state.messages、不随 checkpoint
   持久化（此前 before_model 每轮 +1~4 条 SystemMessage 逐轮累积）
 - 多注入器同一 wrap 链按注册顺序叠加，原始 request.messages / request.state 不被改动
@@ -20,7 +20,9 @@ import pytest
 from langchain.agents.middleware.types import ModelRequest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from src.agents.harness.runtime.middleware.intent_middleware import IntentMiddleware
+from src.agents.harness.runtime.middleware.request_gate_middleware import (
+    RequestGateMiddleware,
+)
 from src.agents.harness.runtime.middleware import plan_queue_middleware as pqm
 from src.agents.harness.runtime.middleware.plan_queue_middleware import (
     PlanQueueMiddleware,
@@ -29,7 +31,6 @@ from src.agents.harness.runtime.middleware.plan_queue_middleware import (
 from src.agents.harness.runtime.middleware.content_validation_middleware import (
     ContentValidationMiddleware,
 )
-from src.agents.harness.runtime.middleware.kb_gate_middleware import KBGateMiddleware
 
 
 @pytest.fixture(autouse=True)
@@ -106,23 +107,15 @@ async def _nested_arun(middleware, request):
 
 class TestWrapChainTemporaryInjection:
     def test_prompts_merged_into_system_message_in_order(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import (
-            intent_middleware as im,
-            kb_gate_middleware as kbm,
-        )
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
         from src.agents.harness.orchestration.prompts.system import (
             CONTEXT_PROMPTS,
             INTENT_PROMPTS,
         )
 
-        # KB 开启（让 KBGate 注入 KB 优先提示词）；plan_design 关闭（按钮引导）
+        # KB 开启（让 RequestGate 注入 KB 优先提示词）；plan_design 关闭（按钮引导）
         monkeypatch.setattr(
-            kbm,
-            "get_config_flag",
-            lambda name, default=False: name == "kb_enabled",
-        )
-        monkeypatch.setattr(
-            im,
+            rgm,
             "get_config_flag",
             lambda name, default=False: name == "kb_enabled",
         )
@@ -139,43 +132,36 @@ class TestWrapChainTemporaryInjection:
             state={"messages": msgs},
         )
         mws = [
-            IntentMiddleware(),
+            RequestGateMiddleware(),
             PlanQueueMiddleware(),
             ContentValidationMiddleware(),
-            KBGateMiddleware(),
         ]
         final, result = _nested_run(mws, request)
         assert result == "ok"
 
-        # 4 个注入器的提示词都合并进最终 system_message（按注册顺序叠加）
+        # 3 个注入器的提示词都合并进最终 system_message（按注册顺序叠加）
         content = final.system_message.content
         assert content.startswith("基础系统提示词")
-        assert INTENT_PROMPTS["general_chat"] in content  # Intent（最先）
+        assert INTENT_PROMPTS["general_chat"] in content  # RequestGate（最先）
+        assert CONTEXT_PROMPTS["kb_answer"] in content  # RequestGate（KB 在后）
         assert "计划设计待办进度" in content  # PlanQueue
         assert "AI 信息校验" in content  # ContentValidation
-        assert CONTEXT_PROMPTS["kb_answer"] in content  # KBGate（最后）
 
-        # 顺序：Intent < PlanQueue < ContentValidation < KBGate
+        # 顺序：RequestGate(intent < KB) < PlanQueue < ContentValidation
         assert content.index(INTENT_PROMPTS["general_chat"]) < content.index(
+            CONTEXT_PROMPTS["kb_answer"]
+        )
+        assert content.index(CONTEXT_PROMPTS["kb_answer"]) < content.index(
             "计划设计待办进度"
         )
         assert content.index("计划设计待办进度") < content.index("AI 信息校验")
-        assert content.index("AI 信息校验") < content.index(CONTEXT_PROMPTS["kb_answer"])
 
     def test_state_messages_not_mutated(self, monkeypatch):
         # 关键不变量：wrap 链只 override request，不写回 state.messages / 不改原始列表
-        from src.agents.harness.runtime.middleware import (
-            intent_middleware as im,
-            kb_gate_middleware as kbm,
-        )
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         monkeypatch.setattr(
-            kbm,
-            "get_config_flag",
-            lambda name, default=False: name == "kb_enabled",
-        )
-        monkeypatch.setattr(
-            im,
+            rgm,
             "get_config_flag",
             lambda name, default=False: name == "kb_enabled",
         )
@@ -189,10 +175,9 @@ class TestWrapChainTemporaryInjection:
         state = {"messages": msgs}
         request = ModelRequest(model=None, messages=msgs, state=state)
         mws = [
-            IntentMiddleware(),
+            RequestGateMiddleware(),
             PlanQueueMiddleware(),
             ContentValidationMiddleware(),
-            KBGateMiddleware(),
         ]
         final, _ = _nested_run(mws, request)
 
@@ -204,18 +189,10 @@ class TestWrapChainTemporaryInjection:
         assert final.messages is msgs
 
     async def test_awrap_chain_same_behavior(self, monkeypatch):
-        from src.agents.harness.runtime.middleware import (
-            intent_middleware as im,
-            kb_gate_middleware as kbm,
-        )
+        from src.agents.harness.runtime.middleware import request_gate_middleware as rgm
 
         monkeypatch.setattr(
-            kbm,
-            "get_config_flag",
-            lambda name, default=False: name == "kb_enabled",
-        )
-        monkeypatch.setattr(
-            im,
+            rgm,
             "get_config_flag",
             lambda name, default=False: name == "kb_enabled",
         )
@@ -227,10 +204,9 @@ class TestWrapChainTemporaryInjection:
         ]
         request = ModelRequest(model=None, messages=msgs)
         mws = [
-            IntentMiddleware(),
+            RequestGateMiddleware(),
             PlanQueueMiddleware(),
             ContentValidationMiddleware(),
-            KBGateMiddleware(),
         ]
         final, result = await _nested_arun(mws, request)
         assert result == "ok"
@@ -309,10 +285,9 @@ class TestNoAccumulationAcrossTurns:
         model = RecordingModel(messages=iter(["好的，已为你规划", "好的，继续"]))
         cp = MemorySaver()
         middleware = [
-            IntentMiddleware(),
+            RequestGateMiddleware(),
             PlanQueueMiddleware(),
             ContentValidationMiddleware(),
-            KBGateMiddleware(),
         ]
         agent = create_agent(
             model=model,

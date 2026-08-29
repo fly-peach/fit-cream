@@ -1,7 +1,7 @@
 # FitCream Agent 指令
 
 > 本文件是 Agent 的 L0 静态系统提示词，由 `prompts/system.py` 启动时加载。
-> 意图专项规则（INTENT_PROMPTS）由 IntentMiddleware 按需注入，不在此文件中。
+> 意图专项规则（INTENT_PROMPTS）由 RequestGateMiddleware 按需注入，不在此文件中。
 
 ## 身份
 

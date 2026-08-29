@@ -410,8 +410,12 @@ async def _run_agent_sse(
     reset_ds_key_fallback(thread_id)
     yield _sse_event("start", {"thread_id": thread_id})
 
+    # D2：本请求的上下文上限（plan_design 200K / 默认 150K），随 usage 事件下发
+    is_plan_design = bool((config.get("configurable") or {}).get("plan_design"))
+    context_max_tokens = 200_000 if is_plan_design else 150_000
+
     full_content = ""        # 累积正式回复文本（本阶段）
-    full_thinking = ""       # 累积思考内容（仅落库 metadata.thinking 供调试，不下发前端）
+    # 思考内容不再累积/落库（D5）：仅用 reasoning 分支判定思考阶段切换
     tool_calls = []          # 完整工具调用记录 [{id, name, input, output, status}]
     steps: list[dict] = []   # ReAct 步骤序列（不含 thought：思考碎片不再进入前端时间线）
     pending_reply: Optional[dict] = None
@@ -420,7 +424,15 @@ async def _run_agent_sse(
     # 按 run_id 索引进行中的工具：并行工具调用时 on_tool_start/end 事件交错，
     # 单指针跟踪会丢失先启动的工具，导致其永远停留在 running
     _tools_by_run_id: dict[str, dict] = {}
-    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    usage = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "max_tokens": context_max_tokens,
+    }
     run_usage: dict[str, dict[str, int]] = {}
     # FR-3: 请求级累加 token（区别于非累加的 usage「最近一次上下文大小」）
     usage_total = {
@@ -438,11 +450,10 @@ async def _run_agent_sse(
         async for event in agent.astream_events(input_or_command, config=config, version="v2"):
             if stop_event.is_set():
                 _mark_stale_tools(steps, "interrupted")
-                if full_content or full_thinking:
+                if full_content or tool_calls:
                     await ConversationService.save_message(
                         stream_db, user.id, thread_id, "assistant", full_content,
                         metadata={
-                            "thinking": full_thinking or None,
                             "tool_calls": tool_calls or None,
                             "steps": steps or None,
                             "stopped": True,
@@ -471,10 +482,8 @@ async def _run_agent_sse(
                         # 「思考中...」而不是干等。不带 reasoning 内容（防泄漏内部权衡）。
                         thinking_started = True
                         yield _sse_event("thinking", {"content": ""})
-                    # 思考内容仍不下发前端（P0-2）：qwen enable_thinking 的冗长
-                    # reasoning_content 直接流给前端会渲染成「思考了X秒」碎片并泄漏
-                    # 模型内部权衡。仅累积存 metadata.thinking 供机器调试。
-                    full_thinking += reasoning
+                    # 思考内容不下发前端、不累积落库（D5）：reasoning_content 仅用于
+                    # 判定思考阶段切换，qwen enable_thinking 的冗长内容不再保存。
                 if chunk.content:
                     if thinking_started:
                         thinking_started = False  # 开始出正式回复，思考阶段结束
@@ -510,6 +519,10 @@ async def _run_agent_sse(
                     usage["input_tokens"] = final.get("input_tokens", 0) or 0
                     usage["output_tokens"] = final.get("output_tokens", 0) or 0
                     usage["total_tokens"] = final.get("total_tokens", 0) or 0
+                    # reasoning/cache 明细（D5：思考 token 仍计入，仅不落库思考文本）
+                    usage["reasoning_tokens"] = final.get("reasoning_tokens", 0) or 0
+                    usage["cache_read_tokens"] = final.get("cache_read_tokens", 0) or 0
+                    usage["cache_write_tokens"] = final.get("cache_write_tokens", 0) or 0
                 # FR-3: 累加本次请求所有 LLM 调用的真实 token（与上方非累加 usage 区分）
                 if final:
                     usage_total["input_tokens"] += final.get("input_tokens", 0) or 0
@@ -594,11 +607,10 @@ async def _run_agent_sse(
             # 被中断的工具（如 create_plan_tool）没有 on_tool_end，步骤停留在 running；
             # 统一标记为 interrupted，避免前端在历史里永久显示转圈。
             _mark_stale_tools(steps, "interrupted")
-            if full_content or full_thinking or tool_calls:
+            if full_content or tool_calls:
                 await ConversationService.save_message(
                     stream_db, user.id, thread_id, "assistant", full_content,
                     metadata={
-                        "thinking": full_thinking or None,
                         "tool_calls": tool_calls or None,
                         "steps": steps or None,
                         "approvals": approvals or None,
@@ -623,11 +635,10 @@ async def _run_agent_sse(
         # ---- 无中断：正常结束，落库 assistant 消息 ----
         # 兜底：未匹配到 on_tool_end 的残留 running 工具统一收尾，防止"执行中"落库
         _mark_stale_tools(steps, "completed")
-        if full_content or full_thinking:
+        if full_content or tool_calls:
             await ConversationService.save_message(
                 stream_db, user.id, thread_id, "assistant", full_content,
                 metadata={
-                    "thinking": full_thinking or None,
                     "tool_calls": tool_calls or None,
                     "steps": steps or None,
                     # resume 阶段结束：记录审批已解决（前端据 decisions 已知结果）
@@ -796,7 +807,7 @@ async def send_message(
 
     # plan_design 门控：完整 plan-execute 计划设计流程只允许按钮进入的会话触发。
     # 首条消息（req.plan_design=true）或已有线程 agent_mode=plan_design 的后续消息
-    # 都视为计划设计会话（写入 configurable.plan_design 供 IntentMiddleware 读取）。
+    # 都视为计划设计会话（写入 configurable.plan_design 供 RequestGateMiddleware 读取）。
     is_plan_design = bool(req.plan_design)
     if not is_plan_design and req.thread_id:
         mode = await ConversationService.get_thread_agent_mode(db, thread_id)

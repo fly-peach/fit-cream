@@ -28,7 +28,7 @@ logger = logging.getLogger("fitcream")
 def _kb_disabled(config) -> bool:
     """知识库回答开关兜底判定：configurable.kb_enabled 缺失/falsy 即视为关闭。
 
-    正常路径下 KBGateMiddleware 已在关闭时移除 KB 工具（模型不可见、不会调用）；
+    正常路径下 RequestGateMiddleware 已在关闭时移除 KB 工具（模型不可见、不会调用）；
     此处为防绕过兜底（如 Studio 手动构造工具调用）。
     """
     if not config:
