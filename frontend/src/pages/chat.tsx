@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { Camera, CameraDirection } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
+import type { LanguageModelUsage } from "ai";
 import { useChatSSE } from "@/hooks/use-chat-sse";
 import { useThreads } from "@/hooks/use-threads";
 import { useChatStore } from "@/stores/chat-store";
@@ -67,12 +68,14 @@ import {
 } from "@/components/ai-elements/prompt-input";
 import {
   Context,
+  ContextCacheUsage,
   ContextContent,
   ContextContentBody,
   ContextContentFooter,
   ContextContentHeader,
   ContextInputUsage,
   ContextOutputUsage,
+  ContextReasoningUsage,
   ContextTrigger,
 } from "@/components/ai-elements/context";
 import { AppLayout } from "@/components/app-layout";
@@ -316,9 +319,6 @@ function MessageItem({
     </Message>
   );
 }
-
-/** 上下文窗口最大 Token 数（与后端 Summarization 触发阈值一致） */
-const MAX_CONTEXT_TOKENS = 100_000;
 
 /** 单张图片大小上限：与后端 /api/chat/upload-image 的 MAX_IMAGE_SIZE 一致（10MB） */
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
@@ -1503,7 +1503,7 @@ export default function ChatPage() {
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <Context
               usedTokens={usage.total_tokens}
-              maxTokens={MAX_CONTEXT_TOKENS}
+              maxTokens={usage.max_tokens ?? 150_000}
               compressionCount={compressionCount}
               usage={{
                 inputTokens: usage.input_tokens,
@@ -1511,14 +1511,17 @@ export default function ChatPage() {
                 totalTokens: usage.total_tokens,
                 inputTokenDetails: {
                   noCacheTokens: undefined,
-                  cacheReadTokens: undefined,
-                  cacheWriteTokens: undefined,
+                  cacheReadTokens: usage.cache_read_tokens,
+                  cacheWriteTokens: usage.cache_write_tokens,
                 },
                 outputTokenDetails: {
                   textTokens: undefined,
-                  reasoningTokens: undefined,
+                  reasoningTokens: usage.reasoning_tokens,
                 },
-              }}
+                // Reasoning/Cache 行读取字段（类型扩充见 ai-elements/context）
+                reasoningTokens: usage.reasoning_tokens,
+                cachedInputTokens: usage.cache_read_tokens,
+              } as LanguageModelUsage}
             >
               <ContextTrigger className="h-8 gap-1.5 rounded-lg px-2.5 text-emerald-700 hover:bg-emerald-50" />
               <ContextContent side="bottom" align="end">
@@ -1526,10 +1529,12 @@ export default function ChatPage() {
                 <ContextContentBody className="space-y-1.5">
                   <ContextInputUsage />
                   <ContextOutputUsage />
+                  <ContextReasoningUsage />
+                  <ContextCacheUsage />
                 </ContextContentBody>
                 <ContextContentFooter>
                   <span className="text-muted-foreground">上下文窗口</span>
-                  <span>{MAX_CONTEXT_TOKENS.toLocaleString()} tokens</span>
+                  <span>{(usage.max_tokens ?? 150_000).toLocaleString()} tokens</span>
                 </ContextContentFooter>
               </ContextContent>
             </Context>

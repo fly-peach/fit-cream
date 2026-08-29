@@ -95,6 +95,10 @@ export function useChatSSE(
       input_tokens: u.input_tokens || 0,
       output_tokens: u.output_tokens || 0,
       total_tokens: u.total_tokens || 0,
+      reasoning_tokens: u.reasoning_tokens,
+      cache_read_tokens: u.cache_read_tokens,
+      cache_write_tokens: u.cache_write_tokens,
+      max_tokens: u.max_tokens,
     };
     usageRef.current = next;
     setUsage(next);

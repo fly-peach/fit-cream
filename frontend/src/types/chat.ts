@@ -17,11 +17,17 @@ export type SSEEventType =
   | "error"
   | "ds_key_invalid";
 
-/** Token 使用量 */
+/** Token 使用量（usage SSE 事件载荷；max_tokens 为后端动态上下文上限） */
 export interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
   total_tokens: number;
+  /** 思考 token 数（D5：思考内容不落库/不渲染，但 token 计入用量） */
+  reasoning_tokens?: number;
+  cache_read_tokens?: number;
+  cache_write_tokens?: number;
+  /** 当前会话类型（plan_design 200K / 默认 150K）的上下文上限 */
+  max_tokens?: number;
 }
 
 /** SSE 事件 */
