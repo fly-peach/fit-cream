@@ -21,14 +21,6 @@ import {
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning";
 import {
-  Plan,
-  PlanContent,
-  PlanDescription,
-  PlanHeader,
-  PlanTitle,
-  PlanTrigger,
-} from "@/components/ai-elements/plan";
-import {
   Confirmation,
   ConfirmationAccepted,
   ConfirmationAction,
@@ -102,6 +94,9 @@ import {
   CameraIcon,
   BookOpenIcon,
   BrainIcon,
+  ClipboardListIcon,
+  CheckCircle2Icon,
+  XCircleIcon,
   DumbbellIcon,
   LoaderCircleIcon,
 } from "lucide-react";
@@ -254,6 +249,12 @@ function MessageItem({
 
   const approvals = message.approvals || [];
   const interactive = !!pendingApproval && pendingApproval.messageId === message.id && !!onResume;
+  // present_plan_tool 对应的审批：取 create_plan_tool / create_diet_plan_tool 最近一条
+  const planApproval = approvals
+    .filter((a) => a.tool === "create_plan_tool" || a.tool === "create_diet_plan_tool")
+    .slice(-1)[0];
+  const planApprovalInteractive =
+    interactive && !!planApproval && planApproval.state === "approval-requested";
 
   return (
     <Message from="assistant">
@@ -269,6 +270,9 @@ function MessageItem({
             fallbackContent={cleaned}
             formInteractive={formInteractive}
             onSubmitForm={onSubmitForm}
+            planApproval={planApproval}
+            planApprovalInteractive={planApprovalInteractive}
+            onPlanApprove={() => onResume?.([{ type: "approve" }])}
           />
         )}
 
@@ -446,12 +450,18 @@ function StreamSteps({
   fallbackContent,
   formInteractive,
   onSubmitForm,
+  planApproval,
+  planApprovalInteractive,
+  onPlanApprove,
 }: {
   steps: AgentStep[];
   isStreaming?: boolean;
   fallbackContent?: string;
   formInteractive?: boolean;
   onSubmitForm?: (text: string) => void;
+  planApproval?: ToolApproval;
+  planApprovalInteractive?: boolean;
+  onPlanApprove?: () => void;
 }) {
   const hasReply = steps.some((s) => s.type === "reply");
   return (
@@ -478,7 +488,15 @@ function StreamSteps({
             );
           }
           if (tool === "present_plan_tool") {
-            return <PlanCard key={step.id || i} step={step} />;
+            return (
+              <PlanCard
+                key={step.id || i}
+                step={step}
+                approval={planApproval}
+                interactive={!!planApprovalInteractive}
+                onApprove={onPlanApprove}
+              />
+            );
           }
           if (tool === "present_day_design_tool") {
             return (
@@ -561,11 +579,25 @@ function PlanContentMarkdown({ markdown }: { markdown: string }) {
 }
 
 /**
- * 计划提案卡片：把 present_plan_tool 步骤渲染为可折叠 Plan 卡片。
- * title/description/content/changes 取自工具入参；running 时标题/摘要 shimmer。
- * changes 渲染为「即将执行的数据变更」总览表格，用户审批前的最后确认依据。
+ * 计划提案卡片：把 present_plan_tool 步骤渲染为对话内的绿色 chip（较大号），
+ * 点击弹窗查看完整提案（title/description + changes 变更总览 + markdown 正文），
+ * 不占 SSE 正文流。
+ *
+ * - 确认按钮：当存在待审批的 create_plan_tool / create_diet_plan_tool 时
+ *   （approval-requested 且可交互）点击即触发 HITL 批准（复用 onResume approve）
+ * - 已响应态：显示「已批准/已拒绝」状态标记（历史消息只读）
  */
-function PlanCard({ step }: { step: AgentStep }) {
+function PlanCard({
+  step,
+  approval,
+  interactive,
+  onApprove,
+}: {
+  step: AgentStep;
+  approval?: ToolApproval;
+  interactive?: boolean;
+  onApprove?: () => void;
+}) {
   const input = (step.input || {}) as {
     title?: string;
     description?: string;
@@ -574,53 +606,124 @@ function PlanCard({ step }: { step: AgentStep }) {
   };
   const streaming = step.status === "running";
   const changes = Array.isArray(input.changes) ? input.changes : [];
+  const [submitted, setSubmitted] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const responded = !!approval && approval.state !== "approval-requested";
+  const approved =
+    !!approval && (approval.decision === "approve" || approval.approved === true);
+
+  const canConfirm = !!interactive && !submitted;
+
+  const handleConfirm = () => {
+    if (!canConfirm) return;
+    setSubmitted(true);
+    setOpen(false);
+    onApprove?.();
+  };
+
   return (
-    <Plan isStreaming={streaming} defaultOpen={streaming}>
-      <PlanHeader>
-        <div className="flex flex-col gap-0.5">
-          <PlanTitle>{input.title || "计划提案"}</PlanTitle>
-          {input.description ? <PlanDescription>{input.description}</PlanDescription> : null}
-        </div>
-        <PlanTrigger />
-      </PlanHeader>
-      <PlanContent>
-        {changes.length > 0 && (
-          <div className="mb-3 overflow-x-auto rounded-lg border border-emerald-200">
-            <div className="border-b border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-semibold text-emerald-900">
-              即将执行的数据变更
-            </div>
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-emerald-100 bg-emerald-50/30 text-left text-emerald-800/70">
-                  <th className="px-3 py-1.5 font-medium">范围</th>
-                  <th className="px-3 py-1.5 font-medium">操作</th>
-                  <th className="px-3 py-1.5 font-medium">对象</th>
-                  <th className="px-3 py-1.5 font-medium">说明</th>
-                </tr>
-              </thead>
-              <tbody>
-                {changes.map((c, i) => (
-                  <tr key={i} className="border-b border-emerald-50 last:border-0">
-                    <td className="px-3 py-1.5 text-emerald-900">{c.domain || "—"}</td>
-                    <td className="px-3 py-1.5">
-                      <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700">
-                        {c.action || "—"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1.5 text-emerald-900">{c.target || "—"}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground">{c.detail || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="bg-emerald-50/40 px-3 py-1.5 text-[11px] text-emerald-700/80">
-              确认无误后点击下方「批准」，我就开始为你部署计划
-            </div>
-          </div>
+    <div className="my-1 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50/60 px-4 py-2 text-sm font-medium text-emerald-700 transition-colors hover:bg-emerald-100",
+          streaming && "animate-pulse"
         )}
-        <PlanContentMarkdown markdown={input.content || ""} />
-      </PlanContent>
-    </Plan>
+      >
+        <ClipboardListIcon className="size-4" />
+        {input.title || "查看计划提案"}
+      </button>
+      {responded && (
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 text-xs",
+            approved ? "text-emerald-600" : "text-muted-foreground"
+          )}
+        >
+          {approved ? (
+            <CheckCircle2Icon className="size-3.5" />
+          ) : (
+            <XCircleIcon className="size-3.5" />
+          )}
+          {approved ? "已批准" : "已拒绝"}
+        </span>
+      )}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{input.title || "计划提案"}</DialogTitle>
+            {input.description ? (
+              <DialogDescription className="leading-relaxed">
+                {input.description}
+              </DialogDescription>
+            ) : null}
+          </DialogHeader>
+          <div className="space-y-3 overflow-y-auto pr-1">
+            {changes.length > 0 && (
+              <div className="overflow-x-auto rounded-lg border border-emerald-200">
+                <div className="border-b border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-semibold text-emerald-900">
+                  即将执行的数据变更
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-emerald-100 bg-emerald-50/30 text-left text-emerald-800/70">
+                      <th className="px-3 py-1.5 font-medium">范围</th>
+                      <th className="px-3 py-1.5 font-medium">操作</th>
+                      <th className="px-3 py-1.5 font-medium">对象</th>
+                      <th className="px-3 py-1.5 font-medium">说明</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {changes.map((c, i) => (
+                      <tr key={i} className="border-b border-emerald-50 last:border-0">
+                        <td className="px-3 py-1.5 text-emerald-900">{c.domain || "—"}</td>
+                        <td className="px-3 py-1.5">
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium text-emerald-700">
+                            {c.action || "—"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-1.5 text-emerald-900">{c.target || "—"}</td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{c.detail || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="bg-emerald-50/40 px-3 py-1.5 text-[11px] text-emerald-700/80">
+                  确认无误后点击「批准计划」，我就开始为你部署计划
+                </div>
+              </div>
+            )}
+            <PlanContentMarkdown markdown={input.content || ""} />
+          </div>
+          <DialogFooter>
+            <span className="mr-auto max-w-[16rem] text-[11px] leading-snug text-muted-foreground">
+              {responded
+                ? approved
+                  ? "已批准，计划已部署"
+                  : "已拒绝，可在对话中说明调整方向"
+                : interactive
+                  ? "确认无误后点击「批准计划」触发审批"
+                  : streaming
+                    ? "提案生成中…"
+                    : "等待审批请求…"}
+            </span>
+            <Button
+              size="sm"
+              onClick={handleConfirm}
+              disabled={!canConfirm}
+              className={cn(
+                "bg-emerald-600 text-white hover:bg-emerald-700",
+                (!canConfirm || responded) && "opacity-60"
+              )}
+            >
+              批准计划
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
