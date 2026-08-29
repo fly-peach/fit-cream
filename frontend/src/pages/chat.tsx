@@ -883,9 +883,9 @@ async function uploadAttachmentImage(
   threadId?: string | null
 ): Promise<string> {
   const blob = await (await fetch(file.url)).blob();
-  const mime = file.mediaType || blob.type || "image/jpeg";
+  const mime = blob.type || file.mediaType || "image/jpeg";
   const ext = MIME_EXT[mime] ?? ".jpg";
-  const filename = file.filename || `upload${ext}`;
+  const filename = `upload${ext}`;
   const fd = new FormData();
   fd.append("file", blob, filename);
   if (threadId) fd.append("thread_id", threadId);

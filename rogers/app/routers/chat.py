@@ -1023,6 +1023,8 @@ def _strip_image_metadata(content: bytes, mime: str) -> bytes:
         img = Image.open(BytesIO(content))
         img.load()
         img.info.clear()
+        if fmt == "JPEG" and img.mode in ("RGBA", "LA", "P", "PA"):
+            img = img.convert("RGB")
         buf = BytesIO()
         if fmt == "JPEG":
             img.save(buf, fmt, quality=90)
