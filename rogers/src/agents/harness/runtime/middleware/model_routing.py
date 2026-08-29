@@ -27,7 +27,7 @@ from typing import Optional
 
 from langchain.agents.middleware import AgentMiddleware
 
-from src.agents.harness.runtime.config_flags import get_config_flag, get_config_value
+from src.agents.harness.runtime.config_flags import get_config_value
 from src.agents.harness.orchestration.model_factory import (
     mark_ds_key_invalid,
     resolve_chat_model,
@@ -104,11 +104,6 @@ def _ds_key() -> Optional[str]:
     return None
 
 
-def _plan_design() -> bool:
-    """当前 run 是否计划设计会话（纯 tool-calling 轮关闭思考省 reasoning tokens）。"""
-    return get_config_flag("plan_design", False)
-
-
 def _auth_status_code(exc: BaseException) -> Optional[int]:
     """从异常提取认证类状态码（401/403）；非认证类返回 None。"""
     status = getattr(exc, "status_code", None)
@@ -164,12 +159,6 @@ class ModelRoutingMiddleware(AgentMiddleware):
     def wrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:
-            # plan_design 纯 tool-calling 轮：关闭思考（P1-4），用 enable_thinking=False
-            # 的 qwen 覆盖默认模型，省 reasoning tokens（与 P0-2 叠加降成本）。
-            # 带用户 DS key 时仍走 deepseek（用户自备 key，思考按其默认行为）。
-            if _plan_design():
-                model = resolve_chat_model(user_ds_key=None, enable_thinking=False)
-                return handler(request.override(model=model))
             return handler(request)
 
         # 断路器已断开：本轮剩余调用直接走 qwen，不再尝试 DS（避免反复无效调用烧 token）
@@ -198,10 +187,6 @@ class ModelRoutingMiddleware(AgentMiddleware):
     async def awrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:
-            # plan_design 纯 tool-calling 轮：关闭思考（P1-4），同 wrap_model_call
-            if _plan_design():
-                model = resolve_chat_model(user_ds_key=None, enable_thinking=False)
-                return await handler(request.override(model=model))
             return await handler(request)
 
         if self._breaker_open():

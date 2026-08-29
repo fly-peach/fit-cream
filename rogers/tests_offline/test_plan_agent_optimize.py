@@ -8,7 +8,9 @@ Agent 优化计划离线单测（对应 .kilo/plans/plan-agent-optimize.md）。
   但 token 正常下发
 - P1-3 会话压缩：以真实 usage input_tokens 触发（count_tokens_approximately
   低估中文/JSON 导致 198k 不触发），压缩后清空陈旧 usage 防 thrash
-- P1-4 plan_design 会话无 DS key 时路由 enable_thinking=False 的 qwen
+- P1-4 已撤销（2026-08-29 用户决策）：plan_design 会话同样开思考，
+  无 DS key 时任何会话都不覆盖默认模型
+- 「思考中」状态事件在 on_chat_model_start 发出（不依赖 reasoning_content）
 
 记忆模块依赖 llama_index（→torch），个别环境导入失败时用 skip 兜底。
 """
@@ -288,8 +290,8 @@ class TestThinkingNotStreamed:
         assert "内部权衡" in saved["metadata"]["thinking"]
 
     async def test_thinking_status_on_model_start_without_reasoning(self, monkeypatch):
-        """plan_design 会话（P1-4 路由 enable_thinking=False）无 reasoning_content，
-        on_chat_model_start 仍发「思考中」状态事件，工具轮间隙前端不干等。"""
+        """模型调用无 reasoning_content 产出时（如 DeepSeek BYOK / 未来关思考场景），
+        on_chat_model_start 仍发「思考中」状态事件，生成期间前端不干等。"""
         import app.routers.chat as chat_mod
 
         events = [
@@ -395,7 +397,8 @@ class TestSummarizationRealUsageTrigger:
 
 
 # ============================================================
-# P1-4 plan_design 会话关闭 thinking
+# P1-4 已撤销：plan_design 会话同样开思考（2026-08-29 用户决策）
+# 无 DS key 时任何会话都不覆盖默认模型（qwen 默认开思考）
 # ============================================================
 
 
@@ -411,43 +414,15 @@ class _FakeModelRequest:
         return self._model
 
 
-class TestPlanDesignNoThinking:
-    def _patch(self, monkeypatch, plan_design: bool, ds_key: str | None):
+class TestModelRoutingNoKeyPassthrough:
+    def test_no_key_never_overrides_model(self, monkeypatch):
+        """无 DS key 时直接放行默认模型（不关思考、不路由覆盖）。"""
         import src.agents.harness.runtime.middleware.model_routing as mr
 
         monkeypatch.setattr(
             mr, "get_config_value",
-            lambda name, default=None: ds_key if name == "deepseek_api_key" else default,
+            lambda name, default=None: None if name == "deepseek_api_key" else default,
         )
-        monkeypatch.setattr(
-            mr, "get_config_flag",
-            lambda name, default=False: plan_design if name == "plan_design" else default,
-        )
-        return mr
-
-    def test_plan_design_no_key_routes_no_think(self, monkeypatch):
-        mr = self._patch(monkeypatch, plan_design=True, ds_key=None)
-        resolved = {}
-
-        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
-            resolved["user_ds_key"] = user_ds_key
-            resolved["enable_thinking"] = enable_thinking
-            return "no-think-model"
-
-        monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
-        handled = []
-
-        def handler(request):
-            handled.append(request)
-            return "ok"
-
-        assert mr.ModelRoutingMiddleware().wrap_model_call(_FakeModelRequest(), handler) == "ok"
-        assert resolved["user_ds_key"] is None
-        assert resolved["enable_thinking"] is False
-        assert handled[0].model == "no-think-model"
-
-    def test_no_key_no_plan_keeps_default_model(self, monkeypatch):
-        mr = self._patch(monkeypatch, plan_design=False, ds_key=None)
         called = {"resolve": False}
 
         def fake_resolve(*, user_ds_key=None, enable_thinking=True):
@@ -461,28 +436,6 @@ class TestPlanDesignNoThinking:
             handled.append(request)
             return "ok"
 
-        mr.ModelRoutingMiddleware().wrap_model_call(_FakeModelRequest(), handler)
-        assert called["resolve"] is False, "非 plan_design 不应覆盖默认模型"
+        assert mr.ModelRoutingMiddleware().wrap_model_call(_FakeModelRequest(), handler) == "ok"
+        assert called["resolve"] is False, "无 DS key 时不应覆盖默认模型"
         assert handled[0].model is None
-
-    def test_plan_design_with_ds_key_keeps_deepseek(self, monkeypatch):
-        mr = self._patch(monkeypatch, plan_design=True, ds_key="sk-user")
-        resolved = {}
-
-        def fake_resolve(*, user_ds_key=None, enable_thinking=True):
-            resolved["user_ds_key"] = user_ds_key
-            resolved["enable_thinking"] = enable_thinking
-            return "ds-model"
-
-        monkeypatch.setattr(mr, "resolve_chat_model", fake_resolve)
-        handled = []
-
-        def handler(request):
-            handled.append(request)
-            return "ok"
-
-        mr.ModelRoutingMiddleware().wrap_model_call(_FakeModelRequest(), handler)
-        # 带用户自备 DS key：走 deepseek，不关思考
-        assert resolved["user_ds_key"] == "sk-user"
-        assert resolved["enable_thinking"] is True
-        assert handled[0].model == "ds-model"
