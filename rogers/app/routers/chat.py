@@ -453,7 +453,16 @@ async def _run_agent_sse(
 
             kind = event["event"]
 
-            if kind == "on_chat_model_stream":
+            if kind == "on_chat_model_start":
+                # 模型调用开始即发「思考中」状态事件：不依赖 reasoning_content--
+                # plan_design 会话路由 enable_thinking=False 的 qwen（P1-4 省
+                # reasoning tokens）时无 reasoning 产出，工具轮间隙前端会完全无
+                # 反馈干等。首个 token / step / tool_start 事件到达即清除。
+                if not thinking_started:
+                    thinking_started = True
+                    yield _sse_event("thinking", {"content": ""})
+
+            elif kind == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
                 reasoning = chunk.additional_kwargs.get("reasoning_content", "")
                 if reasoning:

@@ -287,6 +287,54 @@ class TestThinkingNotStreamed:
         assert saved["metadata"].get("thinking")
         assert "内部权衡" in saved["metadata"]["thinking"]
 
+    async def test_thinking_status_on_model_start_without_reasoning(self, monkeypatch):
+        """plan_design 会话（P1-4 路由 enable_thinking=False）无 reasoning_content，
+        on_chat_model_start 仍发「思考中」状态事件，工具轮间隙前端不干等。"""
+        import app.routers.chat as chat_mod
+
+        events = [
+            {"event": "on_chat_model_start", "data": {}, "run_id": "r1"},
+            {
+                "event": "on_chat_model_stream",
+                "data": {"chunk": AIMessageChunk(content="")},
+                "run_id": "r1",
+            },
+            {"event": "on_chat_model_end", "data": {"output": None}, "run_id": "r1"},
+            {"event": "on_tool_start", "name": "present_form_tool", "data": {"input": {}}, "run_id": "t1"},
+            {
+                "event": "on_tool_end",
+                "name": "present_form_tool",
+                "data": {"output": "ok"},
+                "run_id": "t1",
+            },
+        ]
+
+        async def fake_save(db, user_id, thread_id, role, content, metadata=None):
+            pass
+
+        monkeypatch.setattr(chat_mod.ConversationService, "save_message", fake_save)
+        monkeypatch.setattr(chat_mod, "_upsert_thread_usage", _noop)
+        monkeypatch.setattr(chat_mod, "_upsert_user_token_usage", _noop)
+
+        gen = chat_mod._run_agent_sse(
+            _FakeAgent(events),
+            {"configurable": {}},
+            {},
+            thread_id="t1",
+            user_id="u1",
+            user=SimpleNamespace(id="u1", name="测试"),
+            stop_event=asyncio.Event(),
+            stream_db=None,
+        )
+        sse_text = ""
+        async for s in gen:
+            sse_text += s
+
+        # 无 reasoning 时 thinking 状态事件仍从 on_chat_model_start 发出
+        assert "event: thinking" in sse_text
+        # 且事件无内容（仅状态标记）
+        assert "event: thinking\ndata: {\"content\": \"\"}" in sse_text
+
 
 # ============================================================
 # P1-3 会话压缩以真实 usage 触发
