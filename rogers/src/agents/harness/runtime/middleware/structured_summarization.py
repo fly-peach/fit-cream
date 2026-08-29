@@ -42,6 +42,7 @@ from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
 from src.agents.harness.runtime.config_flags import get_config_value
+from src.agents.harness.runtime.middleware.robust import state_hook_fail_open
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -257,7 +258,11 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
             if not isinstance(msg, AIMessage):
                 continue
             usage = getattr(msg, "usage_metadata", None) or {}
-            input_tokens = int(usage.get("input_tokens") or 0)
+            # P2 点修：usage_metadata 属运行时不可信数据，input_tokens 非数值
+            # （畸形/字符串）视为 0，避免 int() 抛 ValueError 炸 run（该调用在
+            # _summarize_plan 的 try 块之外）。
+            raw = usage.get("input_tokens") or 0
+            input_tokens = int(raw) if isinstance(raw, (int, float)) else 0
             if input_tokens > 0:
                 return input_tokens
         return 0
@@ -315,6 +320,7 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
             total_tokens,
         )
 
+    @state_hook_fail_open
     def before_model(
         self, state: StructuredSummarizationState, runtime: Runtime
     ) -> dict[str, Any] | None:
@@ -347,6 +353,7 @@ class StructuredSummarizationMiddleware(AgentMiddleware):
             "conversation_summary": summary,
         }
 
+    @state_hook_fail_open
     async def abefore_model(
         self, state: StructuredSummarizationState, runtime: Runtime
     ) -> dict[str, Any] | None:

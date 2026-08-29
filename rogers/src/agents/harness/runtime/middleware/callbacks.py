@@ -20,6 +20,8 @@ from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
+from src.agents.harness.runtime.middleware.robust import state_hook_fail_open
+
 logger = logging.getLogger("fitcream.agent")
 
 
@@ -58,6 +60,7 @@ class TokenUsageMiddleware(AgentMiddleware):
         )
         return None
 
+    @state_hook_fail_open
     def after_model(self, state: TokenUsageState, runtime: Runtime) -> dict[str, Any] | None:
         # 从最近一条 AI 消息的 usage_metadata 中累积 token 用量
         usage: dict = {}

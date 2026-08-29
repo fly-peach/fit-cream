@@ -38,6 +38,8 @@ from langchain.agents.middleware.types import hook_config
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.runtime import Runtime
 
+from src.agents.harness.runtime.middleware.robust import state_hook_fail_open
+
 logger = logging.getLogger("fitcream.agent")
 
 # 终结工具白名单（默认空；实施时按 3.3 与产品确认后逐工具填充）
@@ -104,6 +106,7 @@ class TerminalToolMiddleware(AgentMiddleware):
 
         return True
 
+    @state_hook_fail_open
     @hook_config(can_jump_to=["end"])
     def before_model(
         self, state: AgentState, runtime: Runtime
@@ -114,6 +117,7 @@ class TerminalToolMiddleware(AgentMiddleware):
         logger.info("[TerminalTool] 白名单终结工具批全部成功，结束 run")
         return {"jump_to": "end"}
 
+    @state_hook_fail_open
     @hook_config(can_jump_to=["end"])
     async def abefore_model(
         self, state: AgentState, runtime: Runtime

@@ -35,6 +35,10 @@ from src.agents.harness.runtime.middleware.plan_queue_middleware import (
     get_queue_snapshot,
 )
 from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
+from src.agents.harness.runtime.middleware.robust import (
+    model_hook_fail_open,
+    msg_tool_calls,
+)
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -51,10 +55,13 @@ _ROADMAP_CONFIRM_NEEDLES = ("确认路线图",)
 
 
 def _has_called(messages: list, tool_name: str) -> bool:
-    """历史中是否出现过某展示工具的调用。"""
+    """历史中是否出现过某展示工具的调用。
+
+    经 msg_tool_calls 统一安全提取：非 dict tc / 缺 name 的畸形条目被跳过，
+    避免对畸形 tool_calls 下标访问抛异常阻断整条消息。
+    """
     for msg in messages:
-        for tc in getattr(msg, "tool_calls", None) or []:
-            name = tc.get("name") if isinstance(tc, dict) else None
+        for name, _, _ in msg_tool_calls(msg):
             if name == tool_name:
                 return True
     return False
@@ -187,12 +194,14 @@ class ContentValidationMiddleware(AgentMiddleware):
         )
         return prompt
 
+    @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         prompt = self._guard_prompt(request.messages)
         if not prompt:
             return handler(request)
         return handler(merge_system_prompt(request, prompt))
 
+    @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         prompt = self._guard_prompt(request.messages)
         if not prompt:

@@ -54,6 +54,7 @@ from src.agents.harness.orchestration.prompts.system import (
 )
 from src.agents.harness.runtime.config_flags import get_config_flag
 from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
+from src.agents.harness.runtime.middleware.robust import model_hook_fail_open
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -241,6 +242,7 @@ class IntentMiddleware(AgentMiddleware):
         # 多意图提示词合并为一个字符串，经 system_message 临时注入（不落 checkpoint）
         return "\n\n".join(prompts)
 
+    @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         """临时注入意图专项提示词（合并进 request.system_message，不持久化）。"""
         prompt = self._compute_prompt(request.messages)
@@ -248,6 +250,7 @@ class IntentMiddleware(AgentMiddleware):
             return handler(request)
         return handler(merge_system_prompt(request, prompt))
 
+    @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         """异步路径（生产 SSE 走这里）：同 wrap_model_call。"""
         prompt = self._compute_prompt(request.messages)

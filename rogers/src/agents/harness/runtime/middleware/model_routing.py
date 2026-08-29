@@ -32,6 +32,7 @@ from src.agents.harness.orchestration.model_factory import (
     mark_ds_key_invalid,
     resolve_chat_model,
 )
+from src.agents.harness.runtime.middleware.robust import model_hook_fail_open
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -159,6 +160,7 @@ class ModelRoutingMiddleware(AgentMiddleware):
         tid = _thread_id()
         return bool(tid and _ds_fail_counts.get(tid, 0) >= _DS_CIRCUIT_BREAKER_THRESHOLD)
 
+    @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:
@@ -192,6 +194,7 @@ class ModelRoutingMiddleware(AgentMiddleware):
             )
             return handler(request)
 
+    @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         ds_key = _ds_key()
         if not ds_key:

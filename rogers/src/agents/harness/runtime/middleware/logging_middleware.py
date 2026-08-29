@@ -24,6 +24,11 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 from typing_extensions import NotRequired
 
+from src.agents.harness.runtime.middleware.robust import (
+    model_hook_fail_open,
+    state_hook_fail_open,
+)
+
 # 异步 handler 类型
 AsyncToolHandler = Callable[[ToolCallRequest], Any]  # Awaitable[ToolMessage | Command]
 
@@ -64,6 +69,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
         # 不再拼入 message 文本，避免与日志平台索引重复。
         return "[Agent]"
 
+    @state_hook_fail_open
     def before_agent(self, state: AgentLoggingState, runtime: Runtime) -> dict[str, Any] | None:
         logger.info(f"{self._log_prefix()} Agent started")
         # 初始化每轮计数（UntrackedValue 不跨 run 持久化，显式置零保证干净）
@@ -73,6 +79,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
             "log_tool_calls": 0,
         }
 
+    @state_hook_fail_open
     def before_model(self, state: AgentLoggingState, runtime: Runtime) -> dict[str, Any] | None:
         llm_calls = state.get("log_llm_calls", 0)
         msg_count = len(state.get("messages", []))
@@ -86,6 +93,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
             logger.debug(f"  last_message: {content_preview}...")
         return None
 
+    @state_hook_fail_open
     def after_model(self, state: AgentLoggingState, runtime: Runtime) -> dict[str, Any] | None:
         messages = state.get("messages", [])
         tool_call_count = 0
@@ -112,6 +120,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
             "log_tool_calls": state.get("log_tool_calls", 0) + tool_call_count,
         }
 
+    @model_hook_fail_open
     def wrap_tool_call(
         self,
         request: ToolCallRequest,
@@ -145,6 +154,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
             )
             raise
 
+    @model_hook_fail_open
     async def awrap_tool_call(
         self,
         request: ToolCallRequest,
@@ -178,6 +188,7 @@ class AgentLoggingMiddleware(AgentMiddleware):
             )
             raise
 
+    @state_hook_fail_open
     def after_agent(self, state: AgentLoggingState, runtime: Runtime) -> dict[str, Any] | None:
         start_time = state.get("log_start_time", 0.0)
         duration = (time.time() - start_time) * 1000 if start_time else 0.0

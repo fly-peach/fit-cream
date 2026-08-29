@@ -26,6 +26,10 @@ from langchain.messages import HumanMessage
 
 from src.agents.harness.tools.plan.plan_queue_tools import QUEUE_TOOLS
 from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
+from src.agents.harness.runtime.middleware.robust import (
+    model_hook_fail_open,
+    msg_tool_calls,
+)
 
 logger = logging.getLogger("fitcream.agent")
 
@@ -70,17 +74,16 @@ def _reconstruct_queue(messages: list) -> dict | None:
 
     只找「最新一份」快照：update 携带全量更新后快照，故从后向前遇到的第一个
     队列工具调用即当前真实状态，无需全量遍历（旧实现 O(N) 深拷贝优化）。
+
+    经 msg_tool_calls 统一安全提取：非 dict tc / 缺 name / args 非 dict 的畸形
+    条目被跳过，_extract_queue_from_tool_call 对畸形快照（todos 非 list）返回
+    None，继续找更早的有效快照（保持今日修复的畸形跳过语义不变）。
     """
     for msg in reversed(messages):
-        tool_calls = getattr(msg, "tool_calls", None) or []
-        if not tool_calls:
-            continue
-        for tc in reversed(tool_calls):
-            name = tc.get("name") if isinstance(tc, dict) else None
+        for name, args, _ in reversed(msg_tool_calls(msg)):
             if name not in QUEUE_TOOLS:
                 continue
-            args = tc.get("args") if isinstance(tc, dict) else None
-            q = _extract_queue_from_tool_call(name, args or {})
+            q = _extract_queue_from_tool_call(name, args)
             if q:
                 return q
     return None
@@ -164,6 +167,7 @@ class PlanQueueMiddleware(AgentMiddleware):
             return None
         return _render_snapshot(snapshot)
 
+    @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         prompt = self._snapshot_prompt(request.messages)
         if not prompt:
@@ -171,6 +175,7 @@ class PlanQueueMiddleware(AgentMiddleware):
         logger.info("[PlanQueue] Injected queue snapshot into context")
         return handler(merge_system_prompt(request, prompt))
 
+    @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         prompt = self._snapshot_prompt(request.messages)
         if not prompt:

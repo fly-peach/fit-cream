@@ -42,6 +42,7 @@ from typing_extensions import NotRequired
 
 from src.agents.harness.runtime.config_flags import get_config_value
 from src.agents.harness.orchestration.model_factory import resolve_chat_model
+from src.agents.harness.runtime.middleware.robust import state_hook_fail_open
 
 logger = logging.getLogger("fitcream.memory")
 
@@ -169,6 +170,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
         )
         return None
 
+    @state_hook_fail_open
     def after_model(self, state: MemoryUpdateState, runtime: Runtime) -> dict[str, Any] | None:
         """
         每次 LLM 调用后检查 token 使用量
@@ -217,6 +219,7 @@ class MemoryUpdateMiddleware(AgentMiddleware):
     ) -> dict[str, Any] | None:
         return self.after_model(state, runtime)
 
+    @state_hook_fail_open
     def after_agent(self, state: MemoryUpdateState, runtime: Runtime) -> dict[str, Any] | None:
         """
         Agent 结束后，如果有未处理的对话也触发记忆提取

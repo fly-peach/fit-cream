@@ -27,6 +27,12 @@ from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.runtime import Runtime
 from typing_extensions import NotRequired
 
+from src.agents.harness.runtime.middleware.robust import (
+    model_hook_fail_open,
+    msg_tool_calls,
+    state_hook_fail_open,
+)
+
 logger = logging.getLogger("fitcream.agent")
 
 # 限流拦截时的引导文案（按工具覆盖）：默认走英文通用提示；对交互类工具给出
@@ -92,11 +98,16 @@ class SameToolLimitMiddleware(AgentMiddleware):
         # 计数由 UntrackedValue 保证随 run 重置，无需显式清零
         return None
 
+    @state_hook_fail_open
     def after_model(self, state: SameToolLimitState, runtime: Runtime) -> dict[str, Any] | None:
         """读取最新 AIMessage 的 tool_calls 累加计数（不注入拦截消息）。
 
         真正拦截由 wrap_tool_call 在工具执行前完成：after_model 只管计数，
         wrap_tool_call 根据计数短路，二者配合使"第 max+1 次调用"不被执行。
+
+        经 msg_tool_calls 统一安全提取：畸形条目（非 dict / 缺 name / args 非
+        dict）跳过不计数，避免对不可信 tool_calls 下标访问抛 KeyError 炸 run
+        （P2 点修）。
         """
         messages = state.get("messages", [])
         if not messages:
@@ -114,8 +125,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
 
         counts = dict(state.get("same_tool_counts", {}))
 
-        for tool_call in last_ai_message.tool_calls:
-            tool_name = tool_call["name"]
+        for tool_name, _, _ in msg_tool_calls(last_ai_message):
             counts[tool_name] = counts.get(tool_name, 0) + 1
             limit = self._limit_for(tool_name)
 
@@ -131,6 +141,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
         counts = (state or {}).get("same_tool_counts", {}) or {}
         return counts.get(tool_name, 0) > self._limit_for(tool_name)
 
+    @model_hook_fail_open
     def wrap_tool_call(self, request, handler):
         """工具执行前拦截：超限则短路，不执行工具。"""
         tool_name = request.tool_call["name"]
@@ -148,6 +159,7 @@ class SameToolLimitMiddleware(AgentMiddleware):
             )
         return handler(request)
 
+    @model_hook_fail_open
     async def awrap_tool_call(self, request, handler):
         """异步工具执行前拦截：超限则短路，不执行工具。"""
         tool_name = request.tool_call["name"]

@@ -32,6 +32,7 @@ from langchain.agents.middleware import AgentMiddleware
 from src.agents.harness.runtime.config_flags import get_config_flag
 from src.agents.harness.orchestration.prompts.system import CONTEXT_PROMPTS
 from src.agents.harness.runtime.middleware.prompt_injection import merge_system_prompt
+from src.agents.harness.runtime.middleware.robust import model_hook_fail_open
 from langchain.messages import HumanMessage
 
 logger = logging.getLogger("fitcream.agent")
@@ -97,6 +98,7 @@ class KBGateMiddleware(AgentMiddleware):
         logger.info("[KBGate] 知识库回答已开启，注入 KB 优先提示词")
         return kb_answer_prompt
 
+    @model_hook_fail_open
     def wrap_model_call(self, request, handler):
         request = self._filter_tools(request)
         prompt = self._kb_prompt(request.messages)
@@ -104,6 +106,7 @@ class KBGateMiddleware(AgentMiddleware):
             request = merge_system_prompt(request, prompt)
         return handler(request)
 
+    @model_hook_fail_open
     async def awrap_model_call(self, request, handler):
         request = self._filter_tools(request)
         prompt = self._kb_prompt(request.messages)
