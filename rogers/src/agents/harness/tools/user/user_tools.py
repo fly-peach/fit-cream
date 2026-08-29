@@ -4,7 +4,7 @@
 供 Agent 调用，查询和更新用户个人资料：
 - get_user_profile_tool: 获取用户身体数据和健身目标（数据库实时数据）
 - update_user_profile_tool: 部分更新用户资料（身高、体重、年龄、性别、目标）
-- update_fitness_profile_tool: 部分更新用户健身画像（健康安全/体能/经历/生活方式/饮食偏好）
+- 更新健身画像: 部分更新用户健身画像（健康安全/体能/经历/生活方式/饮食偏好）
 
 直接调用 UserService（同进程融合，不走 HTTP）。
 """
@@ -236,7 +236,7 @@ class UpdateFitnessProfileInput(BaseModel):
 
 
 @tool(args_schema=UpdateFitnessProfileInput)
-async def update_fitness_profile_tool(
+async def 更新健身画像(
     medical_history: Optional[str] = None,
     injuries: Optional[str] = None,
     allergies: Optional[str] = None,
@@ -286,36 +286,40 @@ async def update_fitness_profile_tool(
         return {"success": False, "error": "无法获取用户信息（未登录或会话无效）"}
 
     try:
-        update = UserFitnessProfileUpdate(
-            medical_history=medical_history,
-            injuries=injuries,
-            allergies=allergies,
-            pregnancy=pregnancy,
-            medication=medication,
-            parq_result=parq_result,
-            doctor_advice=doctor_advice,
-            training_experience=training_experience,
-            cardio_level=cardio_level,
-            strength_level=strength_level,
-            flexibility=flexibility,
-            body_fat_pct=body_fat_pct,
-            weekly_frequency=weekly_frequency,
-            session_duration=session_duration,
-            preferred_types=preferred_types,
-            past_results=past_results,
-            occupation_schedule=occupation_schedule,
-            diet_habits=diet_habits,
-            sleep_quality=sleep_quality,
-            stress_level=stress_level,
-            equipment=equipment,
-            preferred_time=preferred_time,
-            diet_preferences=diet_preferences,
-            food_allergies=food_allergies,
-            cooking_condition=cooking_condition,
-            meals_per_day=meals_per_day,
-            eating_out_ratio=eating_out_ratio,
-            budget=budget,
-        )
+        # 只收集非 None 字段：显式传 None 会让 pydantic 视为「已设置」，
+        # model_dump(exclude_unset=True) 排不掉，全量 setattr 会把旧值清空。
+        field_values = {
+            "medical_history": medical_history,
+            "injuries": injuries,
+            "allergies": allergies,
+            "pregnancy": pregnancy,
+            "medication": medication,
+            "parq_result": parq_result,
+            "doctor_advice": doctor_advice,
+            "training_experience": training_experience,
+            "cardio_level": cardio_level,
+            "strength_level": strength_level,
+            "flexibility": flexibility,
+            "body_fat_pct": body_fat_pct,
+            "weekly_frequency": weekly_frequency,
+            "session_duration": session_duration,
+            "preferred_types": preferred_types,
+            "past_results": past_results,
+            "occupation_schedule": occupation_schedule,
+            "diet_habits": diet_habits,
+            "sleep_quality": sleep_quality,
+            "stress_level": stress_level,
+            "equipment": equipment,
+            "preferred_time": preferred_time,
+            "diet_preferences": diet_preferences,
+            "food_allergies": food_allergies,
+            "cooking_condition": cooking_condition,
+            "meals_per_day": meals_per_day,
+            "eating_out_ratio": eating_out_ratio,
+            "budget": budget,
+        }
+        updates = {k: v for k, v in field_values.items() if v is not None}
+        update = UserFitnessProfileUpdate(**updates)
         async with session_scope() as db:
             await UserService.update_fitness_profile(db, user_id, update)
             return {

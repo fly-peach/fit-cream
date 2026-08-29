@@ -75,7 +75,7 @@ description: 用户大规模设计/调整训练或饮食计划时使用，引导
 
 - `body_profile` 字段 -> 调用 `update_user_profile_tool` 写入基础身体档案
 - `health_safety` / `fitness_level` / `exercise_history` / `lifestyle` / `diet_profile`
-  字段 -> 调用 `update_fitness_profile_tool` 写入健身画像（一次调用可传该表单全部新字段）
+  字段 -> 调用 `更新健身画像` 写入健身画像（一次调用可传该表单全部新字段）
 - `baseline` 表单（无活跃路线图时）-> 解析 `reference_lifts`/`circumference`
   调用 `record_baseline_tool` 写入力量基线与身体指标（作为闯关路线图的起点；
   近 30 天已记录的动作自动跳过重复录入）
@@ -204,7 +204,7 @@ todos:
   （**每次对话轮次只发一个表单**：发完即止步等待提交，收到「[表单提交: ...]」后再发下一个）
 - 用户提交（「[表单提交: ...]」）后：body_profile 字段调 `update_user_profile_tool` 落库；
   其余维度（health_safety/fitness_level/exercise_history/lifestyle/diet_profile）字段
-  调 `update_fitness_profile_tool` 落库
+  调 `更新健身画像` 落库
 - 调 `get_user_summary_tool` 复核（`intake_dimensions` 该维度标 complete）-> 该项打勾 completed
 - 档案已有数据（`intake_dimensions` complete）的维度直接打勾跳过，不打扰用户
 

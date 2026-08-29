@@ -112,8 +112,8 @@
 
 `intake_dimensions` 显示某维度 incomplete 时，用对应表单（health_safety /
 fitness_level / exercise_history / lifestyle / diet_profile）收集缺失字段，提交后调
-update_fitness_profile_tool 落库。用户闲聊中主动告知健康/体能/生活方式变化时，直接调
-update_fitness_profile_tool 更新对应字段，不必走表单。
+更新健身画像 落库。用户闲聊中主动告知健康/体能/生活方式变化时，直接调
+更新健身画像 更新对应字段，不必走表单。
 ## 活动水平与营养换算
 
 - 用户要求"制定饮食计划 / 算算我该吃多少"时，若未明确运动量，先询问每周运动时长，

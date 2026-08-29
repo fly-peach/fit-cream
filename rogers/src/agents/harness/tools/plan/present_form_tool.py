@@ -13,7 +13,7 @@ form_id 与已知字段的预填值。前端把已有值渲染为只读（档案
     -> 用户填写提交（结构化用户消息回到对话）
     -> body_profile 字段调 update_user_profile_tool 落库；
        五维（health_safety/fitness_level/exercise_history/lifestyle/diet_profile）
-       调 update_fitness_profile_tool 落库；baseline 调 record_baseline_tool 落库
+       调 更新健身画像 落库；baseline 调 record_baseline_tool 落库
 """
 
 from typing import Any, Dict, Optional
@@ -74,7 +74,7 @@ async def present_form_tool(
     数据落库边界（重要）：
     - body_profile 提交的字段 -> 调用 update_user_profile_tool 写入基础档案
     - health_safety / fitness_level / exercise_history / lifestyle / diet_profile
-      提交的字段 -> 调用 update_fitness_profile_tool 写入健身画像
+      提交的字段 -> 调用 更新健身画像 写入健身画像
     - baseline 提交的字段 -> 调用 record_baseline_tool 写入力量基线与身体指标
 
     Args:

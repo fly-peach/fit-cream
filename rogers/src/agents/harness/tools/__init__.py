@@ -49,9 +49,9 @@ from src.agents.harness.tools.diet import (
 )
 from src.agents.harness.tools.user import (
     get_user_profile_tool,
-    update_fitness_profile_tool,
     update_user_profile_tool,
     get_user_summary_tool,
+    更新健身画像,
 )
 from src.agents.harness.tools.knowledge import (
     list_my_knowledge_bases,
@@ -87,7 +87,7 @@ __all__ = [
     "get_exercises_tool",
     "get_user_profile_tool",
     "update_user_profile_tool",
-    "update_fitness_profile_tool",
+    "更新健身画像",
     "search_knowledge_base",
     "read_kb_document",
     "list_my_knowledge_bases",
