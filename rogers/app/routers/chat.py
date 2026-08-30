@@ -168,9 +168,12 @@ async def _repair_dangling_tool_calls(checkpointer, thread_id: str) -> None:
 
     异常/递归崩溃后，checkpoint 可能残留「已发出 tool_calls 但无 ToolMessage 响应」
     的 AIMessage。qwen 容忍此类坏状态，但 DeepSeek 严格要求每个 tool_call_id 都有
-    响应，resume / 继续对话会触发 400（Bug B1）。这里扫描历史，为缺少响应的
+    响应，继续对话会触发 400（Bug B1）。这里扫描历史，为缺少响应的
     tool_call 追加合成 ToolMessage（占位说明），幂等；同时修复存量坏线程
     （9cd8bb77 / a471d3bd 等）。无修改则不写 checkpoint。
+
+    仅限 /chat/message 路径调用；/chat/resume 绝不可调用——resume 面对的
+    合法 pending 中断会被误判为悬空并被修复逻辑破坏（审批死循环事故）。
     """
     if checkpointer is None:
         return
@@ -205,7 +208,7 @@ async def _repair_dangling_tool_calls(checkpointer, thread_id: str) -> None:
 
     for tc in dangling:
         messages.append(ToolMessage(
-            content="[该工具调用因异常中断，无结果]",
+            content="[该工具调用未执行完成（此前的运行被中断或用户放弃了审批）；如仍需要请重新发起]",
             tool_call_id=tc["id"],
             name=tc.get("name", ""),
         ))
@@ -927,8 +930,10 @@ async def resume_conversation(
     }
     _inject_request_config(config, req)
     await _clean_expired_image_urls(getattr(agent, "checkpointer", None), thread_id)
-    # 修复悬空 tool_calls（resume 前同样先修复，防 DeepSeek 400）
-    await _repair_dangling_tool_calls(getattr(agent, "checkpointer", None), thread_id)
+    # 注意：resume 前绝不可做悬空修复！待审批中断的 AIMessage.tool_calls 天然
+    # 缺 ToolMessage 响应（属合法的 pending 状态），修复会给它追加「未执行」合成
+    # ToolMessage + 改写 messages channel，导致被审批的工具节点被跳过、真实落库
+    # 不发生（roadmap/plan 审批死循环事故）。历史真悬空由下一条 /message 修复。
 
     # 构建 resume 命令（decisions 顺序须与 approval_needed 的 action_requests 对齐）
     resume_command = _build_resume_command(req.decisions)

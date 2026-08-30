@@ -214,7 +214,10 @@ class GoalRoadmapService:
                 errors.append(f"第 {st.stage_index} 关 expected_weeks 须 2-16（实际 {st.expected_weeks}）")
             for c in st.exit_criteria:
                 if c.metric not in METRIC_KEYS:
-                    errors.append(f"第 {st.stage_index} 关指标「{c.metric}」不在统一词表内")
+                    errors.append(
+                        f"第 {st.stage_index} 关指标「{c.metric}」不在统一词表内，"
+                        f"仅允许: {' / '.join(METRIC_KEYS)}"
+                    )
                 if c.op not in (">=", "<="):
                     errors.append(f"第 {st.stage_index} 关指标「{c.metric}」op 只允许 >= / <=")
         return errors

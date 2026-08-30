@@ -262,7 +262,7 @@ class TestRepairDanglingToolCalls:
         replied = [m for m in cp.saved_messages if isinstance(m, ToolMessage)]
         assert len(replied) == 1
         assert replied[0].tool_call_id == "c1"
-        assert "异常中断" in replied[0].content
+        assert "未执行完成" in replied[0].content
         # 必须 bump messages 的 channel_versions，否则 AsyncPostgresSaver 不持久化
         assert cp.saved_versions is not None
         assert str(cp.saved_versions.get("messages", "")).endswith(".repair.1")

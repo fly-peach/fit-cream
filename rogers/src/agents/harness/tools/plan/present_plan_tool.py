@@ -15,7 +15,9 @@
 from typing import Dict, List, Optional
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.agents.harness.tools._common import coerce_json_list, stringify_scalars
 
 
 class PresentPlanInput(BaseModel):
@@ -43,6 +45,16 @@ class PresentPlanInput(BaseModel):
             "涵盖本次批准通过后会写入数据库的全部变更。"
         ),
     )
+
+    @field_validator("changes", mode="before")
+    @classmethod
+    def _lenient_changes(cls, v):
+        # qwen 常把嵌套数组字符串化（changes='[...]'）导致严格校验失败，
+        # 装配提案反复重试触发限流；统一容错解析 + 值归一为字符串。
+        items = coerce_json_list(v)
+        if items is None:
+            return None
+        return [stringify_scalars(it) for it in items]
 
 
 @tool(args_schema=PresentPlanInput)

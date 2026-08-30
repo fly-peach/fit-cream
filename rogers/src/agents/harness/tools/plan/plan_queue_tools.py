@@ -25,7 +25,9 @@ QUEUE_TOOLS 裁剪范围，完整保留在模型视图中。
 from typing import List, Optional
 
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from src.agents.harness.tools._common import coerce_json_list
 
 
 # 携带完整队列快照入参的工具名（前端待办面板 / PlanQueueMiddleware / 模型视图
@@ -80,6 +82,11 @@ class DayDesign(BaseModel):
         default=None, description="当日设计依据（经验层级/安全约束/器械）"
     )
 
+    @field_validator("exercises", mode="before")
+    @classmethod
+    def _lenient_exercises(cls, v):
+        return coerce_json_list(v) or []
+
 
 # ===== 训练大纲（present_outline_tool 用，chip + 弹窗渲染，不占正文）=====
 
@@ -126,11 +133,45 @@ class PlanQueue(BaseModel):
         default_factory=list, description="从信息收集到落库的完整待办清单"
     )
 
+    @field_validator("todos", mode="before")
+    @classmethod
+    def _lenient_todos(cls, v):
+        # qwen 会把嵌套数组字符串化（todos='[...]'），严格校验炸整个调用；
+        # 统一容错解析（2026-08-29 提案卡 changes 同类事故的系统性防御）。
+        return coerce_json_list(v) or []
+
+
+class PresentPlanQueueInput(BaseModel):
+    """present_plan_queue_tool 入参（显式 schema 挂 todos 容错校验器）"""
+
+    title: str = Field(description="队列标题，如「4周增肌计划设计」")
+    todos: List[PlanQueueTodo] = Field(
+        default_factory=list, description="从信息收集到落库的完整待办清单"
+    )
+
+    @field_validator("todos", mode="before")
+    @classmethod
+    def _lenient_todos(cls, v):
+        return coerce_json_list(v) or []
+
+
+class PresentOutlineInput(BaseModel):
+    """present_outline_tool 入参（显式 schema 挂 days 容错校验器）"""
+
+    title: str = Field(description="大纲标题，如「4周增肌计划 · 训练大纲」")
+    strategy: str = Field(description="分化策略与设计依据（经验层级/频率/安全约束的简述）")
+    days: List[OutlineDay] = Field(default_factory=list, description="每日安排（含休息日）")
+
+    @field_validator("days", mode="before")
+    @classmethod
+    def _lenient_days(cls, v):
+        return coerce_json_list(v) or []
+
 
 # ===== 工具 =====
 
 
-@tool
+@tool(args_schema=PresentPlanQueueInput)
 async def present_plan_queue_tool(
     title: str,
     todos: List[PlanQueueTodo],
@@ -169,7 +210,7 @@ async def present_plan_queue_tool(
     }
 
 
-@tool
+@tool(args_schema=PresentOutlineInput)
 async def present_outline_tool(
     title: str,
     strategy: str,

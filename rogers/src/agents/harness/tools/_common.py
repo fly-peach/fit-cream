@@ -9,9 +9,10 @@
 所有 fitme / knowledge 工具统一复用此处助手。
 memory 工具属独立 MemoryStore 子系统，不适用本模式（见方案 D2）。
 """
+import json
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, List, Optional
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -20,6 +21,59 @@ from app.database import async_session_factory
 from utils.exceptions import BusinessException
 
 logger = logging.getLogger("fitcream.tools")
+
+
+def coerce_json_list(value: Any) -> Optional[List[Any]]:
+    """容错解析模型可能字符串化的嵌套数组参数。
+
+    qwen 等模型生成长中文嵌套 JSON 时，常把 list 参数输出成 JSON 字符串
+    （如 changes='[{"domain": ...}]'），严格 pydantic 校验直接失败导致
+    工具反复重试触发限流（2026-08-29 装配提案事故）。本 helper 统一归一：
+    - None -> None
+    - dict -> [dict]
+    - JSON 字符串 -> json.loads（失败返回 None，让字段降级为空而非炸整个调用）
+    - list -> 逐项解析：str 项按 JSON 解，非 dict 的项剔除
+
+    返回 list（可能为空）或 None，由具体 schema 决定后续严格校验。
+    """
+    if value is None:
+        return None
+    items = value
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except (ValueError, TypeError):
+            logger.warning("[Tools] 嵌套参数不是合法 JSON 字符串，降级为空: %r", items[:200])
+            return None
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        return None
+    out: List[Any] = []
+    for it in items:
+        if isinstance(it, str):
+            try:
+                it = json.loads(it)
+            except (ValueError, TypeError):
+                continue
+        if isinstance(it, dict):
+            out.append(it)
+    return out
+
+
+def stringify_scalars(mapping: Any) -> Any:
+    """把 dict 值中的数字/嵌套结构统一转字符串，供 List[Dict[str, str]] 类 schema 容错。"""
+    if not isinstance(mapping, dict):
+        return mapping
+    out = {}
+    for k, v in mapping.items():
+        if isinstance(v, str):
+            out[str(k)] = v
+        elif isinstance(v, (dict, list)):
+            out[str(k)] = json.dumps(v, ensure_ascii=False)
+        else:
+            out[str(k)] = str(v)
+    return out
 
 
 def extract_user_id(config: Optional[RunnableConfig]) -> Optional[UUID]:
