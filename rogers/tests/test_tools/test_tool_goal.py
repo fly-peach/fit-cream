@@ -8,7 +8,10 @@ record_baseline_tool / check_milestone_tool。验证知识层目录、路线图�
 import pytest
 from pydantic import ValidationError
 
-from src.agents.harness.tools.goal.goal_knowledge_tools import get_goal_knowledge_tool
+from src.agents.harness.tools.goal.goal_knowledge_tools import (
+    get_exercise_group_tool,
+    get_goal_knowledge_tool,
+)
 from src.agents.harness.tools.goal.roadmap_tools import (
     check_milestone_tool,
     create_roadmap_tool,
@@ -70,6 +73,38 @@ async def test_get_goal_knowledge_by_key(goal_seed, agent_config):
 
 async def test_get_goal_knowledge_bad_key(goal_seed, agent_config):
     res = await get_goal_knowledge_tool.ainvoke({"archetype_key": "不存在的原型"}, config=agent_config)
+    assert res["success"] is False
+
+
+async def test_get_exercise_group(goal_seed, db_session, agent_config):
+    from tests.util import create_exercise
+
+    created = {}
+    for name in ("杠铃卧推", "史密斯卧推", "引体向上", "腘绳肌拉伸"):
+        created[name] = await create_exercise(db_session, name=name)
+
+    res = await get_exercise_group_tool.ainvoke(
+        {"archetype_key": "lean_aesthetic"}, config=agent_config
+    )
+    assert res["success"] is True, res
+    assert res["archetype"]["key"] == "lean_aesthetic"
+    assert res["archetype"]["gender"] in ("male", "female")
+    assert res["target_exercise_goal"], "兜底达成指标不应为空"
+
+    groups = {g["group"]: g["exercises"] for g in res["exercise_groups"]}
+    assert "拉伸" in res["exercise_groups"][-1]["group"], "末组必须为拉伸"
+    # 动作名解析为动作库 ID；未入库的名字被跳过（容错不阻断）
+    chest_names = {e["name"] for e in groups.get("胸", [])}
+    assert chest_names == {"杠铃卧推", "史密斯卧推"}
+    assert groups["胸"][0]["id"] == str(created["杠铃卧推"].id)
+    stretch_names = {e["name"] for e in groups["拉伸"]}
+    assert stretch_names == {"腘绳肌拉伸"}
+
+
+async def test_get_exercise_group_bad_key(goal_seed, agent_config):
+    res = await get_exercise_group_tool.ainvoke(
+        {"archetype_key": "不存在的原型"}, config=agent_config
+    )
     assert res["success"] is False
 
 

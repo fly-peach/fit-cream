@@ -4,7 +4,7 @@
 覆盖：
 - create_roadmap 确定性校验逐条：结构（规则1）/ 词表与 op（规则6）/ 单调性（规则2）/
   增量速率上限（规则3）/ 体脂安全下限（规则4）/ 末关目标比对 warning（规则5）
-- seed loader 幂等（表非空时跳过）
+- seed loader：原型按 (key,gender) upsert、其余表仅空表插入
 - create_plan_tool milestone_id 透传（mock db 与 PlanService）
 """
 import os
@@ -83,9 +83,13 @@ class FakeDB:
         self.standards = standards or []
         self.progress = progress or []
         self.added = []
+        self.upserts = []
 
     async def execute(self, query):
         q = str(query)
+        if "ON CONFLICT" in q and "goal_archetypes" in q:
+            self.upserts.append(q)
+            return _FakeScalarResult([])
         if "goal_roadmaps" in q:
             return _FakeScalarResult(self.active_roadmaps)
         if "progress_rates" in q:
@@ -97,7 +101,7 @@ class FakeDB:
         if "health_metrics" in q:
             return _FakeSingleResult(self.health)
         if "goal_archetypes" in q:
-            return _FakeSingleResult(self.archetype)
+            return _FakeScalarResult([self.archetype] if self.archetype is not None else [])
         if "strength_standards" in q:
             return _FakeScalarResult(self.standards)
         raise AssertionError(f"Unexpected query: {q}")
@@ -151,13 +155,13 @@ def _beginner_db(**kw):
         health=HealthMetric(user_id=uuid4(), measure_date=date(2026, 8, 1), body_fat_pct=20, weight_kg=70),
         archetype=GoalArchetype(
             key="lean_aesthetic",
+            gender="male",
             name="薄肌",
-            target_metrics={
-                "male": [
-                    {"metric": "bench_ratio", "min": 0.9, "max": 1.1},
-                    {"metric": "body_fat_pct", "min": 10, "max": 14},
-                ]
-            },
+            target_metrics=[
+                {"metric": "bench_ratio", "min": 0.9, "max": 1.1, "core": True},
+                {"metric": "body_fat_pct", "min": 10, "max": 14, "core": True},
+                {"metric": "visceral_fat_level", "max": 5, "core": False},
+            ],
         ),
     )
     defaults.update(kw)
@@ -344,10 +348,12 @@ class TestFinalTargetWarning:
         )
         warnings = getattr(roadmap, "_warnings", None) or []
         assert not any("缺少核心指标" in w for w in warnings)
+        # display-only（core=false）指标不参与末关比对，不应产生 warning
+        assert not any("visceral_fat_level" in w for w in warnings)
 
 
 class TestSeedIdempotency:
-    async def test_skips_when_tables_nonempty(self):
+    async def test_archetypes_upserted_others_skipped_when_nonempty(self):
         db = FakeDB(
             archetype=object(),
             standards=[object()],
@@ -357,19 +363,20 @@ class TestSeedIdempotency:
         from src.fitme.services.goal_knowledge_seed import seed_goal_knowledge
 
         await seed_goal_knowledge(db)
-        assert db.added == [], "表非空时不应插入任何种子"
+        # v2：原型每次启动按 (key,gender) upsert（种子为唯一真源），其余表非空跳过
+        assert len(db.upserts) == 11
+        assert db.added == [], "非空表不应再 ORM 插入标准/速率/安全限值"
 
     async def test_inserts_when_empty(self):
         db = FakeDB()
         from src.fitme.services.goal_knowledge_seed import seed_goal_knowledge
 
         await seed_goal_knowledge(db)
-        # 6 原型 + 40 力量标准 + 18 速率 + 4 安全限值
-        archetype_rows = [o for o in db.added if isinstance(o, GoalArchetype)]
+        # 11 原型 upsert + 40 力量标准 + 18 速率 + 4 安全限值
         standard_rows = [o for o in db.added if isinstance(o, StrengthStandard)]
         rate_rows = [o for o in db.added if isinstance(o, ProgressRate)]
         limit_rows = [o for o in db.added if isinstance(o, GoalSafetyLimit)]
-        assert len(archetype_rows) == 6
+        assert len(db.upserts) == 11
         assert len(standard_rows) == 40
         assert len(rate_rows) == 18
         assert len(limit_rows) == 4

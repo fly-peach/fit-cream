@@ -79,6 +79,7 @@ FITME_OPERATIONS = [
     "get_goal_roadmap",
     "check_goal_roadmap",
     "get_goal_knowledge",
+    "list_goal_exercise_groups",
     # exercises（仅读，写端点为 curated 数据不暴露）
     "list_exercises",
     "get_exercise",

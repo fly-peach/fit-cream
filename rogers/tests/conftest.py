@@ -68,6 +68,7 @@ from app.database import (  # noqa: E402
     _add_missing_columns,
     _relax_not_null_columns,
     _ensure_custom_food_fk_sets_null,
+    _ensure_goal_archetypes_v2,
 )
 from app.main import app as fastapi_app  # noqa: E402
 
@@ -146,6 +147,12 @@ async def _create_schema_and_tables() -> None:
                 pass
             try:
                 await conn.run_sync(lambda sc: _ensure_custom_food_fk_sets_null(sc))
+            except Exception:
+                pass
+            # goal_archetypes 遗留表可能是 v1 结构（stage_hint jsonb / key 单列唯一），
+            # 补列不改列类型，需按 v2 收敛（与 DEBUG init_db 同口径）
+            try:
+                await conn.run_sync(lambda sc: _ensure_goal_archetypes_v2(sc))
             except Exception:
                 pass
     finally:

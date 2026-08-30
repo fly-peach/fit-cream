@@ -11,7 +11,8 @@ create_roadmap 校验规则（1.3.1）：
 3. 每关每指标增量上限 = progress_rates.monthly_max × (expected_weeks/4.33) × 1.3（容差系数）；
    body_fat_pct 用负向 min 计算；超出即拒绝并回传违规项清单。
 4. body_fat_pct 值 ≥ 安全下限（male 8 / female 16，读 goal_safety_limits）。
-5. 末关与原型 target_metrics 比对：缺核心指标或偏离超 15% → 不阻断，带 warnings。
+5. 末关与原型 target_metrics（core=true 项，按 (key,gender) 取行）比对：
+   缺核心指标或偏离超 15% → 不阻断，带 warnings。
 6. 指标 key 必须在统一词表内；op 只允许 >= / <=。
 """
 import logging
@@ -71,30 +72,120 @@ class GoalKnowledgeService:
     """知识层查询"""
 
     @staticmethod
+    def _norm_gender(raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        v = str(raw).strip().lower()
+        if v in ("male", "m", "男"):
+            return "male"
+        if v in ("female", "f", "女"):
+            return "female"
+        return None
+
+    @staticmethod
+    async def _archetype_rows(
+        db: AsyncSession, gender: Optional[str] = None
+    ) -> List[GoalArchetype]:
+        """active 原型行，按 display_order + key 排序；gender 给定时仅返回该性别行。"""
+        q = select(GoalArchetype).where(GoalArchetype.is_active.is_(True))
+        norm = GoalKnowledgeService._norm_gender(gender)
+        if norm:
+            q = q.where(GoalArchetype.gender == norm)
+        q = q.order_by(GoalArchetype.display_order, GoalArchetype.key, GoalArchetype.gender)
+        return list((await db.execute(q)).scalars().all())
+
+    @staticmethod
+    def _archetype_dict(a: GoalArchetype) -> dict:
+        return {
+            "key": a.key,
+            "gender": a.gender,
+            "name": a.name,
+            "tagline": a.tagline,
+            "description": a.description,
+            "image": a.image,
+            "target_metrics": a.target_metrics,
+            "target_exercise_goal": a.target_exercise_goal,
+            "target_exercises": a.target_exercises,
+            "training_bias": a.training_bias,
+            "diet_bias": a.diet_bias,
+            "stage_hint": a.stage_hint,
+            "stage_narrative_hint": a.stage_narrative_hint,
+            "display_order": a.display_order,
+        }
+
+    @staticmethod
     async def get_archetypes(db: AsyncSession, gender: Optional[str]) -> list:
-        """原型目录：按 display_order 排序；female_only 原型对 male 用户不返回。"""
-        q = select(GoalArchetype).where(GoalArchetype.is_active.is_(True)).order_by(
-            GoalArchetype.display_order
-        )
-        rows = (await db.execute(q)).scalars().all()
+        """原型目录（v2 扁平行）：按 display_order 排序；gender 给定时仅返回该性别原型。"""
+        rows = await GoalKnowledgeService._archetype_rows(db, gender)
+        return [GoalKnowledgeService._archetype_dict(a) for a in rows]
+
+    @staticmethod
+    async def get_exercise_groups(db: AsyncSession, gender: Optional[str]) -> list:
+        """动作组卡片数据：原型行 + target_exercises 名称解析为动作摘要（含 id）。
+
+        名称为动作库中文名的软引用；未命中的名称跳过并记 warning（不阻断卡片）。
+        """
+        from src.fitme.models.exercise import Exercise
+
+        rows = await GoalKnowledgeService._archetype_rows(db, gender)
+
+        all_names = {
+            name
+            for a in rows
+            for grp in (a.target_exercises or [])
+            for name in (grp.get("exercises") or [])
+        }
+        by_name: Dict[str, dict] = {}
+        if all_names:
+            res = await db.execute(
+                select(
+                    Exercise.id,
+                    Exercise.name,
+                    Exercise.name_en,
+                    Exercise.image,
+                    Exercise.gif_url,
+                    Exercise.muscle_group,
+                    Exercise.equipment,
+                    Exercise.equipment_zh,
+                    Exercise.difficulty,
+                ).where(Exercise.name.in_(all_names)).order_by(Exercise.id)
+            )
+            for eid, name, name_en, image, gif_url, mg, eq, eq_zh, diff in res.all():
+                # 同名多行取 id 最小的一条（order_by 保证确定性）
+                if name not in by_name:
+                    by_name[name] = {
+                        "id": str(eid),
+                        "name": name,
+                        "name_en": name_en,
+                        "image": image,
+                        "gif_url": gif_url,
+                        "muscle_group": mg,
+                        "equipment": eq,
+                        "equipment_zh": eq_zh,
+                        "difficulty": diff,
+                    }
+
         result = []
         for a in rows:
-            if gender and gender.lower() in ("male", "m", "男") and a.female_only:
-                continue
-            result.append(
-                {
-                    "key": a.key,
-                    "name": a.name,
-                    "tagline": a.tagline,
-                    "description": a.description,
-                    "female_only": a.female_only,
-                    "target_metrics": a.target_metrics,
-                    "training_bias": a.training_bias,
-                    "diet_bias": a.diet_bias,
-                    "stage_hint": a.stage_hint,
-                    "stage_narrative_hint": a.stage_narrative_hint,
-                }
-            )
+            groups = []
+            for grp in (a.target_exercises or []):
+                items = []
+                for name in (grp.get("exercises") or []):
+                    ex = by_name.get(name)
+                    if ex is None:
+                        logger.warning(
+                            "动作组「%s/%s」引用动作未命中动作库：%s",
+                            a.key,
+                            a.gender,
+                            name,
+                        )
+                        continue
+                    items.append(ex)
+                if items:
+                    groups.append({"group": grp.get("group"), "exercises": items})
+            d = GoalKnowledgeService._archetype_dict(a)
+            d["exercise_groups"] = groups
+            result.append(d)
         return result
 
     @staticmethod
@@ -348,17 +439,27 @@ class GoalRoadmapService:
         gender: str,
         user_id: UUID,
     ) -> List[str]:
-        """规则 5：末关与原型 target_metrics 比对 → warnings（不阻断）。"""
+        """规则 5：末关与原型 target_metrics（core 项）比对 → warnings（不阻断）。"""
         warnings: List[str] = []
+        norm_gender = GoalKnowledgeService._norm_gender(gender)
+        if not norm_gender:
+            return warnings
         arch = (
             await db.execute(
-                select(GoalArchetype).where(GoalArchetype.key == data.archetype_key)
+                select(GoalArchetype).where(
+                    GoalArchetype.key == data.archetype_key,
+                    GoalArchetype.gender == norm_gender,
+                )
             )
         ).scalar_one_or_none()
         if arch is None:
             warnings.append(f"原型「{data.archetype_key}」不在知识库中，跳过末关比对")
             return warnings
-        targets = (arch.target_metrics or {}).get(gender, [])
+        targets = [
+            t
+            for t in (arch.target_metrics or [])
+            if t.get("metric") in METRIC_KEYS and t.get("core", True)
+        ]
         if not targets:
             return warnings
 

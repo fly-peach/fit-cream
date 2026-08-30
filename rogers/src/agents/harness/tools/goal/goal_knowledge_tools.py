@@ -81,7 +81,8 @@ async def get_goal_knowledge_tool(
     - 用户想调整目标时：重新取原型区间做比对
 
     返回内容：
-    - archetypes: 按用户性别过滤的原型目录（含 target_metrics / stage_hint / 分性别叙事）
+    - archetypes: 按用户性别取行的原型目录（扁平 target_metrics / stage_hint /
+      stage_narrative_hint / target_exercise_goal / target_exercises / image）
     - strength_standards: 按用户体重换算的各档 kg 值，有实测的动作标注当前档位
     - progress_rates: 对应经验层级的月度可持续变化区间（kg/月、%/月）
     - safety_limits: 安全限值（体脂下限、月度体重变化上限、单关增量硬上限）
@@ -130,6 +131,86 @@ async def get_goal_knowledge_tool(
                 "safety_limits": safety,
                 "latest_tests": tests,
                 "note": "以上为人群参考值（公开力量标准与训练科学常用启发式），用于参考，非承诺。",
+            }
+    except Exception as e:
+        return error_response(e)
+
+
+class GetExerciseGroupInput(BaseModel):
+    """获取身材原型的推荐动作组"""
+
+    archetype_key: str = Field(
+        description=(
+            "原型 key（lean_aesthetic / v_taper / strength_power / "
+            "muscular_mass / healthy_balanced / toned_curves）"
+        )
+    )
+
+
+@tool(args_schema=GetExerciseGroupInput)
+async def get_exercise_group_tool(
+    archetype_key: str,
+    config: "RunnableConfig" = None,  # type: ignore[assignment]
+) -> dict:
+    """
+    获取身材原型的推荐动作组（按用户性别取行）：分组动作清单（含 exercise_id）+ 达成兜底指标。
+
+    使用场景：
+    - 为用户选定的身材目标生成训练计划时：按动作组（胸/背/肩/腿/核心…）取动作 ID 编排每日计划
+    - 每次生成/修改计划都必须保留末组「拉伸」环节（收尾拉伸为硬性要求）
+    - target_exercise_goal 为达成效果的兜底参考指标（人群参考值，非承诺），
+      可用于向用户说明预期，不参与关卡出口计算
+
+    返回内容：
+    - archetype: 原型信息（key/name/tagline/description/image/stage_hint/target_metrics）
+    - exercise_groups: [{group, exercises: [{id, name, name_en, muscle_group,
+      equipment, difficulty}]}]
+    - target_exercise_goal: 达成兜底指标清单（display 为人读文案）
+
+    本工具只读，不落库、不中断。
+    """
+    user_id = extract_user_id(config)
+    if not user_id:
+        return {"success": False, "error": "缺少用户身份信息"}
+
+    try:
+        async with session_scope() as db:
+            body = await UserService.get_body_summary(db, user_id)
+            gender = _norm_gender(body.get("gender"))
+
+            groups = await GoalKnowledgeService.get_exercise_groups(db, gender)
+            matched = [g for g in groups if g["key"] == archetype_key]
+            if not matched:
+                return {
+                    "success": False,
+                    "error": f"原型「{archetype_key}」不存在或不适用于当前用户性别",
+                }
+            arch = matched[0]
+            return {
+                "success": True,
+                "gender": gender,
+                "archetype": {
+                    k: arch.get(k)
+                    for k in (
+                        "key",
+                        "gender",
+                        "name",
+                        "tagline",
+                        "description",
+                        "image",
+                        "training_bias",
+                        "diet_bias",
+                        "stage_hint",
+                        "stage_narrative_hint",
+                        "target_metrics",
+                    )
+                },
+                "exercise_groups": arch.get("exercise_groups", []),
+                "target_exercise_goal": arch.get("target_exercise_goal", []),
+                "note": (
+                    "推荐动作组为该身材的安全入门配置；编排计划时可在此基础上按用户"
+                    "水平增减，末组「拉伸」必须保留。"
+                ),
             }
     except Exception as e:
         return error_response(e)

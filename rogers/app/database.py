@@ -10,7 +10,7 @@
 import logging
 from typing import AsyncGenerator
 
-from sqlalchemy import inspect, text
+from sqlalchemy import String, inspect, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -193,6 +193,53 @@ def _ensure_custom_food_fk_sets_null(sync_conn, logger_=None) -> list[str]:
     return changed
 
 
+_GOAL_ARCHETYPE_V2_DDL = (
+    "ALTER TABLE goal_archetypes"
+    " ADD COLUMN IF NOT EXISTS gender VARCHAR(10) NOT NULL DEFAULT 'male',"
+    " ADD COLUMN IF NOT EXISTS image VARCHAR(300),"
+    " ADD COLUMN IF NOT EXISTS target_exercises"
+    " JSONB NOT NULL DEFAULT '[]'::jsonb,"
+    " ADD COLUMN IF NOT EXISTS target_exercise_goal"
+    " JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "DELETE FROM goal_archetypes",
+    "ALTER TABLE goal_archetypes"
+    " ALTER COLUMN stage_hint TYPE VARCHAR(50) USING stage_hint::text,"
+    " ALTER COLUMN stage_narrative_hint TYPE TEXT"
+    " USING stage_narrative_hint::text",
+    "ALTER TABLE goal_archetypes DROP COLUMN IF EXISTS female_only",
+    "ALTER TABLE goal_archetypes"
+    " DROP CONSTRAINT IF EXISTS goal_archetypes_key_key",
+    "ALTER TABLE goal_archetypes"
+    " DROP CONSTRAINT IF EXISTS uq_goal_archetypes_key_gender",
+    "ALTER TABLE goal_archetypes"
+    " ADD CONSTRAINT uq_goal_archetypes_key_gender UNIQUE (key, gender)",
+)
+
+
+def _ensure_goal_archetypes_v2(sync_conn, logger_=None) -> bool:
+    """把 goal_archetypes 存量表收敛到 v2 结构（一行=(key,gender)，幂等）。
+
+    与 scripts/migrations/2026-08-30_goal_archetype_v2.sql 对齐：补列 -> 清行
+    （种子重灌，JSON 为唯一真源）-> stage 列类型收敛 -> 下线 female_only 与
+    key 单列唯一约束 -> 建 (key,gender) 唯一约束。仅当检测到旧结构时执行；
+    新库由 create_all 直接建出 v2 结构，无需处理。
+    init_db（DEBUG）与测试 conftest 共用本函数；生产走迁移 SQL。
+    """
+    if "goal_archetypes" not in set(inspect(sync_conn).get_table_names()):
+        return False
+    cols = {c["name"]: c["type"] for c in inspect(sync_conn).get_columns("goal_archetypes")}
+    needs_migration = (
+        "gender" not in cols
+        or "female_only" in cols
+        or not isinstance(cols.get("stage_hint"), String)
+    )
+    if not needs_migration:
+        return False
+    for sql in _GOAL_ARCHETYPE_V2_DDL:
+        sync_conn.execute(text(sql))
+    return True
+
+
 def _ensure_enum_check_constraints(sync_conn, logger_=None) -> list[str]:
     """为枚举字符串列补 CHECK 约束（幂等，单条失败仅告警不中断）。
 
@@ -300,7 +347,14 @@ async def init_db() -> None:
             lambda sc: _ensure_custom_food_fk_sets_null(sc, logger)
         )
         if fk_changed:
-            logger.info(f"数据库自定义食物外键重建为 SET NULL: {', '.join(fk_changed)}")
+            logger.info("数据库自定义食物外键重建为 SET NULL: %s", ", ".join(fk_changed))
+
+        # goal_archetypes v2 结构收敛（幂等，仅检测到旧结构时执行；与迁移 SQL 对齐）
+        migrated = await conn.run_sync(
+            lambda sc: _ensure_goal_archetypes_v2(sc, logger)
+        )
+        if migrated:
+            logger.info("goal_archetypes v2 结构收敛完成")
 
         # pg_trgm 扩展 + GIN trigram 索引：加速 exercises 的中文/英文 ilike 关键词搜索
         # CREATE EXTENSION 在托管 PG 上可能需 superuser 权限，失败时兜底降级为全表扫。

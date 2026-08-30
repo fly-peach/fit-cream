@@ -476,6 +476,7 @@ def _get_default_tools() -> list:
             update_plan_queue_item_tool,
         )
         from src.agents.harness.tools.goal.goal_knowledge_tools import (
+            get_exercise_group_tool,
             get_goal_knowledge_tool,
         )
         from src.agents.harness.tools.goal.roadmap_tools import (
@@ -496,6 +497,7 @@ def _get_default_tools() -> list:
             present_day_design_tool,
             update_plan_queue_item_tool,
             get_goal_knowledge_tool,
+            get_exercise_group_tool,
             present_roadmap_tool,
             create_roadmap_tool,
             get_roadmap_tool,

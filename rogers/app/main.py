@@ -176,6 +176,15 @@ if STATIC_DIR.exists():
             name="exercises-media",
         )
 
+    # 托管身材原型图（goal_archetypes.image，百炼 CLI 生成）
+    goals_media_dir = STATIC_DIR / "goals"
+    if goals_media_dir.exists():
+        app.mount(
+            "/static/goals",
+            StaticFiles(directory=str(goals_media_dir)),
+            name="goals-media",
+        )
+
     # Android App 下载：正确 Content-Type + attachment 文件名，避免浏览器下载被改名（apk.1）
     @app.get("/download-app")
     async def download_app():

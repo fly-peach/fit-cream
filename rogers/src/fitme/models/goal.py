@@ -40,23 +40,38 @@ from utils.uuid7 import uuid7
 
 
 class GoalArchetype(Base):
+    """身材原型库（v2）：一行 = 一个 (key, gender) 组合，指标/叙事扁平化。"""
+
     __tablename__ = "goal_archetypes"
 
     id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), primary_key=True, default=uuid7
     )
-    key: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    key: Mapped[str] = mapped_column(String(50), nullable=False)
+    gender: Mapped[str] = mapped_column(String(10), nullable=False)  # male / female
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     tagline: Mapped[Optional[str]] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
-    female_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    target_metrics: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {"male": [...], "female": [...]}
+    image: Mapped[Optional[str]] = mapped_column(String(300))  # /static/goals/<key>_<gender>.png
+    target_metrics: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list
+    )  # [{metric,min,max,core}]；core=true 参与末关比对
+    target_exercise_goal: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list
+    )  # [{metric,display}] 达成兜底指标（人群参考，非承诺）
+    target_exercises: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list
+    )  # [{group,exercises[]}]，末组固定「拉伸」
     training_bias: Mapped[Optional[str]] = mapped_column(String(50))
     diet_bias: Mapped[Optional[str]] = mapped_column(String(50))
-    stage_hint: Mapped[Optional[dict]] = mapped_column(JSONB)
-    stage_narrative_hint: Mapped[Optional[dict]] = mapped_column(JSONB)  # {"male": "...", "female": "..."}
+    stage_hint: Mapped[Optional[str]] = mapped_column(String(50))
+    stage_narrative_hint: Mapped[Optional[str]] = mapped_column(Text)
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    __table_args__ = (
+        UniqueConstraint("key", "gender", name="uq_goal_archetypes_key_gender"),
+    )
 
 
 class StrengthStandard(Base):
