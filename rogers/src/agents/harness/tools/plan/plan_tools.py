@@ -9,10 +9,15 @@ from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
-from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
+from src.agents.harness.tools._common import (
+    coerce_json_list,
+    error_response,
+    extract_user_id,
+    session_scope,
+)
 from src.fitme.models.exercise import Exercise
 from src.fitme.schemas.diet_plan import DietDayCreate, DietPlanCreate
 from src.fitme.schemas.plan import (
@@ -161,6 +166,14 @@ class CreatePlanInput(BaseModel):
         default=None,
         description="关联闯关关卡 ID（goal_milestones.id），有 active 路线图时传当前关",
     )
+
+    @field_validator("days", mode="before")
+    @classmethod
+    def _lenient_days(cls, v):
+        # qwen 常把嵌套数组字符串化（days='[...]'），严格校验炸整个调用；
+        # 与 PresentOutlineInput.days 同款容错（coerce_json_list 失败返回 None，
+        # 自动降级为未传 days 走模板生成）。
+        return coerce_json_list(v)
 
 
 @tool(args_schema=CreatePlanInput)
@@ -318,6 +331,13 @@ class CreateDietPlanInput(BaseModel):
             "未提供时走后端模板生成（向后兼容）。"
         ),
     )
+
+    @field_validator("days", mode="before")
+    @classmethod
+    def _lenient_days(cls, v):
+        # qwen 常把嵌套数组字符串化（days='[...]'），严格校验炸整个调用；
+        # 与 CreatePlanInput.days 同款容错，失败自动降级走模板生成。
+        return coerce_json_list(v)
 
 
 @tool(args_schema=CreateDietPlanInput)

@@ -10,11 +10,11 @@
 
 import { useState } from "react";
 import { CheckCircle2Icon, ClipboardListIcon } from "lucide-react";
+import { MessageResponse } from "@/components/ai-elements/message";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -31,6 +31,9 @@ const DAY_TYPE_LABELS: Record<string, string> = {
   rest: "休息",
 };
 
+/** 工具入参可能带字面量 \n（qwen 转义残留），统一还原为真实换行后再走 markdown 渲染 */
+const normalizeMd = (text?: string) => text?.replace(/\\r?\\n/g, "\n");
+
 interface OutlineCardProps {
   step: AgentStep;
   interactive: boolean;
@@ -42,6 +45,7 @@ export function OutlineCard({ step, interactive, onSubmit }: OutlineCardProps) {
   const days = Array.isArray(input.days)
     ? [...input.days].sort((a, b) => a.day_of_week - b.day_of_week)
     : [];
+  const strategy = normalizeMd(input.strategy);
   const [submitted, setSubmitted] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -73,46 +77,51 @@ export function OutlineCard({ step, interactive, onSubmit }: OutlineCardProps) {
         </span>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
+        <DialogContent
+          aria-describedby={undefined}
+          className="flex h-[70vh] flex-col gap-3 sm:max-w-md"
+        >
+          <DialogHeader className="shrink-0">
             <DialogTitle>{input.title || "训练大纲"}</DialogTitle>
-            {input.strategy ? (
-              <DialogDescription className="leading-relaxed">
-                {input.strategy}
-              </DialogDescription>
-            ) : null}
           </DialogHeader>
-          <div className="overflow-x-auto rounded-lg border border-emerald-200">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-emerald-100 bg-emerald-50/30 text-left text-emerald-800/70">
-                  <th className="px-3 py-1.5 font-medium">星期</th>
-                  <th className="px-3 py-1.5 font-medium">训练重点</th>
-                  <th className="px-3 py-1.5 font-medium">类型</th>
-                  {days.some((d) => d.note) ? (
-                    <th className="px-3 py-1.5 font-medium">备注</th>
-                  ) : null}
-                </tr>
-              </thead>
-              <tbody>
-                {days.map((d, i) => (
-                  <tr key={i} className="border-b border-emerald-50 last:border-0">
-                    <td className="px-3 py-1.5 text-emerald-900">
-                      {WEEKDAYS[d.day_of_week - 1]}
-                    </td>
-                    <td className="px-3 py-1.5 text-emerald-900">{d.focus}</td>
-                    <td className="px-3 py-1.5 text-muted-foreground">
-                      {DAY_TYPE_LABELS[d.day_type] || d.day_type}
-                    </td>
-                    {days.some((x) => x.note) ? (
-                      <td className="px-3 py-1.5 text-[11px] text-muted-foreground/70">
-                        {d.note || ""}
-                      </td>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {strategy ? (
+              <div className="text-sm leading-relaxed">
+                <MessageResponse>{strategy}</MessageResponse>
+              </div>
+            ) : null}
+            <div className="overflow-x-auto rounded-lg border border-emerald-200">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-emerald-100 bg-emerald-50/30 text-left text-emerald-800/70">
+                    <th className="px-3 py-1.5 font-medium">星期</th>
+                    <th className="px-3 py-1.5 font-medium">训练重点</th>
+                    <th className="px-3 py-1.5 font-medium">类型</th>
+                    {days.some((d) => d.note) ? (
+                      <th className="px-3 py-1.5 font-medium">备注</th>
                     ) : null}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {days.map((d, i) => (
+                    <tr key={i} className="border-b border-emerald-50 last:border-0">
+                      <td className="px-3 py-1.5 text-emerald-900">
+                        {WEEKDAYS[d.day_of_week - 1]}
+                      </td>
+                      <td className="px-3 py-1.5 text-emerald-900">{d.focus}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">
+                        {DAY_TYPE_LABELS[d.day_type] || d.day_type}
+                      </td>
+                      {days.some((x) => x.note) ? (
+                        <td className="px-3 py-1.5 text-[11px] text-muted-foreground/70">
+                          {d.note || ""}
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
           {interactive && (
             <DialogFooter>

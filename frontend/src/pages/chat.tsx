@@ -560,21 +560,25 @@ interface PlanChange {
   detail?: string;
 }
 
+/** 工具入参可能带字面量 \n（qwen 转义残留），统一还原为真实换行后再走 markdown 渲染 */
+const normalizeMd = (text?: string) => text?.replace(/\\r?\\n/g, "\n");
+
 /**
  * 计划提案正文：把动作库动作名替换为 /exercises/<id> 详情链接后按 markdown 渲染。
  * 映射异步加载，未就绪/失败时退回原始文本。
  */
 function PlanContentMarkdown({ markdown }: { markdown: string }) {
-  const [linked, setLinked] = useState(markdown);
+  const normalized = normalizeMd(markdown) ?? "";
+  const [linked, setLinked] = useState(normalized);
   useEffect(() => {
     let cancelled = false;
-    linkifyExerciseNames(markdown).then((text) => {
+    linkifyExerciseNames(normalized).then((text) => {
       if (!cancelled) setLinked(text);
     });
     return () => {
       cancelled = true;
     };
-  }, [markdown]);
+  }, [normalized]);
   return <MessageResponse>{linked}</MessageResponse>;
 }
 
@@ -606,6 +610,7 @@ function PlanCard({
   };
   const streaming = step.status === "running";
   const changes = Array.isArray(input.changes) ? input.changes : [];
+  const description = normalizeMd(input.description);
   const [submitted, setSubmitted] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -651,16 +656,19 @@ function PlanCard({
         </span>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-2xl">
-          <DialogHeader>
+        <DialogContent
+          aria-describedby={undefined}
+          className="flex h-[70vh] flex-col gap-3 sm:max-w-2xl"
+        >
+          <DialogHeader className="shrink-0">
             <DialogTitle>{input.title || "计划提案"}</DialogTitle>
-            {input.description ? (
-              <DialogDescription className="leading-relaxed">
-                {input.description}
-              </DialogDescription>
-            ) : null}
           </DialogHeader>
-          <div className="space-y-3 overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            {description ? (
+              <div className="text-sm leading-relaxed">
+                <MessageResponse>{description}</MessageResponse>
+              </div>
+            ) : null}
             {changes.length > 0 && (
               <div className="overflow-x-auto rounded-lg border border-emerald-200">
                 <div className="border-b border-emerald-100 bg-emerald-50/60 px-3 py-2 text-xs font-semibold text-emerald-900">
