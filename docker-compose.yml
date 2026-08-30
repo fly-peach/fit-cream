@@ -36,6 +36,8 @@ services:
       - appdata:/data
       # 动作库媒体(图片+GIF): 绑定挂载, 不进镜像, 更新无需重建容器
       - /opt/fitcream/rogers/static/exercises:/app/rogers/static/exercises:ro
+      # 身材原型图(goals): 同 exercises 模式, scp 同步即可, 无需重建镜像
+      - /opt/fitcream/rogers/static/goals:/app/rogers/static/goals:ro
     depends_on:
       db:
         condition: service_healthy
