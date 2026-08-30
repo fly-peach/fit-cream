@@ -24,6 +24,7 @@ import {
   Heart,
 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
+import { ExerciseTabs } from "@/components/exercise-tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -439,6 +440,8 @@ export default function ExercisesPage() {
               </button>
             </div>
           </header>
+
+          <ExerciseTabs />
 
           {/* 搜索栏 */}
           <div className="flex items-center gap-2">
