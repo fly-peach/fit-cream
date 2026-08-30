@@ -4,7 +4,7 @@
 按字段映射 + 推断规则转换为 Exercise 记录。
 
 幂等：仅当 `exercises` 表为空时才解析 JSON 并批量插入，避免每次启动重解析。
-一次性「替换+FK 重映射」由 `scripts/migrate_exercises_replace.py` 完成（非启动流程）。
+历史上一次性的「内置 39 条替换为 dataset + FK 重映射」迁移已于 2026-08 完成（脚本已随上线清理）。
 """
 import json
 import logging
