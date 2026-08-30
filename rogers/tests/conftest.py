@@ -61,8 +61,14 @@ test_session_factory = async_sessionmaker(
 )
 
 # 导入应用与模型（注册到 Base.metadata）
-import app.models  # noqa: E401,F401
-from app.database import Base, get_db  # noqa: E402
+import app.models  # noqa: E401,F401,E402
+from app.database import (  # noqa: E402
+    Base,
+    get_db,
+    _add_missing_columns,
+    _relax_not_null_columns,
+    _ensure_custom_food_fk_sets_null,
+)
 from app.main import app as fastapi_app  # noqa: E402
 
 from tests.util import auth_headers, create_exercise, create_user  # noqa: E402,F401
@@ -126,6 +132,21 @@ async def _create_schema_and_tables() -> None:
                 await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             except Exception:
                 # 业务角色通常无 superuser 权限；搜索走 ilike / 内置 tsvector，无扩展也可用
+                pass
+            # 模型演进后补齐测试 schema 既有表缺失的列 / 放宽 NOT NULL / 重建自定义食物外键
+            # （等价 init_db 的 DEBUG 便利；否则复用上次遗留的 fitcream_test 表会缺新列，
+            #  如 goal_milestones.training_focus 未同步导致工具落库 UndefinedColumnError）
+            try:
+                await conn.run_sync(lambda sc: _add_missing_columns(sc))
+            except Exception:
+                pass
+            try:
+                await conn.run_sync(lambda sc: _relax_not_null_columns(sc))
+            except Exception:
+                pass
+            try:
+                await conn.run_sync(lambda sc: _ensure_custom_food_fk_sets_null(sc))
+            except Exception:
                 pass
     finally:
         await setup_engine.dispose()

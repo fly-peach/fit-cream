@@ -847,16 +847,23 @@ async def update_exercise_tool(
 
     try:
         async with session_scope() as db:
+            # 只收集非 None 字段：全部字段（含 None）直接塞进 PlanExerciseUpdate，
+            # model_dump(exclude_unset=True) 排不掉，会把 sort_order 等未指定字段
+            # 置 NULL，触发 plan_day_exercises.sort_order NOT NULL 约束（与 更新健身画像
+            # 同一反模式，2026-08-30 工具测试暴露）。
+            field_values = {
+                "exercise_type": exercise_type,
+                "sets": sets,
+                "reps": reps,
+                "weight_kg": weight_kg,
+                "duration_min": duration_min,
+                "distance_km": distance_km,
+                "calories_per_min": calories_per_min,
+                "sort_order": sort_order,
+                "notes": notes,
+            }
             data = PlanExerciseUpdate(
-                exercise_type=exercise_type,
-                sets=sets,
-                reps=reps,
-                weight_kg=weight_kg,
-                duration_min=duration_min,
-                distance_km=distance_km,
-                calories_per_min=calories_per_min,
-                sort_order=sort_order,
-                notes=notes,
+                **{k: v for k, v in field_values.items() if v is not None}
             )
             await PlanService.update_exercise(db, UUID(exercise_id), user_id, data)
             return {
