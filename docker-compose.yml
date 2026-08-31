@@ -38,6 +38,8 @@ services:
       - /opt/fitcream/rogers/static/exercises:/app/rogers/static/exercises:ro
       # 身材原型图(goals): 同 exercises 模式, scp 同步即可, 无需重建镜像
       - /opt/fitcream/rogers/static/goals:/app/rogers/static/goals:ro
+      # Android APK: 单文件绑定挂载, 上传新包即生效（勿删源文件, 替换用 cp）
+      - /opt/fitcream/rogers/static/fitcream.apk:/app/rogers/static/fitcream.apk:ro
     depends_on:
       db:
         condition: service_healthy
