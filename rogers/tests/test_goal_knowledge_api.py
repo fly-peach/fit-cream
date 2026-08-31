@@ -46,7 +46,7 @@ async def test_goal_knowledge_groups(user_client, db_session, goal_seed):
     groups = data["groups"]
     assert groups, "应有动作组卡片"
     card = groups[0]
-    assert card["image"] == f"/static/goals/{card['key']}_{card['gender']}.png"
+    assert card["image"] == f"/static/goals/{card['key']}_{card['gender']}.webp"
     assert card["target_exercise_goal"], "兜底达成指标不应为空"
     assert card["exercise_groups"][-1]["group"] == "拉伸", "末组必须为拉伸"
     resolved = [e for grp in card["exercise_groups"] for e in grp["exercises"]]

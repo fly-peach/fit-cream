@@ -52,7 +52,7 @@ class GoalArchetype(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     tagline: Mapped[Optional[str]] = mapped_column(String(200))
     description: Mapped[Optional[str]] = mapped_column(Text)
-    image: Mapped[Optional[str]] = mapped_column(String(300))  # /static/goals/<key>_<gender>.png
+    image: Mapped[Optional[str]] = mapped_column(String(300))  # /static/goals/<key>_<gender>.webp
     target_metrics: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list
     )  # [{metric,min,max,core}]；core=true 参与末关比对

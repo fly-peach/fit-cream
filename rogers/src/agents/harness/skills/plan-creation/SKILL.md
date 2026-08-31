@@ -294,7 +294,7 @@ todos:
 > 1. 每个 `DayExerciseDesign.exercise_id` **必须来自本流程中 `get_exercises_tool` 的返回结果**（`id` 字段），禁止凭空编造动作名或动作 ID。
 > 2. 每设计一个训练日，**必须先调 `get_exercises_tool` 拿候选**，从候选中挑选；不得跳过检索直接写动作。按当日 focus 传 `muscle_group`/`equipment`/`difficulty` 筛选，伤病场景用 `semantic_query`（如「不刺激膝盖的腿部动作」）。
 > 3. `custom_name` **仅当用户明确点名了动作库中不存在的动作/器械**时才使用，且必须在 `rationale`/`notes` 中注明；否则一律用 `exercise_id`。
-> 4. 用户已选定身材原型（有路线图/明确目标身材）时，先调 `get_exercise_group_tool(archetype_key=...)` 取该身材的推荐动作组作为候选底座（组内动作 ID 可直接使用）；**每个力量训练日必须以「拉伸」组中 1-2 个动作收尾**（练后拉伸为硬性要求，有氧日可豁免）。
+> 4. 用户已选定身材原型（有路线图/明确目标身材）时，先调 `get_exercise_group_tool(archetype_key=...)` 取该身材的推荐动作组作为候选底座（组内动作 ID 可直接使用）。**推荐动作组是基准而非硬性约束**：每肌群动作数量可按用户水平、器械条件与单次时长增删替换（替换动作仍须 `get_exercises_tool` 检索取 ID）；每个力量训练日安排 **4-6 个动作**（不含热身），且**必须以「拉伸」组中 1-2 个动作收尾**（练后拉伸为硬性要求，有氧日可豁免）；伤病或器械缺失时优先在同组内换更安全的器械版（史密斯/固定器械 > 自由重量）。
 
 1. update 标记 in_progress
 2. `get_exercises_tool(muscle_group=..., equipment=..., difficulty=..., semantic_query=...)` 检索候选

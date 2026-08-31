@@ -3,15 +3,17 @@
 ==================
 读取 rogers/seeds/goal_knowledge.json（v2 扁平行），按 key/name/tagline/description/
 gender + 体脂区间拼出提示词模板，调用阿里云百炼 CLI（bl image generate，token-plan
-profile）为每个 (key, gender) 生成一张身材展示图。
+profile）为每个 (key, gender) 生成一张身材展示图，并统一压缩为 720px 宽的 WebP
+（原图 1728px PNG 约 5MB/张，压缩后约 40KB/张，供前端卡片渲染）。
 
 用法:
   python scripts/generate_goal_images.py            # 只补缺失的图
   python scripts/generate_goal_images.py --force    # 全部重新生成
   python scripts/generate_goal_images.py --only lean_aesthetic_male v_taper_female
+  python scripts/generate_goal_images.py --compress # 仅压缩存量 PNG 为 WebP（不调模型）
 
 输出:
-  rogers/static/goals/<key>_<gender>.png
+  rogers/static/goals/<key>_<gender>.webp
 """
 
 import argparse
@@ -22,12 +24,18 @@ import sys
 import tempfile
 from pathlib import Path
 
+from PIL import Image
+
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 SEED_PATH = BASE_DIR / "rogers" / "seeds" / "goal_knowledge.json"
 OUT_DIR = BASE_DIR / "rogers" / "static" / "goals"
+
+# 卡片展示宽约 350px，2x DPR 取 720；WebP 质量 82 视觉无损
+TARGET_WIDTH = 720
+WEBP_QUALITY = 82
 
 # 原型视觉关键词（由 name/tagline/description 提炼，与体脂区间共同决定画面）
 ARCHETYPE_VISUAL = {
@@ -109,6 +117,17 @@ def bl_bin() -> str:
     raise SystemExit("未找到 bl CLI，请先安装 bailian-cli 并 bl auth login --config token-plan")
 
 
+def compress_to_webp(src: Path, dst: Path) -> None:
+    """缩放到 TARGET_WIDTH 并转 WebP（等比，LANCZOS）。"""
+    with Image.open(src) as im:
+        im = im.convert("RGB")
+        w, h = im.size
+        if w > TARGET_WIDTH:
+            im = im.resize((TARGET_WIDTH, round(h * TARGET_WIDTH / w)), Image.LANCZOS)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        im.save(dst, "WEBP", quality=WEBP_QUALITY, method=6)
+
+
 def generate(arch: dict, out_path: Path, bl: str) -> bool:
     prompt = build_prompt(arch)
     with tempfile.TemporaryDirectory() as tmp:
@@ -132,26 +151,44 @@ def generate(arch: dict, out_path: Path, bl: str) -> bool:
         if not produced:
             print(f"  失败: 未产出图片\n{res.stdout}")
             return False
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(produced[0], out_path)
-    print(f"  -> {out_path.relative_to(BASE_DIR)}")
+        compress_to_webp(produced[0], out_path)
+    print(f"  -> {out_path.relative_to(BASE_DIR)} ({out_path.stat().st_size // 1024}KB)")
     return True
+
+
+def compress_existing(data: dict) -> None:
+    """存量 PNG -> WebP 并删除原图（一次性迁移用）。"""
+    for arch in data["archetypes"]:
+        tag = f"{arch['key']}_{arch['gender']}"
+        png = OUT_DIR / f"{tag}.png"
+        webp = OUT_DIR / f"{tag}.webp"
+        if not png.exists():
+            continue
+        before = png.stat().st_size
+        compress_to_webp(png, webp)
+        png.unlink()
+        print(f"[webp] {tag}: {before // 1024}KB -> {webp.stat().st_size // 1024}KB")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--force", action="store_true", help="已存在的图也重新生成")
     parser.add_argument("--only", nargs="*", help="仅生成指定 <key>_<gender>")
+    parser.add_argument("--compress", action="store_true", help="仅把存量 PNG 压缩为 WebP")
     args = parser.parse_args()
 
     data = json.loads(SEED_PATH.read_text(encoding="utf-8"))
+    if args.compress:
+        compress_existing(data)
+        return
+
     bl = bl_bin()
     ok = fail = skip = 0
     for arch in data["archetypes"]:
         tag = f"{arch['key']}_{arch['gender']}"
         if args.only and tag not in args.only:
             continue
-        out_path = OUT_DIR / f"{tag}.png"
+        out_path = OUT_DIR / f"{tag}.webp"
         if out_path.exists() and not args.force:
             print(f"[skip] {tag}（已存在，--force 重生成）")
             skip += 1
