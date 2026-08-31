@@ -11,6 +11,7 @@ import DashboardPage from "@/pages/dashboard";
 import DocumentViewerPage from "@/pages/document-viewer";
 import ExercisesPage from "@/pages/exercises";
 import ExerciseGroupPage from "@/pages/exercise-group";
+import ExerciseGroupDetailPage from "@/pages/exercise-group-detail";
 import ExerciseDetailPage from "@/pages/exercise-detail";
 import KnowledgeBasesPage from "@/pages/knowledge-bases";
 import KnowledgeBaseDetailPage from "@/pages/knowledge-base-detail";
@@ -129,6 +130,14 @@ export function App() {
           element={
             <ProtectedRoute>
               <ExerciseGroupPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/exercises/exercise-group/:key"
+          element={
+            <ProtectedRoute>
+              <ExerciseGroupDetailPage />
             </ProtectedRoute>
           }
         />

@@ -1,141 +1,50 @@
 /**
  * 动作组页 /exercises/exercise-group
  *
- * 身材原型卡片网格（一行 3 个）：原型图 + 达成指标徽章 + 兜底目标 +
- * 推荐动作组（动作名跳 /exercises/:id，末组「拉伸」高亮）。
+ * 身材原型卡片网格（一行 3 个）：仅展示身材图 + 名称 + tagline，
+ * 点击进详情页 /exercises/exercise-group/:key（桌面 Web 新标签页）。
  * 数据来自 GET /goal-knowledge/groups（按当前用户性别取行）。
  */
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Loader2, Dumbbell, ImageIcon, Target, Flame, Salad } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, Dumbbell, ImageIcon } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { ExerciseTabs } from "@/components/exercise-tabs";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { resolveStaticUrl } from "@/lib/api-url";
-import { cn } from "@/lib/utils";
+import { openDetail } from "@/lib/nav";
 import { useLanguage } from "@/lib/language-context";
-import { formatGoalMetric, goalGroupLabel } from "@/lib/goal-labels";
 import type { GoalExerciseGroupCard, GoalGroupsResponse } from "@/types/goal";
 
 function GroupCard({ arch }: { arch: GoalExerciseGroupCard }) {
-  const { isZh } = useLanguage();
-  const coreMetrics = (arch.target_metrics ?? []).filter((m) => m.core !== false);
-  const displayMetrics = (arch.target_metrics ?? []).filter((m) => m.core === false);
-
+  const navigate = useNavigate();
   return (
-    <Card className="group flex h-full flex-col overflow-hidden border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-md">
-      <CardContent className="flex flex-1 flex-col gap-2 p-2">
+    <Card
+      onClick={() => openDetail(navigate, `/exercises/exercise-group/${arch.key}`)}
+      className="group flex h-full cursor-pointer flex-col overflow-hidden border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-md"
+    >
+      <CardContent className="flex flex-1 flex-col gap-1.5 p-2">
         <div className="relative aspect-[3/4] w-full overflow-hidden rounded-lg bg-emerald-50">
           {arch.image ? (
             <img
               src={resolveStaticUrl(arch.image)}
               alt={arch.name}
               loading="lazy"
-              className="absolute inset-0 size-full object-cover"
+              className="absolute inset-0 size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             />
           ) : (
             <div className="flex size-full items-center justify-center text-emerald-200">
               <ImageIcon className="size-8" />
             </div>
           )}
-          {arch.stage_hint && (
-            <Badge className="absolute left-1.5 top-1.5 border-0 bg-black/45 text-[10px] text-white backdrop-blur-sm">
-              {arch.stage_hint}
-            </Badge>
-          )}
         </div>
-
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-emerald-950">{arch.name}</h3>
           {arch.tagline && (
             <p className="line-clamp-1 text-xs text-emerald-600/70">{arch.tagline}</p>
           )}
         </div>
-
-        <div className="flex flex-wrap gap-1">
-          {coreMetrics.slice(0, 4).map((m) => (
-            <Badge
-              key={m.metric}
-              variant="outline"
-              className="border-emerald-200 bg-emerald-50/60 text-[10px] text-emerald-700"
-            >
-              {formatGoalMetric(m, isZh)}
-            </Badge>
-          ))}
-          {displayMetrics.length > 0 && (
-            <Badge
-              variant="outline"
-              className="border-sky-200 bg-sky-50/60 text-[10px] text-sky-600"
-              title={displayMetrics.map((m) => formatGoalMetric(m, isZh)).join(" · ")}
-            >
-              +{displayMetrics.length} {isZh ? "体成分" : "body comp."}
-            </Badge>
-          )}
-        </div>
-
-        {(arch.target_exercise_goal ?? []).length > 0 && (
-          <ul className="space-y-0.5">
-            {arch.target_exercise_goal.slice(0, 3).map((g) => (
-              <li
-                key={g.metric + g.display}
-                className="flex items-start gap-1 text-[11px] leading-snug text-emerald-800/80"
-              >
-                <Target className="mt-0.5 size-3 shrink-0 text-emerald-400" />
-                <span className="line-clamp-1">{g.display}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="mt-auto space-y-1 border-t border-emerald-50 pt-1.5">
-          {(arch.exercise_groups ?? []).map((grp) => {
-            const isStretch = grp.group === "拉伸";
-            return (
-              <div key={grp.group ?? "misc"} className="flex items-start gap-1.5">
-                <span
-                  className={cn(
-                    "mt-0.5 shrink-0 rounded px-1 py-px text-[10px] font-semibold",
-                    isStretch
-                      ? "bg-violet-100 text-violet-600"
-                      : "bg-emerald-100 text-emerald-600",
-                  )}
-                >
-                  {goalGroupLabel(grp.group, isZh)}
-                </span>
-                <div className="flex min-w-0 flex-wrap gap-x-1.5 text-[11px] leading-snug">
-                  {grp.exercises.map((ex) => (
-                    <Link
-                      key={ex.id}
-                      to={`/exercises/${ex.id}`}
-                      className="truncate text-emerald-700/80 underline-offset-2 hover:text-emerald-500 hover:underline"
-                    >
-                      {isZh ? ex.name : (ex.name_en || ex.name)}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {(arch.training_bias || arch.diet_bias) && (
-          <div className="flex flex-wrap gap-1">
-            {arch.training_bias && (
-              <span className="flex items-center gap-1 text-[10px] text-orange-600/80">
-                <Flame className="size-3" />
-                {arch.training_bias}
-              </span>
-            )}
-            {arch.diet_bias && (
-              <span className="flex items-center gap-1 text-[10px] text-lime-700/80">
-                <Salad className="size-3" />
-                {arch.diet_bias}
-              </span>
-            )}
-          </div>
-        )}
       </CardContent>
     </Card>
   );

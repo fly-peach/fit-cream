@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api, exerciseFavApi } from "@/lib/api";
+import { openDetail } from "@/lib/nav";
 import { resolveStaticUrl } from "@/lib/api-url";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/lib/language-context";
@@ -142,7 +143,7 @@ function ExerciseCard({ ex, favorited, onToggleFav }: { ex: Exercise; favorited:
   const description = exerciseDescription(ex, isZh);
   return (
     <Card
-      onClick={() => navigate(`/exercises/${ex.id}`)}
+      onClick={() => openDetail(navigate, `/exercises/${ex.id}`)}
       className="group cursor-pointer overflow-hidden border-emerald-100 bg-white/80 transition-all hover:border-emerald-300 hover:shadow-md"
     >
       <CardContent className="flex flex-col gap-2 p-2">
