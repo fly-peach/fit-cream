@@ -5,8 +5,8 @@
 虎皮椒 POST 回调 notify_url → 验签后发放额度（付款后才到账，无人工核销）。
 
 签名算法（下单与回调一致）：
-  1. 取除 hash 外的所有参数
-  2. 按 key 字典序排序，拼接 key1=value1key2=value2... 的字符串
+  1. 取除 hash 外的所有参数（空值参数不参与）
+  2. 按 key 字典序排序，以 & 连接为 key1=value1&key2=value2... 的字符串
   3. 末尾拼接 appsecret，整体 md5 小写 = hash
 
 回调约定：服务器返回纯文本 `success` 表示收到，否则虎皮椒会重试 6 次。
@@ -26,9 +26,11 @@ _XUNHUPAY_DEFAULT_API = "https://api.xunhupay.com/payment/do.html"
 
 
 def sign_params(params: dict[str, Any], appsecret: str) -> str:
-    """虎皮椒签名（参数按键排序拼接 + appsecret，md5 小写）。"""
-    keys = sorted(k for k in params.keys() if k != "hash")
-    raw = "".join(f"{k}={params[k]}" for k in keys) + appsecret
+    """虎皮椒签名（非空参数按 key 排序以 & 拼接 + appsecret，md5 小写）。"""
+    keys = sorted(
+        k for k in params.keys() if k != "hash" and str(params[k]) != ""
+    )
+    raw = "&".join(f"{k}={params[k]}" for k in keys) + appsecret
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 

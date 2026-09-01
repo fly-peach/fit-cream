@@ -285,12 +285,12 @@ async def test_backfill_registration_bonus_existing_users(db_session, user):
 
 
 def test_xunhupay_sign():
-    """签名算法：参数按键排序拼接 + appsecret，md5 小写。"""
+    """签名算法：非空参数按键排序以 & 拼接 + appsecret，md5 小写。"""
     import hashlib
 
-    params = {"appid": "app-1", "trade_order_id": "RC1", "time": "12345"}
+    params = {"appid": "app-1", "trade_order_id": "RC1", "time": "12345", "attach": ""}
     sig = sign_params(params, "secret")
-    raw = "appid=app-1time=12345trade_order_id=RC1secret"
+    raw = "appid=app-1&time=12345&trade_order_id=RC1secret"
     assert sig == hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
