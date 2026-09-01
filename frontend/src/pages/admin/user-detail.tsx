@@ -13,13 +13,18 @@ import {
   ClockIcon,
   GlobeIcon,
   CalendarIcon,
+  WalletIcon,
+  GiftIcon,
 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { adminApi, type AdminCheckin, type AdminUserDetail } from "@/lib/admin-api";
+import { adminApi, type AdminCheckin, type AdminUserDetail, type BillingAccount } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
+import { showError, showSuccess } from "@/lib/toast";
 
 const goalLabels: Record<string, string> = {
   lose_fat: "减脂",
@@ -54,17 +59,22 @@ export default function AdminUserDetailPage() {
   const { userId = "" } = useParams();
   const [user, setUser] = useState<AdminUserDetail | null>(null);
   const [checkins, setCheckins] = useState<AdminCheckin[]>([]);
+  const [billing, setBilling] = useState<BillingAccount | null>(null);
+  const [grantAmount, setGrantAmount] = useState("10");
+  const [grantBusy, setGrantBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     try {
-      const [u, c] = await Promise.all([
+      const [u, c, b] = await Promise.all([
         adminApi.getUser(userId),
         adminApi.listUserCheckins(userId, 10),
+        adminApi.getUserBilling(userId).catch(() => null),
       ]);
       setUser(u);
       setCheckins(c);
+      setBilling(b);
       setError("");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "加载失败");
@@ -76,6 +86,24 @@ export default function AdminUserDetailPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const grant = async () => {
+    const amt = Number(grantAmount);
+    if (!amt || amt <= 0) {
+      showError("请输入有效的加量金额");
+      return;
+    }
+    setGrantBusy(true);
+    try {
+      const b = await adminApi.grantUserBilling(userId, amt, "管理员手动加量");
+      setBilling(b);
+      showSuccess(`已加量 ${amt} 元`);
+    } catch (e) {
+      showError(e instanceof Error ? e.message : "加量失败");
+    } finally {
+      setGrantBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -167,6 +195,66 @@ export default function AdminUserDetailPage() {
             }
           />
         </div>
+
+        {/* 余额与加量 */}
+        <Card className="border-emerald-100 bg-white/80">
+          <CardContent className="space-y-3 p-5">
+            <p className="flex items-center gap-2 text-sm font-semibold text-emerald-950">
+              <WalletIcon className="size-4 text-emerald-500" />
+              余额
+              {billing?.status === "frozen" && (
+                <Badge className="bg-rose-100 text-rose-600">已冻结</Badge>
+              )}
+            </p>
+            <div className="grid grid-cols-4 gap-3 text-center">
+              <div className="rounded-xl bg-emerald-50/60 py-3">
+                <p className="text-xs text-emerald-600/60">余额</p>
+                <p className="text-lg font-bold text-emerald-950 tabular-nums">
+                  ¥{Number(billing?.balance ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-emerald-50/60 py-3">
+                <p className="text-xs text-emerald-600/60">累计充值</p>
+                <p className="text-lg font-bold text-emerald-950 tabular-nums">
+                  ¥{Number(billing?.total_recharged ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-emerald-50/60 py-3">
+                <p className="text-xs text-emerald-600/60">累计赠送</p>
+                <p className="text-lg font-bold text-emerald-950 tabular-nums">
+                  ¥{Number(billing?.total_granted ?? 0).toFixed(2)}
+                </p>
+              </div>
+              <div className="rounded-xl bg-emerald-50/60 py-3">
+                <p className="text-xs text-emerald-600/60">累计消费</p>
+                <p className="text-lg font-bold text-emerald-950 tabular-nums">
+                  ¥{Number(billing?.total_consumed ?? 0).toFixed(2)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <GiftIcon className="size-4 text-emerald-500" />
+              <span className="text-xs text-emerald-600/60">给该用户加量（赠送余额）</span>
+              <Input
+                type="number"
+                min={1}
+                step="1"
+                value={grantAmount}
+                onChange={(e) => setGrantAmount(e.target.value)}
+                className="w-28"
+              />
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-700"
+                disabled={grantBusy}
+                onClick={() => void grant()}
+              >
+                {grantBusy ? <Loader2 className="size-4 animate-spin" /> : <GiftIcon className="size-4" />}
+                加量
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-4 lg:grid-cols-2">
           {/* 基本资料 */}

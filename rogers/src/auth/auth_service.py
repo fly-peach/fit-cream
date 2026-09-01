@@ -25,6 +25,7 @@ from src.fitme.models.auth_models import (
     VerificationCode,
 )
 from src.auth.auth import SmsLoginResult, TokenPair
+from src.fitme.services.billing_service import BillingService
 from src.fitme.services.sms_service import SmsService
 from utils.exceptions import BusinessException, ErrorCode, ForbiddenException
 from utils.security import (
@@ -69,6 +70,8 @@ class AuthService:
             user_agent=user_agent,
             audit_action="register",
         )
+        # 首批 N 名注册用户自动发放代金券（不 commit，由调用方提交）
+        await BillingService.grant_registration_bonus(db, user)
         tokens = AuthService._generate_tokens(user.id)
         return user, tokens
 
@@ -165,6 +168,8 @@ class AuthService:
             user_agent=user_agent,
             audit_action="register_sms",
         )
+        # 首批 N 名注册用户自动发放代金券（不 commit，由调用方提交）
+        await BillingService.grant_registration_bonus(db, user)
         tokens = AuthService._generate_tokens(user.id)
         return user, tokens
 

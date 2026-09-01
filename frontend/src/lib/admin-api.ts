@@ -160,6 +160,57 @@ export interface AdminListUsersParams {
   is_active?: boolean;
 }
 
+// ============ 计费（余额 / 充值申请 / 单价） ============
+
+export interface BillingAccount {
+  balance: number;
+  total_recharged: number;
+  total_granted: number;
+  total_consumed: number;
+  status: string;
+}
+
+export interface BillingPricing {
+  model: string;
+  input_price: number;
+  output_price: number;
+  cache_read_price: number;
+  cost_input_price: number;
+  cost_output_price: number;
+  cost_cache_read_price: number;
+}
+
+export interface RechargeApplication {
+  id: string;
+  app_no: string;
+  amount: number;
+  method: string;
+  note: string | null;
+  status: "pending" | "confirmed" | "rejected";
+  review_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface BillingOverview {
+  recharged: string;
+  granted: string;
+  consumed: string;
+  estimated_cost: string;
+  pending_applications: number;
+  pricing: {
+    input_price: string;
+    output_price: string;
+    cache_read_price: string;
+  };
+}
+
+export interface AdminListApplicationsParams {
+  status?: "pending" | "confirmed" | "rejected";
+  page?: number;
+  size?: number;
+}
+
 export interface AdminListKbsParams {
   page?: number;
   size?: number;
@@ -247,6 +298,36 @@ export const adminApi = {
     api.get<UserTokenUsageOut>(`/admin/users/${userId}/token-usage?days=${days}`),
   updateUser: (userId: string, data: AdminUserUpdateInput) =>
     api.patch<AdminUserListItem>(`/admin/users/${userId}`, data),
+
+  // ---------- 用户计费 ----------
+  getUserBilling: (userId: string) =>
+    api.get<BillingAccount>(`/admin/users/${userId}/billing`),
+  grantUserBilling: (userId: string, amount: number, reason?: string) =>
+    api.post<BillingAccount>(`/admin/users/${userId}/billing/grant`, {
+      amount,
+      reason,
+    }),
+
+  // ---------- 充值申请核销 ----------
+  listRechargeApplications: (params: AdminListApplicationsParams = {}) =>
+    api.get<Paginated<RechargeApplication>>(
+      withQuery("/admin/billing/applications", params as Record<string, unknown>)
+    ),
+  reviewRechargeApplication: (
+    appId: string,
+    approve: boolean,
+    reviewNote?: string
+  ) =>
+    api.post<RechargeApplication>(
+      `/admin/billing/applications/${appId}/review`,
+      { approve, review_note: reviewNote }
+    ),
+
+  // ---------- 计费单价与概览 ----------
+  getBillingPricing: () => api.get<BillingPricing>("/admin/billing/pricing"),
+  updateBillingPricing: (data: BillingPricing) =>
+    api.put<BillingPricing>("/admin/billing/pricing", data),
+  getBillingOverview: () => api.get<BillingOverview>("/admin/billing/overview"),
 
   // ---------- 全局统计 ----------
   getOverview: () => api.get<AdminOverviewStats>("/admin/stats/overview"),

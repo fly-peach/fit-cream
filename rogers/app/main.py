@@ -67,6 +67,13 @@ async def lifespan(app: FastAPI):
         await seed_exercises(session)
         await normalize_exercise_equipment(session)
         try:
+            # 回填既有用户的前 N 名注册代金券（幂等；表缺失/未迁移时跳过不阻断）
+            from src.fitme.services.billing_service import BillingService
+
+            await BillingService.backfill_registration_bonus(session)
+        except Exception as exc:
+            logger.warning("计费代金券回填跳过（表未就绪或数据异常）: %s", exc)
+        try:
             from src.fitme.services.goal_knowledge_seed import seed_goal_knowledge
 
             await seed_goal_knowledge(session)

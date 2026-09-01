@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { AppLayout } from "@/components/app-layout"
 import { ApiKeyPanel } from "@/components/api-key-panel"
+import { BillingCard } from "@/components/billing-card"
 import { FitnessProfileCard } from "@/components/fitness-profile-card"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -610,6 +611,8 @@ export default function ProfilePage() {
                   </CardContent>
                 )}
               </Card>
+
+              <BillingCard />
 
               <Card className="border-emerald-100 bg-white/80 shadow-sm backdrop-blur">
                 <CardHeader>

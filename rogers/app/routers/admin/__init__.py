@@ -6,6 +6,7 @@
 """
 from fastapi import APIRouter
 
+from app.routers.admin import billing as admin_billing_router_mod
 from app.routers.admin import knowledge_bases as admin_kb_router_mod
 from app.routers.admin import search_quality as admin_search_quality_router_mod
 from app.routers.admin import stats as admin_stats_router_mod
@@ -17,3 +18,4 @@ router.include_router(admin_users_router_mod.router)
 router.include_router(admin_stats_router_mod.router)
 router.include_router(admin_kb_router_mod.router)
 router.include_router(admin_search_quality_router_mod.router)
+router.include_router(admin_billing_router_mod.router)

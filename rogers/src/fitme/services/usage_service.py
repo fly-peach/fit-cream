@@ -22,7 +22,6 @@ from src.fitme.schemas.usage import (
     UserTokenUsageOut,
 )
 from utils.timeutil import today
-
 # 来源取值约定（与 user_token_usages.source 一致）
 SOURCE_CHAT = "chat"
 SOURCE_MEMORY_EXTRACTION = "memory_extraction"
@@ -87,7 +86,10 @@ class UsageService:
         llm_calls: int = 0,
         estimated: bool = False,
     ) -> None:
-        """记忆后台任务（无请求级 db）的独立会话写入，失败仅告警不抛错。"""
+        """记忆后台任务（无请求级 db）的独立会话写入，失败仅告警不抛错。
+
+        同时按真实用量扣费（记忆提取/整合同样消耗我方 token）。
+        """
         try:
             async with async_session_factory() as session:
                 await UsageService.record(
@@ -99,6 +101,18 @@ class UsageService:
                     total_tokens=total_tokens,
                     llm_calls=llm_calls,
                     estimated=estimated,
+                )
+                from src.fitme.services.billing_service import BillingService
+
+                await BillingService.consume(
+                    session,
+                    user_id=user_id,
+                    source=source,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    estimated=estimated,
+                    billed=True,
+                    description=f"记忆后台（{source}）",
                 )
         except Exception:
             import logging

@@ -20,9 +20,11 @@ from src.fitme.schemas.admin import (
     AdminUserListItem,
     AdminUserUpdate,
 )
+from src.fitme.schemas.billing import BillingAccountOut, BillingGrantIn
 from src.fitme.schemas.common import PaginatedResponse, ResponseModel
 from src.fitme.schemas.usage import UserTokenUsageOut
 from src.fitme.services.admin_service import AdminService
+from src.fitme.services.billing_service import BillingService
 from src.fitme.services.usage_service import UsageService
 
 router = APIRouter(prefix="/users", tags=["admin-users"])
@@ -96,6 +98,56 @@ async def admin_get_user_token_usage(
     """用户 token 用量（admin）"""
     summary = await UsageService.get_user_summary(db, user_id, days)
     return ResponseModel(data=summary)
+
+
+@router.get(
+    "/{user_id}/billing",
+    response_model=ResponseModel[BillingAccountOut],
+    operation_id="admin_get_user_billing",
+)
+async def admin_get_user_billing(
+    user_id: UUID,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """用户余额（admin）"""
+    account = await BillingService.get_balance(db, user_id)
+    return ResponseModel(data=BillingAccountOut(
+        balance=account.balance or 0,
+        total_recharged=account.total_recharged or 0,
+        total_granted=account.total_granted or 0,
+        total_consumed=account.total_consumed or 0,
+        status=account.status,
+    ))
+
+
+@router.post(
+    "/{user_id}/billing/grant",
+    response_model=ResponseModel[BillingAccountOut],
+    operation_id="admin_grant_user_billing",
+)
+async def admin_grant_user_billing(
+    user_id: UUID,
+    data: BillingGrantIn,
+    _admin: User = Depends(get_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """管理员给指定用户单独加量（赠送余额）"""
+    account = await BillingService.credit(
+        db,
+        user_id=user_id,
+        amount=data.amount,
+        txn_type="grant",
+        source="admin_grant",
+        description=data.reason or "管理员加量",
+    )
+    return ResponseModel(data=BillingAccountOut(
+        balance=account.balance or 0,
+        total_recharged=account.total_recharged or 0,
+        total_granted=account.total_granted or 0,
+        total_consumed=account.total_consumed or 0,
+        status=account.status,
+    ), message=f"已加量 {data.amount} 元")
 
 
 @router.patch(

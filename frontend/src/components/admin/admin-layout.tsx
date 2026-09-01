@@ -12,6 +12,7 @@ import {
   XIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
+  WalletIcon,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
@@ -22,6 +23,7 @@ import { useAuthStore } from "@/stores/auth-store";
 const adminNavItems = [
   { to: "/admin/overview", label: "总览", icon: LayoutDashboardIcon },
   { to: "/admin/users", label: "用户管理", icon: UsersIcon },
+  { to: "/admin/billing", label: "计费管理", icon: WalletIcon },
   { to: "/admin/knowledge-bases", label: "知识库管理", icon: BookOpenIcon },
   { to: "/admin/search-quality", label: "检索质量", icon: SearchIcon },
 ];

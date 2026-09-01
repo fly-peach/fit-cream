@@ -118,6 +118,28 @@ class Settings(BaseSettings):
     # ---------- 限流 ----------
     AGENT_RATE_LIMIT: int = 10
 
+    # ---------- 计费（预充值按量） ----------
+    # 注册赠送：前 N 名注册用户自动发放代金券（注册时在 auth_service 调用）
+    REGISTRATION_BONUS_ENABLED: bool = True
+    REGISTRATION_BONUS_AMOUNT: float = 50.0  # 元
+    REGISTRATION_BONUS_FIRST_N: int = 150
+    # 个人收款码图片 URL（前端充值页展示；如 /static/pay-qr.png）
+    PAYMENT_QR_CODE_URL: str = ""
+    # 充值是否自动到账：True=用户提交申请即入账（转账备注=用户 ID，无管理员审核）；
+    # False=走管理员人工核销（recharge_applications 待核销流程）
+    RECHARGE_AUTO_CONFIRM: bool = True
+
+    # ---------- 虎皮椒聚合支付（订单机制：下单→扫码→回调自动到账） ----------
+    # 个人可开通（无需营业执照），配置后充值走「付款后回调自动到账」；
+    # 未配置时回退到 RECHARGE_AUTO_CONFIRM 逻辑（提交即到账 / 人工核销）。
+    XUNHUPAY_APPID: str = ""
+    XUNHUPAY_APP_SECRET: str = ""
+    XUNHUPAY_API_URL: str = "https://api.xunhupay.com/payment/do.html"
+    # 回调地址（须公网 HTTPS；虎皮椒付款成功后 POST 通知，可含 /api/billing/pay/notify）
+    XUNHUPAY_NOTIFY_URL: str = ""
+    # 用户付款成功后的前端跳转地址（可选）
+    XUNHUPAY_RETURN_URL: str = ""
+
     # ---------- 日志 ----------
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: str = "text"

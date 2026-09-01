@@ -33,6 +33,7 @@ from src.agents.harness.runtime.conversation_service import ConversationService
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
 from src.fitme.models.user import User
+from src.fitme.services.billing_service import BillingService
 from src.fitme.services.usage_service import UsageService
 from src.agents.schemas.chat import (
     ChatRequest,
@@ -685,7 +686,11 @@ async def _run_agent_sse(
         yield _sse_event("error", {"message": err_text})
     finally:
         _log_usage_summary(usage_total, full_content, thread_id, user_id)
-        await _upsert_user_token_usage(stream_db, user_id, usage_total)
+        # BYOK 不计费：请求带用户自备 deepseek key 且未回退 qwen（我方未垫付）时不扣费，
+        # 只记 token 流水供成本报表；key 失效回退 qwen 时我方付费，照常计费。
+        ds_key = (config.get("configurable") or {}).get("deepseek_api_key")
+        billed = not (bool(ds_key) and not ds_key_fallback_active(thread_id))
+        await _upsert_user_token_usage(stream_db, user_id, usage_total, billed=billed)
 
 
 async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str, usage: dict) -> None:
@@ -713,12 +718,15 @@ async def _upsert_thread_usage(stream_db: AsyncSession, user_id, thread_id: str,
         logger.warning(f"[Chat] Failed to upsert thread_usage: {e}")
 
 
-async def _upsert_user_token_usage(stream_db: AsyncSession, user_id, usage_total: dict) -> None:
-    """累加本请求 token 到用户级每日流水（source=chat）。
+async def _upsert_user_token_usage(
+    stream_db: AsyncSession, user_id, usage_total: dict, billed: bool = True
+) -> None:
+    """累加本请求 token 到用户级每日流水（source=chat）+ 计费扣款。
 
     与 thread_usages 的覆盖式「最近一次上下文大小」区分：这里记录请求内
     所有 LLM 调用真实 usage_metadata 之和（含 estimated 兜底），口径与
     _log_usage_summary 一致，用于用户整体对话的累计用量。
+    billed=False（BYOK 用户自备 key）：只记 token 流水，不扣费。
     """
     total = usage_total.get("total_tokens", 0) or 0
     if total <= 0:
@@ -733,6 +741,19 @@ async def _upsert_user_token_usage(stream_db: AsyncSession, user_id, usage_total
             total_tokens=total,
             llm_calls=usage_total.get("llm_calls", 0) or 0,
             estimated=bool(usage_total.get("estimated", False)),
+        )
+        await BillingService.consume(
+            stream_db,
+            user_id=user_id,
+            source="chat",
+            input_tokens=usage_total.get("input_tokens", 0) or 0,
+            output_tokens=usage_total.get("output_tokens", 0) or 0,
+            cache_read_tokens=usage_total.get("cache_read_tokens", 0) or 0,
+            cache_write_tokens=usage_total.get("cache_write_tokens", 0) or 0,
+            reasoning_tokens=usage_total.get("reasoning_tokens", 0) or 0,
+            estimated=bool(usage_total.get("estimated", False)),
+            billed=billed,
+            description="AI 对话",
         )
     except Exception as e:
         logger.warning(f"[Chat] Failed to upsert user_token_usage: {e}")
@@ -793,6 +814,9 @@ async def send_message(
     thread_id = str(uuid4()) if req.plan_design else (req.thread_id or str(uuid4()))
     user_id_str = str(user.id)
     request.state.user_id = user_id_str
+
+    # 计费门控：余额不足 / 冻结时拒绝发起对话（admin 豁免）
+    await BillingService.check_can_chat(db, user)
 
     # 线程归属校验：指定已有线程时必须是当前用户所有，防跨用户注入
     # （plan_design 为全新线程，跳过校验）
@@ -910,6 +934,9 @@ async def resume_conversation(
     thread_id = req.thread_id
     user_id_str = str(user.id)
     request.state.user_id = user_id_str
+
+    # 计费门控：余额不足 / 冻结时拒绝恢复对话（admin 豁免）
+    await BillingService.check_can_chat(db, user)
 
     # 线程归属校验：必须是当前用户的线程
     if await ConversationService.thread_is_foreign(db, user.id, thread_id):

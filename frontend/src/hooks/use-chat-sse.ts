@@ -14,6 +14,14 @@ export interface PendingApproval {
   threadId: string;
 }
 
+/** 计费类业务错误码（余额不足 / 账号冻结）：toast 引导充值，不把错误写进消息气泡 */
+const BILLING_ERROR_CODES = new Set([40010, 40011]);
+
+function isBillingError(err: unknown): err is Error {
+  const code = (err as { code?: number } | undefined)?.code;
+  return typeof code === "number" && BILLING_ERROR_CODES.has(code);
+}
+
 export function useChatSSE(
   threadId: string | null,
   onUsageCommitted?: (usage: TokenUsage) => void,
@@ -453,13 +461,18 @@ export function useChatSSE(
         }
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: `Error: ${(err as Error).message}`, isStreaming: false }
-                : m
-            )
-          );
+          if (isBillingError(err)) {
+            // 余额不足 / 冻结：toast 提示，不写入消息气泡
+            showError(err.message);
+          } else {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: `Error: ${(err as Error).message}`, isStreaming: false }
+                  : m
+              )
+            );
+          }
         }
       } finally {
         setIsStreaming(false);
@@ -624,13 +637,17 @@ export function useChatSSE(
         }
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId
-                ? { ...m, content: `Error: ${(err as Error).message}`, isStreaming: false }
-                : m
-            )
-          );
+          if (isBillingError(err)) {
+            showError(err.message);
+          } else {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: `Error: ${(err as Error).message}`, isStreaming: false }
+                  : m
+              )
+            );
+          }
         }
       } finally {
         setIsStreaming(false);

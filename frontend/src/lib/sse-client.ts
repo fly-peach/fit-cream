@@ -3,6 +3,21 @@ import { API_URL, checkAuthEnvelope, isAuthError } from "@/lib/api";
 import { getDsKey } from "@/lib/ds-key";
 import { useAuthStore } from "@/stores/auth-store";
 
+/** 解析非 SSE 的 JSON 业务错误信封并抛出（携带业务 code，供调用方特判如余额不足） */
+function throwEnvelopeError(
+  envelope: { code?: number; message?: string },
+  status: number
+): never {
+  if (isAuthError(envelope.code)) {
+    useAuthStore.getState().logout("登录已过期，请重新登录");
+  }
+  const err = new Error(envelope.message || `请求失败 (${status})`) as Error & {
+    code?: number;
+  };
+  if (typeof envelope.code === "number") err.code = envelope.code;
+  throw err;
+}
+
 export async function* streamChat(
   message: string,
   threadId: string | null,
@@ -44,10 +59,7 @@ export async function* streamChat(
     } catch {
       // 非 JSON 响应，忽略解析
     }
-    if (isAuthError(envelope.code)) {
-      useAuthStore.getState().logout("登录已过期，请重新登录");
-    }
-    throw new Error(envelope.message || `请求失败 (${response.status})`);
+    throwEnvelopeError(envelope, response.status);
   }
 
   const reader = response.body!.getReader();
@@ -134,10 +146,7 @@ export async function* resumeChat(
     } catch {
       // 非 JSON 响应，忽略解析
     }
-    if (isAuthError(envelope.code)) {
-      useAuthStore.getState().logout("登录已过期，请重新登录");
-    }
-    throw new Error(envelope.message || `请求失败 (${response.status})`);
+    throwEnvelopeError(envelope, response.status);
   }
 
   const reader = response.body!.getReader();

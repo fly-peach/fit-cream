@@ -35,6 +35,13 @@ from src.fitme.models.plan import Plan, PlanDay, PlanDayExercise
 from src.agents.models.thread_meta import ThreadMeta
 from src.agents.models.thread_usage import ThreadUsage
 from src.agents.models.user_token_usage import UserTokenUsage
+from src.agents.models.billing import (
+    BillingAccount,
+    BillingPackage,
+    BillingPricing,
+    BillingTransaction,
+    RechargeApplication,
+)
 from src.fitme.models.user import User
 from src.fitme.models.user_fitness_profile import UserFitnessProfile
 from src.fitme.models.user_goals import UserGoals
@@ -61,6 +68,7 @@ from src.agents.harness.runtime.conversation_service import ConversationService
 from src.auth.api_key_service import UserApiKeyService
 from src.auth.auth_service import AuthService
 from src.fitme.services.checkin_service import CheckinService
+from src.fitme.services.billing_service import BillingService
 from src.fitme.services.diet_meal_service import CustomFoodItemService, DietMealService
 from src.fitme.services.diet_plan_service import DietPlanService
 from src.fitme.services.exercise_service import ExerciseService
@@ -110,6 +118,11 @@ __all__ = [
     "ThreadUsage",
     "ThreadMeta",
     "UserTokenUsage",
+    "BillingAccount",
+    "BillingTransaction",
+    "BillingPricing",
+    "BillingPackage",
+    "RechargeApplication",
     # Agent 模型
     "Conversation",
     # 认证模型
@@ -141,6 +154,7 @@ __all__ = [
     "GoalRoadmapService",
     "PerformanceTestService",
     "StatsService",
+    "BillingService",
     "DietPlanService",
     "DietMealService",
     "CustomFoodItemService",
