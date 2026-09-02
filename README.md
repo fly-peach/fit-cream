@@ -2,6 +2,8 @@
 
 AI 健身教练助手 —— FastAPI 健身业务后端 + LangGraph ReAct Agent + React/Capacitor 客户端（Web / Android）。
 
+代码以 **MIT** 协议开源（第三方素材许可范围见 [NOTICE.md](./NOTICE.md)）。
+
 ## 项目简介
 
 FitCream 把「健身业务系统」和「Agent 运行时」融合在同一个 FastAPI 进程里：业务 CRUD 提供确定性数据底座，Agent 通过工具在自然语言里完成计划制定、打卡、饮食记录、统计与知识问答。
@@ -289,6 +291,8 @@ fit-cream/
 │   ├── android/                  # Capacitor 原生工程（出 APK）
 │   └── capacitor.config.ts
 ├── docs/                         # 模块文档（agent · auth · fitme · knowledgebase · frontend · routers）
+├── LICENSE                       # MIT（代码与自研内容）
+├── NOTICE.md                     # 第三方素材许可范围（数据集 / Gym visual 媒体）
 ├── docker-compose.yml            # db + app + 备份 sidecar
 ├── langgraph.json                # LangGraph Studio
 ├── run.py                        # 后端启动（Windows 兼容）
@@ -490,6 +494,14 @@ pnpm lint / pnpm typecheck / pnpm format
 
 ## License
 
-本仓库为**公开**（public）代码仓库，源码可查阅与克隆学习，但**保留所有权利**（All Rights Reserved）——未授予使用、复制、修改、再分发或商用许可。需要授权请直接联系作者。
+[MIT](./LICENSE) © 2026 wangtong —— 本项目代码可自由使用、修改、再分发与商用，保留版权声明即可。
 
-> 若你希望改用 OSI 认可协议（如 MIT / Apache-2.0）开源，可补充 `LICENSE` 文件并同步这一节。
+许可范围与第三方素材署名见 **[NOTICE.md](./NOTICE.md)**，要点：
+
+| 内容 | 许可 |
+|------|------|
+| 代码、自研种子（`goal_knowledge.json`、身材原型图等） | MIT（本仓库 `LICENSE`） |
+| `rogers/seeds/exercises_dataset_*.json` 动作文本数据 | 上游 [exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) 的 MIT（其条款明确覆盖 data files 与指令文本），NOTICE 内已按要求保留上游版权声明 |
+| 动作示意图 / GIF | **© Gym visual，不在 MIT 内**；`rogers/static/` 已 gitignore，仓库不分发该媒体，前端已按要求署名 |
+
+> 依赖库（FastAPI / LangChain / LlamaIndex / React / shadcn 等）各自适用其上游许可。
