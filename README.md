@@ -502,6 +502,6 @@ pnpm lint / pnpm typecheck / pnpm format
 |------|------|
 | 代码、自研种子（`goal_knowledge.json`、身材原型图等） | MIT（本仓库 `LICENSE`） |
 | `rogers/seeds/exercises_dataset_*.json` 动作文本数据 | 上游 [exercises-dataset](https://github.com/hasaneyldrm/exercises-dataset) 的 MIT（其条款明确覆盖 data files 与指令文本），NOTICE 内已按要求保留上游版权声明 |
-| 动作示意图 / GIF | **© Gym visual，不在 MIT 内**；`rogers/static/` 已 gitignore，仓库不分发该媒体，前端已按要求署名 |
+| 动作示意图 / GIF | **© Gym visual，不在 MIT 内**；`rogers/static/` 已 gitignore，本仓库不分发该媒体。若在你的产品中展示，需**自行向 Gym visual 取得许可**（保留署名是其条款要求，但不构成授权）——详见 [NOTICE.md](./NOTICE.md) |
 
 > 依赖库（FastAPI / LangChain / LlamaIndex / React / shadcn 等）各自适用其上游许可。

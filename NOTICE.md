@@ -46,12 +46,13 @@ SOFTWARE.
 - **归属**：© Gym visual · <https://gymvisual.com/>
 - **本仓库不含该媒体**：`rogers/static/` 已在 `.gitignore` 中排除，部署时以只读绑定挂载注入（见 README「Docker 部署」）。
 - 上游 MIT 的 **MEDIA EXCEPTION** 明确排除 `images/` 与 `videos/`：该媒体由权利人书面许可给上游使用，**克隆上游仓库不构成对你的媒体授权**，其使用与再利用受 Gym visual 条款约束。
-- **合规要求**：
-  - 保留署名 `© Gym visual — https://gymvisual.com/`
-  - 分辨率为 180×180
-  - 不得作为独立素材包转售或再分发
+- **合规要求（按 Gym visual 条款）：**
+  - 媒体许可只随"**你购买的**无水印高清素材"授予（N-CRFL，绑定购买账号、不可转让、不可再授权）
+  - 其公开站点上展示的**缩略图与预览版（含 180×180）明确不受任何许可覆盖**，水印版仅限内部选型评估，禁止用于对外发布的成品或任何线上分发
+  - 保留署名 `© Gym visual — https://gymvisual.com/` 是其条款要求之一，**但署名本身不构成授权**
+  - 不得以任何形式转售、再分发，或作为独立素材包提供
 - **本项目署名位置**：动作库页脚 `frontend/src/pages/exercises.tsx`、动作详情页 `frontend/src/pages/exercise-detail.tsx`。
-- ⚠️ **待确认**：在收费产品中长期展示该媒体前，建议直接向 Gym visual 核实授权范围（上游取得的书面许可不自动传递给下游使用者）。
+- ⚠️ **使用本项目搭建线上产品时**：动作示意图 / GIF **需自行向 Gym visual 取得许可**（或替换为其他已获授权的素材）。上游 exercises-dataset 获得的书面许可**仅适用于该仓库本身，不传递给下游使用者**。本仓库不包含、也不分发任何此类媒体。
 
 ---
 
