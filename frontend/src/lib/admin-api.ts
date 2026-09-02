@@ -178,6 +178,8 @@ export interface BillingPricing {
   cost_input_price: number;
   cost_output_price: number;
   cost_cache_read_price: number;
+  embedding_price: number;
+  rerank_price: number;
 }
 
 export interface RechargeApplication {

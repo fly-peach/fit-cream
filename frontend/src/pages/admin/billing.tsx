@@ -354,9 +354,9 @@ export default function AdminBillingPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             {pricing ? (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                 <div>
-                  <label className="text-xs text-emerald-700">输入</label>
+                  <label className="text-xs text-emerald-700">对话输入</label>
                   <Input
                     type="number"
                     step="0.1"
@@ -367,7 +367,7 @@ export default function AdminBillingPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-emerald-700">输出</label>
+                  <label className="text-xs text-emerald-700">对话输出</label>
                   <Input
                     type="number"
                     step="0.1"
@@ -388,13 +388,36 @@ export default function AdminBillingPage() {
                     className="mt-1"
                   />
                 </div>
+                <div>
+                  <label className="text-xs text-emerald-700">Embedding</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={pricing.embedding_price}
+                    onChange={(e) => setPrice("embedding_price", e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-emerald-700">Rerank</label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={pricing.rerank_price}
+                    onChange={(e) => setPrice("rerank_price", e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
               </div>
             ) : (
               <p className="text-sm text-emerald-600/50">单价读取失败</p>
             )}
             <p className="text-xs text-emerald-600/50">
-              当前默认：输入 3、输出 10、缓存命中输入 0.3（消费价，成本约
-              0.8/2.7/0.1）。更新后立即对后续消费生效。
+              对话：输入 3、输出 10、缓存命中 0.3（成本约 0.8/2.7/0.1，元/百万
+              token）。检索：embedding 0.5、rerank 0.6（text-embedding-v3 /
+              qwen3-rerank 成本价，元/百万输入 token）。更新后立即对后续消费生效。
             </p>
             <Button
               className="bg-emerald-600 hover:bg-emerald-700"

@@ -381,9 +381,6 @@ export function BillingCard() {
                 <p className="flex items-center gap-1.5 text-xs text-emerald-600/60">
                   <Loader2 className="size-3.5 animate-spin" /> 等待支付结果...
                 </p>
-                <p className="text-xs text-emerald-600/50">
-                  付款完成后自动到账，无需人工核销
-                </p>
               </div>
               <p className="rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-700">
                 订单号 {lastApp?.app_no}
