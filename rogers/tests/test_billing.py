@@ -281,6 +281,46 @@ async def test_backfill_registration_bonus_existing_users(db_session, user):
     assert await _balance(db_session, user) == Decimal("50")
 
 
+# ================= 检索类模型成本（embedding / rerank） =================
+
+
+async def test_consume_search_cost(db_session, user):
+    """检索成本计费：embedding 用 0.5、rerank 用 0.6 元/百万输入 token。"""
+    await BillingService.credit(db_session, user_id=user.id, amount=Decimal("10"))
+    charge = await BillingService.consume_search_cost(
+        db_session,
+        user_id=user.id,
+        source="kb_search",
+        embedding_tokens=1000,
+        rerank_tokens=200000,
+    )
+    # 1000×0.5/1e6 + 200000×0.6/1e6 = 0.0005 + 0.12 = 0.1205
+    assert charge == Decimal("0.1205")
+    assert await _balance(db_session, user) == Decimal("9.8795")
+
+    rows = (
+        await db_session.execute(
+            select(BillingTransaction).where(BillingTransaction.source == "kb_search")
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].amount == Decimal("-0.1205")
+    assert rows[0].input_tokens == 201000
+
+    # 零 token 不记账
+    charge2 = await BillingService.consume_search_cost(
+        db_session, user_id=user.id, source="exercise_search"
+    )
+    assert charge2 == Decimal("0")
+
+
+async def test_pricing_includes_embedding_rerank(user_client, db_session):
+    """/billing/me 单价含 embedding/rerank。"""
+    me = unwrap(await user_client.get("/api/billing/me"))
+    assert float(me["pricing"]["embedding_price"]) == 0.5
+    assert float(me["pricing"]["rerank_price"]) == 0.6
+
+
 # ================= 虎皮椒订单机制 =================
 
 

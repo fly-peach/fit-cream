@@ -97,6 +97,8 @@ async def admin_get_pricing(
         input_price=pricing["input_price"],
         output_price=pricing["output_price"],
         cache_read_price=pricing["cache_read_price"],
+        embedding_price=pricing["embedding_price"],
+        rerank_price=pricing["rerank_price"],
     ))
 
 
@@ -125,6 +127,8 @@ async def admin_update_pricing(
             cost_input_price=data.cost_input_price,
             cost_output_price=data.cost_output_price,
             cost_cache_read_price=data.cost_cache_read_price,
+            embedding_price=data.embedding_price,
+            rerank_price=data.rerank_price,
             active=True,
         )
         db.add(row)
@@ -135,6 +139,8 @@ async def admin_update_pricing(
         row.cost_input_price = data.cost_input_price
         row.cost_output_price = data.cost_output_price
         row.cost_cache_read_price = data.cost_cache_read_price
+        row.embedding_price = data.embedding_price
+        row.rerank_price = data.rerank_price
     await db.commit()
     return ResponseModel(data=data)
 

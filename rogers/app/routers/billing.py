@@ -5,8 +5,6 @@
 - 配置虎皮椒网关：下单返回二维码 → 用户扫码付款 → /pay/notify 回调自动到账。
 - 未配置网关：回退 RECHARGE_AUTO_CONFIRM 逻辑（提交即到账 / 人工核销）。
 """
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,6 +89,8 @@ async def get_my_billing(
         input_price=pricing["input_price"],
         output_price=pricing["output_price"],
         cache_read_price=pricing["cache_read_price"],
+        embedding_price=pricing["embedding_price"],
+        rerank_price=pricing["rerank_price"],
     )
     return ResponseModel(data=BillingMeOut(
         user_id=str(current_user.id),

@@ -44,6 +44,9 @@ DEFAULT_PRICING = {
     "input_price": Decimal("3.0"),
     "output_price": Decimal("10.0"),
     "cache_read_price": Decimal("0.3"),
+    # 检索类模型（仅输入计费）：text-embedding-v3 成本 0.5、qwen3-rerank 成本 0.6
+    "embedding_price": Decimal("0.5"),
+    "rerank_price": Decimal("0.6"),
 }
 
 # 记账来源（与 user_token_usages.source 对齐）
@@ -85,6 +88,8 @@ class BillingService:
             "input_price": row.input_price,
             "output_price": row.output_price,
             "cache_read_price": row.cache_read_price,
+            "embedding_price": row.embedding_price or DEFAULT_PRICING["embedding_price"],
+            "rerank_price": row.rerank_price or DEFAULT_PRICING["rerank_price"],
         }
 
     @staticmethod
@@ -126,7 +131,8 @@ class BillingService:
         result = await db.execute(select(BillingAccount).where(BillingAccount.user_id == user_id))
         account = result.scalar_one_or_none()
         if account is None:
-            return BillingAccount(user_id=user_id, balance=Decimal("0"))
+            # status 显式置 normal：列 default 在 flush 时才生效，未落库的占位对象需自给
+            return BillingAccount(user_id=user_id, balance=Decimal("0"), status="normal")
         return account
 
     @staticmethod
@@ -260,6 +266,51 @@ class BillingService:
             charge = Decimal("0")
         # billed=False（BYOK）不扣费，返回实际扣款金额 0
         return charge if billed else Decimal("0")
+
+    @staticmethod
+    async def consume_search_cost(
+        db: AsyncSession,
+        *,
+        user_id,
+        source: str,
+        embedding_tokens: int = 0,
+        rerank_tokens: int = 0,
+        description: Optional[str] = None,
+    ) -> Decimal:
+        """按检索类模型单价记账（用户对话触发的 embedding/rerank 成本）。
+
+        - embedding 用 text-embedding-v3 单价、rerank 用 qwen3-rerank 单价（元/百万输入 token）。
+        - token 由调用方用 estimate_tokens 估算（检索响应不暴露 usage）。
+        - 失败仅告警不抛错（不阻断检索本身），返回实际扣款金额。
+        """
+        try:
+            pricing = await BillingService.get_pricing(db)
+            M = Decimal("1000000")
+            charge = _round(
+                Decimal(int(embedding_tokens)) * pricing["embedding_price"] / M
+                + Decimal(int(rerank_tokens)) * pricing["rerank_price"] / M
+            )
+            if charge <= 0:
+                return Decimal("0")
+            new_balance = await BillingService._adjust_balance(db, user_id, -charge)
+            await BillingService._record_txn(
+                db,
+                user_id=user_id,
+                txn_type="consume",
+                amount=-charge,
+                balance_after=new_balance,
+                source=source,
+                description=description,
+                input_tokens=int(embedding_tokens) + int(rerank_tokens),
+            )
+            await db.commit()
+            return charge
+        except Exception:
+            logger.warning(
+                f"[Billing] consume_search_cost failed | user={str(user_id)[:8]} | source={source}",
+                exc_info=True,
+            )
+            return Decimal("0")
 
     @staticmethod
     async def credit(

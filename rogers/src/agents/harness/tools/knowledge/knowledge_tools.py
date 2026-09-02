@@ -140,6 +140,26 @@ async def search_knowledge_base(
                 profile_hint=profile_hint,
             )
             semantic = await semantic_available(db)
+            # 检索成本计费：query embedding + rerank 候选（按 estimate_tokens 估算；
+            # 失败不影响检索结果）
+            try:
+                from src.agents.harness.orchestration.model_factory import estimate_tokens
+                from src.fitme.services.billing_service import BillingService
+
+                emb_tok = estimate_tokens(query)
+                rerank_tok = emb_tok + sum(
+                    estimate_tokens(r.get("content", "")) for r in results
+                )
+                await BillingService.consume_search_cost(
+                    db,
+                    user_id=user_id,
+                    source="kb_search",
+                    embedding_tokens=emb_tok,
+                    rerank_tokens=rerank_tok,
+                    description="知识库检索",
+                )
+            except Exception:
+                pass
     except Exception as e:
         return error_response(e)
 

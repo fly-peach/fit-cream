@@ -11,10 +11,11 @@
 
 from typing import Optional
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.agents.harness.tools._common import error_response, session_scope
+from src.agents.harness.tools._common import error_response, extract_user_id, session_scope
 from src.fitme.services.exercise_service import ExerciseService
 
 
@@ -76,6 +77,7 @@ async def get_exercises_tool(
     keyword: Optional[str] = None,
     semantic_query: Optional[str] = None,
     difficulty: Optional[str] = None,
+    config: RunnableConfig = None,  # type: ignore[assignment]
 ) -> dict:
     """
     查询健身动作库，根据肌群、器械、关键词或语义描述筛选动作。
@@ -108,6 +110,7 @@ async def get_exercises_tool(
     Returns:
         包含动作列表和推荐建议的结构化数据
     """
+    user_id = extract_user_id(config)
     async with session_scope() as db:
         try:
             similarity_map = {}
@@ -153,6 +156,28 @@ async def get_exercises_tool(
                     difficulty=difficulty,
                     limit=20,
                 )
+
+            # 检索成本计费：query embedding + rerank 候选（估算 token；失败不影响结果）
+            if used_semantic and user_id:
+                try:
+                    from src.agents.harness.orchestration.model_factory import estimate_tokens
+                    from src.fitme.services.billing_service import BillingService
+
+                    emb_tok = estimate_tokens(semantic_query or "")
+                    rerank_tok = emb_tok + sum(
+                        estimate_tokens(ExerciseService.build_embedding_text(ex))
+                        for ex in exercises
+                    )
+                    await BillingService.consume_search_cost(
+                        db,
+                        user_id=user_id,
+                        source="exercise_search",
+                        embedding_tokens=emb_tok,
+                        rerank_tokens=rerank_tok,
+                        description="动作库检索",
+                    )
+                except Exception:
+                    pass
 
             exercise_list = []
             for ex in exercises:

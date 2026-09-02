@@ -34,6 +34,10 @@ os.environ["KB_EMBEDDING_ENABLED"] = "false"
 os.environ["RERANK_ENABLED"] = "false"
 # 关闭动作库混合检索 rerank（同上；hybrid_search 退化为纯向量序）
 os.environ["EXERCISE_RERANK_ENABLED"] = "false"
+# 关闭虎皮椒支付网关（避免测试真实下单/回调依赖网络与真实密钥；配置留空走备用流程）
+os.environ["XUNHUPAY_APPID"] = ""
+os.environ["XUNHUPAY_APP_SECRET"] = ""
+os.environ["XUNHUPAY_NOTIFY_URL"] = ""
 
 import pytest  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

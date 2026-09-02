@@ -42,6 +42,8 @@ class BillingPricingOut(BaseModel):
     cost_input_price: Decimal = Decimal("0.8")
     cost_output_price: Decimal = Decimal("2.7")
     cost_cache_read_price: Decimal = Decimal("0.1")
+    embedding_price: Decimal = Decimal("0.5")
+    rerank_price: Decimal = Decimal("0.6")
 
 
 class BillingPackageOut(BaseModel):

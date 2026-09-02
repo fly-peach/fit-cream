@@ -132,6 +132,14 @@ class BillingPricing(Base):
     cost_cache_read_price: Mapped[Decimal] = mapped_column(
         Numeric(12, 6), default=Decimal("0.1"), nullable=False
     )
+    # 检索类模型单价（元/百万输入 token，仅输入计费）：
+    # text-embedding-v3 成本 0.5、qwen3-rerank 成本 0.6，消费价可加价
+    embedding_price: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), default=Decimal("0.5"), nullable=False
+    )
+    rerank_price: Mapped[Decimal] = mapped_column(
+        Numeric(12, 6), default=Decimal("0.6"), nullable=False
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     updated_at: Mapped[datetime] = mapped_column(

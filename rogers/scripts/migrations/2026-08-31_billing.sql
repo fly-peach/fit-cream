@@ -53,9 +53,15 @@ CREATE TABLE IF NOT EXISTS billing_pricing (
     cost_input_price NUMERIC(12,6) NOT NULL DEFAULT 0.8,
     cost_output_price NUMERIC(12,6) NOT NULL DEFAULT 2.7,
     cost_cache_read_price NUMERIC(12,6) NOT NULL DEFAULT 0.1,
+    embedding_price NUMERIC(12,6) NOT NULL DEFAULT 0.5,
+    rerank_price NUMERIC(12,6) NOT NULL DEFAULT 0.6,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 幂等补列（存量表已建时补齐检索类单价）
+ALTER TABLE billing_pricing
+    ADD COLUMN IF NOT EXISTS embedding_price NUMERIC(12,6) NOT NULL DEFAULT 0.5,
+    ADD COLUMN IF NOT EXISTS rerank_price NUMERIC(12,6) NOT NULL DEFAULT 0.6;
 
 CREATE TABLE IF NOT EXISTS billing_packages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
